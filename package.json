@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Oil tanker strategy game - cross the Strait of Hormuz in wartime",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "client": "vite",
