@@ -1,16 +1,28 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { GameState, generateGameId } from './game.js';
 import {
   ROUTES, SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
   TIME_OPTIONS, GAME_PHASES
 } from '../shared/constants.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: '*' }
+});
+
+// Serve built static files
+app.use(express.static(join(__dirname, '..', 'dist')));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  res.sendFile(join(__dirname, '..', 'dist', 'index.html'));
 });
 
 // Store active games
