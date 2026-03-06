@@ -1,0 +1,628 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-dark: #0a0e1a;
+  --bg-card: #131829;
+  --bg-card-hover: #1a2035;
+  --border: #2a3050;
+  --text: #e0e4f0;
+  --text-muted: #6b7394;
+  --primary: #f0a030;
+  --primary-dark: #c07820;
+  --danger: #e04040;
+  --success: #40c070;
+  --info: #4090e0;
+  --ocean: #0d1b2a;
+  --land: #2a3a2a;
+  --route-line: #f0a03080;
+}
+
+html, body {
+  font-family: 'Courier New', monospace;
+  background: var(--bg-dark);
+  color: var(--text);
+  height: 100%;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.screen {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.screen.active {
+  display: flex;
+}
+
+/* Title Screen */
+.title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 32px;
+}
+
+.title-logo {
+  text-align: center;
+}
+
+.tanker-icon {
+  font-size: 64px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 20px rgba(240, 160, 48, 0.5));
+}
+
+h1 {
+  font-size: 36px;
+  font-weight: bold;
+  line-height: 1.1;
+  letter-spacing: 2px;
+}
+
+.highlight {
+  color: var(--primary);
+  text-shadow: 0 0 20px rgba(240, 160, 48, 0.4);
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
+
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 280px;
+}
+
+/* Buttons */
+.btn {
+  padding: 14px 24px;
+  border: none;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #000;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-secondary {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn-large {
+  width: 100%;
+  padding: 16px;
+  font-size: 18px;
+}
+
+.btn-small {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-success {
+  background: var(--success);
+  color: #000;
+}
+
+/* Inputs */
+.input {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  text-align: center;
+  letter-spacing: 2px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+#name-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 280px;
+}
+
+/* Utility */
+.hidden {
+  display: none !important;
+}
+
+.muted {
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 14px;
+}
+
+.error {
+  color: var(--danger);
+  text-align: center;
+  font-size: 14px;
+  padding: 8px;
+}
+
+/* Screen Header */
+.screen-header {
+  margin-bottom: 16px;
+}
+
+.screen-header h2 {
+  font-size: 20px;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.game-code {
+  color: var(--primary);
+  font-size: 24px;
+  font-weight: bold;
+  letter-spacing: 4px;
+}
+
+/* Lobby */
+.player-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.player-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.player-card .name {
+  font-weight: bold;
+}
+
+.player-card .host-badge {
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.player-card .ready-badge {
+  color: var(--success);
+  font-size: 12px;
+}
+
+/* Planning */
+.round-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.risk-badge {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.risk-LOW { background: var(--success); color: #000; }
+.risk-MODERATE { background: var(--primary); color: #000; }
+.risk-HIGH { background: var(--danger); color: #fff; }
+.risk-CRITICAL { background: #800; color: #fff; animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.market-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.planning-sections {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.plan-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.plan-section h3 {
+  font-size: 13px;
+  color: var(--primary);
+  letter-spacing: 2px;
+  margin-bottom: 10px;
+}
+
+/* Option cards */
+.option-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.option-card {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.option-card:hover {
+  background: var(--bg-card-hover);
+}
+
+.option-card.selected {
+  border-color: var(--primary);
+  background: rgba(240, 160, 48, 0.08);
+}
+
+.option-card .option-name {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.option-card .option-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.option-card .option-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.option-card .stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.stat-good { color: var(--success); }
+.stat-warn { color: var(--primary); }
+.stat-bad { color: var(--danger); }
+
+/* Map canvas */
+#map-canvas, #transit-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: var(--ocean);
+}
+
+/* Cost preview */
+.cost-preview {
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.cost-line {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cost-total {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 6px;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+/* Transit */
+.transit-header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.transit-ship-name {
+  color: var(--primary);
+  font-size: 14px;
+}
+
+.event-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.event-item {
+  background: var(--bg-card);
+  border-left: 3px solid var(--info);
+  padding: 10px 12px;
+  border-radius: 0 6px 6px 0;
+  animation: slideIn 0.3s ease;
+}
+
+.event-item.danger {
+  border-left-color: var(--danger);
+}
+
+.event-item.success {
+  border-left-color: var(--success);
+}
+
+.event-item .event-name {
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.event-item .event-outcome {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Results */
+.result-detail {
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.result-success {
+  border: 2px solid var(--success);
+}
+
+.result-fail {
+  border: 2px solid var(--danger);
+}
+
+.result-header {
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.result-lines {
+  font-size: 13px;
+  line-height: 2;
+}
+
+.result-line {
+  display: flex;
+  justify-content: space-between;
+}
+
+.result-profit {
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.profit-positive { color: var(--success); }
+.profit-negative { color: var(--danger); }
+
+/* Leaderboard */
+.leaderboard {
+  margin-bottom: 16px;
+}
+
+.leaderboard h3 {
+  font-size: 14px;
+  color: var(--primary);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.lb-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.lb-row:first-of-type {
+  border: 1px solid var(--primary);
+}
+
+.lb-rank {
+  color: var(--primary);
+  font-weight: bold;
+  width: 24px;
+}
+
+.lb-name {
+  flex: 1;
+}
+
+.lb-worth {
+  font-weight: bold;
+  color: var(--success);
+}
+
+/* Fleet Management */
+.reinvest-section {
+  margin-bottom: 16px;
+}
+
+.reinvest-section h3 {
+  font-size: 14px;
+  color: var(--primary);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.reinvest-section h4 {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 12px 0 8px;
+  letter-spacing: 1px;
+}
+
+.fleet-display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fleet-ship {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ship-info {
+  font-size: 13px;
+}
+
+.ship-health {
+  font-size: 12px;
+}
+
+.health-bar {
+  width: 60px;
+  height: 6px;
+  background: var(--bg-dark);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.health-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.health-good { background: var(--success); }
+.health-warn { background: var(--primary); }
+.health-bad { background: var(--danger); }
+
+/* Game Over */
+.gameover-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 24px;
+}
+
+.gameover-container h1 {
+  color: var(--primary);
+  font-size: 40px;
+  text-shadow: 0 0 30px rgba(240, 160, 48, 0.5);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* Responsive */
+@media (min-width: 480px) {
+  #app {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+}

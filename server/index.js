@@ -1,0 +1,213 @@
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import { GameState, generateGameId } from './game.js';
+import {
+  ROUTES, SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
+  TIME_OPTIONS, GAME_PHASES
+} from '../shared/constants.js';
+
+const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: '*' }
+});
+
+// Store active games
+const games = new Map();
+// Map socket IDs to game/player info
+const socketMap = new Map();
+
+io.on('connection', (socket) => {
+  console.log(`Player connected: ${socket.id}`);
+
+  // Create a new game
+  socket.on('create_game', ({ playerName }, callback) => {
+    const gameId = generateGameId();
+    const game = new GameState(gameId, socket.id);
+    game.addPlayer(socket.id, playerName);
+    games.set(gameId, game);
+    socketMap.set(socket.id, { gameId, playerName });
+    socket.join(gameId);
+
+    callback({ success: true, gameId, game: game.serialize() });
+    console.log(`Game ${gameId} created by ${playerName}`);
+  });
+
+  // Join an existing game
+  socket.on('join_game', ({ gameId, playerName }, callback) => {
+    const game = games.get(gameId.toUpperCase());
+    if (!game) {
+      callback({ success: false, error: 'Game not found' });
+      return;
+    }
+    if (game.phase !== GAME_PHASES.LOBBY) {
+      callback({ success: false, error: 'Game already in progress' });
+      return;
+    }
+
+    game.addPlayer(socket.id, playerName);
+    socketMap.set(socket.id, { gameId: game.id, playerName });
+    socket.join(game.id);
+
+    io.to(game.id).emit('game_update', game.serialize());
+    callback({ success: true, gameId: game.id, game: game.serialize() });
+    console.log(`${playerName} joined game ${game.id}`);
+  });
+
+  // Start the game
+  socket.on('start_game', (_, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
+    const game = games.get(info.gameId);
+    if (!game || game.hostId !== socket.id) {
+      callback?.({ success: false, error: 'Only host can start' });
+      return;
+    }
+
+    game.startPlanning();
+    io.to(game.id).emit('game_update', game.serialize());
+    io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING, round: game.round });
+    callback?.({ success: true });
+    console.log(`Game ${game.id} started, round ${game.round}`);
+  });
+
+  // Submit transit plan
+  socket.on('submit_plan', (plan, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
+    const game = games.get(info.gameId);
+    if (!game || game.phase !== GAME_PHASES.PLANNING) {
+      callback?.({ success: false, error: 'Not in planning phase' });
+      return;
+    }
+
+    const result = game.submitPlan(socket.id, plan);
+    if (!result) {
+      callback?.({ success: false, error: 'Invalid plan' });
+      return;
+    }
+
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true });
+
+    // If all players ready, simulate
+    if (game.allPlayersReady()) {
+      setTimeout(() => {
+        const results = game.simulateTransits();
+        game.phase = GAME_PHASES.REINVEST;
+
+        // Send personalized results to each player
+        for (const player of Object.values(game.players)) {
+          const playerSocket = io.sockets.sockets.get(player.id);
+          if (playerSocket) {
+            playerSocket.emit('transit_results', {
+              myResult: player.transitResult,
+              allResults: Object.fromEntries(
+                Object.entries(results).map(([pid, r]) => [
+                  game.players[pid]?.name || pid, r
+                ])
+              ),
+              leaderboard: game.getLeaderboard()
+            });
+          }
+        }
+        io.to(game.id).emit('game_update', game.serialize());
+        io.to(game.id).emit('phase_change', { phase: GAME_PHASES.REINVEST, round: game.round });
+      }, 1000);
+    }
+  });
+
+  // Buy a ship
+  socket.on('buy_ship', ({ shipTypeId }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+
+    const ship = game.buyShip(socket.id, shipTypeId);
+    if (!ship) {
+      callback?.({ success: false, error: 'Cannot afford ship' });
+      return;
+    }
+
+    socket.emit('game_update', game.serialize());
+    callback?.({ success: true, ship });
+  });
+
+  // Repair a ship
+  socket.on('repair_ship', ({ shipId }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+
+    const result = game.repairShip(socket.id, shipId);
+    if (!result) {
+      callback?.({ success: false, error: 'Cannot repair' });
+      return;
+    }
+
+    socket.emit('game_update', game.serialize());
+    callback?.({ success: true, ...result });
+  });
+
+  // Ready for next round
+  socket.on('next_round', (_, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const game = games.get(info.gameId);
+    if (!game || game.hostId !== socket.id) {
+      callback?.({ success: false, error: 'Only host can advance' });
+      return;
+    }
+
+    const continued = game.nextRound();
+    if (continued) {
+      io.to(game.id).emit('game_update', game.serialize());
+      io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING, round: game.round });
+    } else {
+      io.to(game.id).emit('game_over', { leaderboard: game.getLeaderboard() });
+    }
+    callback?.({ success: true, continued });
+  });
+
+  // Get game options (routes, ships, etc.)
+  socket.on('get_options', (_, callback) => {
+    callback?.({
+      routes: ROUTES,
+      shipTypes: SHIP_TYPES,
+      aisOptions: AIS_OPTIONS,
+      insuranceOptions: INSURANCE_OPTIONS,
+      timeOptions: TIME_OPTIONS
+    });
+  });
+
+  // Disconnect
+  socket.on('disconnect', () => {
+    const info = socketMap.get(socket.id);
+    if (info) {
+      const game = games.get(info.gameId);
+      if (game) {
+        game.removePlayer(socket.id);
+        if (game.getPlayerCount() === 0) {
+          games.delete(info.gameId);
+          console.log(`Game ${info.gameId} deleted (empty)`);
+        } else {
+          // Transfer host if needed
+          if (game.hostId === socket.id) {
+            game.hostId = Object.keys(game.players)[0];
+          }
+          io.to(game.id).emit('game_update', game.serialize());
+        }
+      }
+      socketMap.delete(socket.id);
+    }
+    console.log(`Player disconnected: ${socket.id}`);
+  });
+});
+
+const PORT = process.env.PORT || 3001;
+httpServer.listen(PORT, () => {
+  console.log(`Beat The Straight server running on port ${PORT}`);
+});
