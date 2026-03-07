@@ -6,6 +6,10 @@ import {
 // Active missile animations
 const activeMissiles = [];
 
+// Active fighter plane animations
+const activePlanes = [];
+const planeCooldowns = {}; // baseId -> timestamp of when cooldown expires
+
 // Viewport state (mutable, controlled by main.js)
 let viewport = { ...DEFAULT_VIEWPORT };
 
@@ -603,6 +607,136 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
 }
 
 // ============================================
+// FIGHTER PLANE ANIMATION SYSTEM
+// ============================================
+function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
+  const now = Date.now();
+  const cooldownEnd = planeCooldowns[baseId] || 0;
+  if (now < cooldownEnd) return; // base still on cooldown
+  planeCooldowns[baseId] = now + 180000; // 3-minute cooldown
+  activePlanes.push({
+    baseId, fromLat, fromLon, toLat, toLon,
+    progress: 0,
+    startTime: now,
+    outboundDuration: 3000,
+    returnDuration: 3000,
+    phase: 'outbound', // outbound -> strike -> return
+    trail: [],
+    strikeTime: 0,
+  });
+}
+
+function updateAndDrawPlanes(ctx, drawW, drawH) {
+  const now = Date.now();
+  for (let i = activePlanes.length - 1; i >= 0; i--) {
+    const p = activePlanes[i];
+    const elapsed = now - p.startTime;
+
+    let currentLat, currentLon, heading;
+
+    if (p.phase === 'outbound') {
+      const t = Math.min(1, elapsed / p.outboundDuration);
+      p.progress = t;
+      currentLat = p.fromLat + (p.toLat - p.fromLat) * t;
+      currentLon = p.fromLon + (p.toLon - p.fromLon) * t;
+      heading = Math.atan2(p.toLon - p.fromLon, p.toLat - p.fromLat);
+
+      if (t >= 1) {
+        p.phase = 'strike';
+        p.strikeTime = now;
+      }
+    } else if (p.phase === 'strike') {
+      const strikeDuration = 800;
+      const strikeElapsed = now - p.strikeTime;
+      currentLat = p.toLat;
+      currentLon = p.toLon;
+      heading = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+
+      // Strike explosion
+      const strikeProgress = strikeElapsed / strikeDuration;
+      const pos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
+      const alpha = (1 - strikeProgress) * 0.6;
+      const radius = 5 + strikeProgress * 20;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 180, 50, ${alpha})`;
+      ctx.fill();
+
+      if (strikeElapsed >= strikeDuration) {
+        p.phase = 'return';
+        p.startTime = now;
+        p.progress = 0;
+      }
+    } else if (p.phase === 'return') {
+      const returnElapsed = now - p.startTime;
+      const t = Math.min(1, returnElapsed / p.returnDuration);
+      p.progress = t;
+      currentLat = p.toLat + (p.fromLat - p.toLat) * t;
+      currentLon = p.toLon + (p.fromLon - p.toLon) * t;
+      heading = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+
+      if (t >= 1) {
+        activePlanes.splice(i, 1);
+        continue;
+      }
+    }
+
+    if (p.phase === 'strike') continue; // no plane body during strike
+
+    // Trail
+    p.trail.push({ lat: currentLat, lon: currentLon, time: now });
+    p.trail = p.trail.filter(pt => now - pt.time < 2000);
+    if (p.trail.length > 1) {
+      for (let j = 1; j < p.trail.length; j++) {
+        const alpha = (j / p.trail.length) * 0.4;
+        const p0 = latLonToCanvas(p.trail[j - 1].lat, p.trail[j - 1].lon, drawW, drawH);
+        const p1 = latLonToCanvas(p.trail[j].lat, p.trail[j].lon, drawW, drawH);
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+      }
+    }
+
+    // Draw plane icon
+    const pos = latLonToCanvas(currentLat, currentLon, drawW, drawH);
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(-heading + Math.PI / 2);
+    // Fighter jet shape
+    ctx.fillStyle = '#88aadd';
+    ctx.beginPath();
+    ctx.moveTo(0, -7);    // nose
+    ctx.lineTo(-3, 2);    // left body
+    ctx.lineTo(-7, 4);    // left wing tip
+    ctx.lineTo(-2, 4);    // left wing root
+    ctx.lineTo(-2, 7);    // left tail
+    ctx.lineTo(0, 5);     // tail center
+    ctx.lineTo(2, 7);     // right tail
+    ctx.lineTo(2, 4);     // right wing root
+    ctx.lineTo(7, 4);     // right wing tip
+    ctx.lineTo(3, 2);     // right body
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#aaccff';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Engine glow
+    const glowAngle = heading - Math.PI / 2;
+    const glowX = pos.x + Math.sin(glowAngle) * 6;
+    const glowY = pos.y + Math.cos(glowAngle) * 6;
+    ctx.beginPath();
+    ctx.arc(glowX, glowY, 2 + Math.random(), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
+    ctx.fill();
+  }
+}
+
+// ============================================
 // MAIN DRAW FUNCTION
 // ============================================
 function drawMap(canvas, options = {}) {
@@ -768,6 +902,7 @@ function drawMap(canvas, options = {}) {
 
   // Missile animations (drawn on top of everything except minimap)
   updateAndDrawMissiles(ctx, drawW, drawH);
+  updateAndDrawPlanes(ctx, drawW, drawH);
 
   // Minimap
   if (options.showMinimap && options.ship) {
@@ -981,4 +1116,4 @@ function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
   });
 }
 
-export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints, spawnMissile };
+export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints, spawnMissile, spawnPlane };

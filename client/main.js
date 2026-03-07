@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile } from './map.js';
+import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
@@ -1607,6 +1607,31 @@ function checkDangerZonesAllShips(elapsed) {
                 addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
               } else {
                 spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+              }
+            }
+          }
+        }
+        // Spawn fighter plane sorties for combat events
+        if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
+          const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
+          const alliedBases = MILITARY_BASES.filter(b =>
+            ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
+          );
+          if (iranAirBases.length > 0) {
+            const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
+            const roll = Math.random();
+            if (roll < 0.25) {
+              // 25%: strike at ship
+              spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
+            } else if (alliedBases.length > 0) {
+              // 75%: strike at allied base
+              const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
+              if (Math.random() < 0.05) {
+                // 5% error — hits ship instead
+                spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
+                addTransitEvent('AIRSTRIKE ERROR', 'An enemy fighter veered off course toward your vessel!', 'danger');
+              } else {
+                spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
               }
             }
           }
