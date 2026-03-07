@@ -897,6 +897,7 @@ function createNPCTanker(staggered) {
     targetTerminal: terminal,
     state,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
+    coastEscapeTimer: 0, coastEscapeHeading: 0,
     trail: [],
   };
 
@@ -992,12 +993,21 @@ function updateNPCShips(dt, elapsed) {
       npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
     }
 
-    // Steering
-    npc.wanderTimer -= dt;
-    if (npc.wanderTimer <= 0) { npc.wanderOffset = (Math.random() - 0.5) * 5; npc.wanderTimer = 8 + Math.random() * 12; }
-    const adjustedTarget = normalizeAngle(npc.targetHeading + (npc.wanderOffset || 0));
-    const diff = angleDiff(npc.heading, adjustedTarget);
-    if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
+    // Coast escape mode: after hitting land, commit to escape heading
+    // until safely away from coast before resuming normal navigation
+    if (npc.coastEscapeTimer > 0) {
+      npc.coastEscapeTimer -= dt;
+      // Keep heading locked to escape direction, no wander
+      const diff = angleDiff(npc.heading, npc.coastEscapeHeading);
+      if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
+    } else {
+      // Normal steering toward target
+      npc.wanderTimer -= dt;
+      if (npc.wanderTimer <= 0) { npc.wanderOffset = (Math.random() - 0.5) * 5; npc.wanderTimer = 8 + Math.random() * 12; }
+      const adjustedTarget = normalizeAngle(npc.targetHeading + (npc.wanderOffset || 0));
+      const diff = angleDiff(npc.heading, adjustedTarget);
+      if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
+    }
 
     // NPC-NPC separation: push positions apart (no steering = no orbits)
     for (let j = 0; j < npcShips.length; j++) {
@@ -1023,35 +1033,47 @@ function updateNPCShips(dt, elapsed) {
     // Land avoidance
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
-      const lookAhead = 0.08;
-      if (isOnLand(npc.lat + Math.cos(rad) * lookAhead, npc.lon + Math.sin(rad) * lookAhead)) {
-        for (const angle of [30, -30, 60, -60, 90, -90]) {
-          const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-          if (!isOnLand(npc.lat + Math.cos(tryRad) * lookAhead, npc.lon + Math.sin(tryRad) * lookAhead)) {
-            npc.heading = normalizeAngle(npc.heading + angle); npc.wanderOffset = 0; break;
+      // Proactive: check multiple distances ahead for early avoidance
+      const lookAheads = [0.05, 0.1, 0.15];
+      for (const la of lookAheads) {
+        if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
+          // Find a clear direction and enter coast escape mode
+          for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+            const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.15, npc.lon + Math.sin(tryRad) * 0.15)) {
+              npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
+              npc.coastEscapeTimer = 3 + Math.random() * 2; // commit for 3-5 seconds
+              npc.wanderOffset = 0;
+              break;
+            }
           }
+          break;
         }
       }
     } else {
       npc.stuckCount = (npc.stuckCount || 0) + 1;
-      const probeDist = 0.06;
+      const probeDist = 0.08;
       let escaped = false;
       for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
         const th = normalizeAngle(npc.heading + angle);
         const tr = th * Math.PI / 180;
         if (!isOnLand(npc.lat + Math.cos(tr) * probeDist, npc.lon + Math.sin(tr) * probeDist)) {
-          npc.heading = th; npc.targetHeading = th; npc.wanderOffset = 0;
-          npc.lon += Math.sin(tr) * probeDist * 0.5;
-          npc.lat += Math.cos(tr) * probeDist * 0.5;
+          npc.heading = th; npc.wanderOffset = 0;
+          npc.lon += Math.sin(tr) * probeDist * 0.6;
+          npc.lat += Math.cos(tr) * probeDist * 0.6;
+          // Enter coast escape: commit to this heading for a while
+          npc.coastEscapeHeading = th;
+          npc.coastEscapeTimer = 4 + Math.random() * 3; // commit for 4-7 seconds
           escaped = true; break;
         }
       }
       if (!escaped) {
         npc.heading = normalizeAngle(npc.heading + 180);
-        npc.targetHeading = npc.heading;
         const rr = npc.heading * Math.PI / 180;
-        npc.lon += Math.sin(rr) * probeDist * 0.5;
-        npc.lat += Math.cos(rr) * probeDist * 0.5;
+        npc.lon += Math.sin(rr) * probeDist * 0.6;
+        npc.lat += Math.cos(rr) * probeDist * 0.6;
+        npc.coastEscapeHeading = npc.heading;
+        npc.coastEscapeTimer = 5;
       }
       if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
