@@ -444,9 +444,34 @@ function selectShip(shipId) {
   selectedShipId = shipId;
   const state = shipStates[shipId];
   if (state) centerViewportOn(state.lat, state.lon);
+  if (shipControlOpen) closeShipControlPanel();
+  hideTerminalPopup();
   updateFleetPanel();
   updateClearWpButton();
   updateHUD();
+}
+
+function deselectShip() {
+  selectedShipId = null;
+  if (shipControlOpen) closeShipControlPanel();
+  updateFleetPanel();
+  updateClearWpButton();
+  updateHUD();
+}
+
+function addWaypointForSelectedShip(target) {
+  if (!selectedShipId || !shipStates[selectedShipId]) return;
+  if (isOnLand(target.lat, target.lon)) return;
+  const wps = shipWaypoints[selectedShipId] || [];
+  if (wps.length >= 10) return;
+  wps.push(target);
+  shipWaypoints[selectedShipId] = wps;
+  updateClearWpButton();
+  const state = shipStates[selectedShipId];
+  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = ship?.speed || 14; }
+  if (wps.length === 1) {
+    state.targetHeading = normalizeAngle(Math.atan2(target.lon - state.lon, target.lat - state.lat) * 180 / Math.PI);
+  }
 }
 
 // ============================================
@@ -1039,16 +1064,7 @@ mapCanvas.addEventListener('click', (e) => {
   const cy = e.clientY - rect.top;
   const target = canvasToLatLon(cx, cy, rect.width, rect.height);
 
-  // Check terminal click
-  for (const terminal of Object.values(OIL_TERMINALS)) {
-    const tPos = latLonToCanvas(terminal.lat, terminal.lon, rect.width, rect.height);
-    if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < 20) {
-      showTerminalPopup(terminal, e.clientX, e.clientY);
-      return;
-    }
-  }
-
-  // Check ship click
+  // Check ship click first (higher priority than terminals)
   const me = gameState?.players.find(p => p.id === myId);
   if (me) {
     for (const ship of me.fleet) {
@@ -1057,10 +1073,28 @@ mapCanvas.addEventListener('click', (e) => {
       const shipPos = latLonToCanvas(state.lat, state.lon, rect.width, rect.height);
       if (Math.sqrt(Math.pow(cx - shipPos.x, 2) + Math.pow(cy - shipPos.y, 2)) < 20) {
         if (ship.id === selectedShipId) {
-          if (shipControlOpen) closeShipControlPanel(); else openShipControlPanel();
-        } else { selectShip(ship.id); }
+          // Click selected ship again → deselect
+          deselectShip();
+        } else {
+          selectShip(ship.id);
+        }
         return;
       }
+    }
+  }
+
+  // Check terminal click
+  for (const terminal of Object.values(OIL_TERMINALS)) {
+    const tPos = latLonToCanvas(terminal.lat, terminal.lon, rect.width, rect.height);
+    if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < 20) {
+      if (selectedShipId && shipStates[selectedShipId]) {
+        // Ship selected → set waypoint to terminal
+        addWaypointForSelectedShip({ lat: terminal.lat, lon: terminal.lon });
+      } else {
+        // No ship selected → show terminal info
+        showTerminalPopup(terminal, e.clientX, e.clientY);
+      }
+      return;
     }
   }
 
@@ -1069,14 +1103,7 @@ mapCanvas.addEventListener('click', (e) => {
 
   // Add waypoint for selected ship
   if (!selectedShipId || !shipStates[selectedShipId]) return;
-  if (isOnLand(target.lat, target.lon)) return;
-  const wps = shipWaypoints[selectedShipId] || [];
-  if (wps.length < 10) { wps.push(target); shipWaypoints[selectedShipId] = wps; updateClearWpButton(); }
-  const state = shipStates[selectedShipId];
-  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = ship?.speed || 14; }
-  if (wps.length === 1) {
-    state.targetHeading = normalizeAngle(Math.atan2(target.lon - state.lon, target.lat - state.lat) * 180 / Math.PI);
-  }
+  addWaypointForSelectedShip(target);
 });
 
 mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
