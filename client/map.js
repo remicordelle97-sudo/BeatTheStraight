@@ -708,8 +708,8 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     if (p.phase === 'outbound') {
       const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
-      // Ease-out: fast departure, decelerating into the loop entry
-      const t = 1 - Math.pow(1 - tRaw, 3);
+      // Linear approach — orbit handles its own speed variation
+      const t = tRaw;
 
       // Fly straight toward the loop entry point (one ellipseB behind target)
       const entryLat = p.toLat - p.approachLat * p.ellipseB;
