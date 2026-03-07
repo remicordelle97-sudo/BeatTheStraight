@@ -708,7 +708,8 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     if (p.phase === 'outbound') {
       const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
-      const t = tRaw;
+      // Smoothstep: slow departure from base, cruises mid-flight, slow into orbit
+      const t = tRaw * tRaw * (3 - 2 * tRaw);
 
       // Fly straight toward the loop entry point (one ellipseB behind target)
       const entryLat = p.toLat - p.approachLat * p.ellipseB;
@@ -876,7 +877,8 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const rFromLat = p.returnFromLat || p.toLat;
       const rFromLon = p.returnFromLon || p.toLon;
       const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.2));
-      const t = tRaw;
+      // Smoothstep: slow departure from orbit, cruises mid-flight, slow into base
+      const t = tRaw * tRaw * (3 - 2 * tRaw);
       const baseLat = rFromLat + (p.fromLat - rFromLat) * t;
       const baseLon = rFromLon + (p.fromLon - rFromLon) * t;
 
