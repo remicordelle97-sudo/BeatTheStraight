@@ -401,31 +401,7 @@ function renderPlanning() {
 
   selectedShipId = null;
   selectedTerminalId = null;
-
-  // Terminal selector
-  const terminalSelector = document.getElementById('terminal-selector');
-  terminalSelector.innerHTML = Object.entries(OIL_TERMINALS).map(([key, t]) => `
-    <div class="option-card" data-key="${t.id}">
-      <div class="option-name">${t.name}</div>
-      <div class="option-desc">${t.country} - ${t.description}</div>
-      <div class="option-stats">
-        <span class="stat ${t.loadingBonus > 1 ? 'stat-good' : t.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">
-          Value: ${Math.round(t.loadingBonus * 100)}%
-        </span>
-        <span class="stat">${t.capacity}</span>
-      </div>
-    </div>
-  `).join('');
-
-  terminalSelector.querySelectorAll('.option-card').forEach(card => {
-    card.addEventListener('click', () => {
-      terminalSelector.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-      selectedTerminalId = card.dataset.key;
-      const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
-      if (terminal) centerViewportOn(terminal.lat, terminal.lon);
-    });
-  });
+  updateTerminalDisplay();
 
   // Ship selector - shows fleet with AIS/insurance info
   const shipSelector = document.getElementById('ship-selector');
@@ -484,6 +460,95 @@ function renderPlanning() {
   viewport = { north: 30.0, south: 23.0, west: 47.5, east: 60.0 };
   setViewport(viewport);
 }
+
+function updateTerminalDisplay() {
+  const display = document.getElementById('selected-terminal-display');
+  if (!display) return;
+  if (!selectedTerminalId) {
+    display.innerHTML = '<span class="muted">Click a terminal on the map to select</span>';
+    display.className = 'muted';
+    return;
+  }
+  const t = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
+  if (!t) return;
+  const valueClass = t.loadingBonus > 1 ? 'stat-good' : t.loadingBonus < 1 ? 'stat-bad' : 'stat-warn';
+  display.className = '';
+  display.innerHTML = `
+    <div class="option-card selected" style="margin:0;">
+      <div class="option-name">${t.name}</div>
+      <div class="option-desc">${t.country}</div>
+      <div class="option-stats">
+        <span class="stat ${valueClass}">Value: ${Math.round(t.loadingBonus * 100)}%</span>
+        <span class="stat">${t.capacity}</span>
+      </div>
+    </div>
+  `;
+}
+
+function showTerminalPopup(terminal, screenX, screenY) {
+  const popup = document.getElementById('terminal-info-popup');
+  const oilPrice = gameState?.oilPrice || 80;
+  const ratePerBbl = (oilPrice * terminal.loadingBonus).toFixed(2);
+
+  document.getElementById('terminal-popup-name').textContent = terminal.name;
+  document.getElementById('terminal-popup-body').innerHTML = `
+    <div class="terminal-popup-row"><span>Country:</span> <span>${terminal.country}</span></div>
+    <div class="terminal-popup-row"><span>Capacity:</span> <span>${terminal.capacity}</span></div>
+    <div class="terminal-popup-row"><span>Oil Rate:</span> <span class="${terminal.loadingBonus > 1 ? 'stat-good' : terminal.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">$${ratePerBbl}/bbl (${Math.round(terminal.loadingBonus * 100)}%)</span></div>
+    <div class="terminal-popup-desc">${terminal.description}</div>
+  `;
+
+  // Position popup near click, but keep on screen
+  const popupW = 260;
+  const popupH = 200;
+  let left = Math.min(screenX + 15, window.innerWidth - popupW - 10);
+  let top = Math.min(screenY - 20, window.innerHeight - popupH - 10);
+  left = Math.max(10, left);
+  top = Math.max(10, top);
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+  popup.classList.remove('hidden');
+  popup._terminal = terminal;
+}
+
+function hideTerminalPopup() {
+  document.getElementById('terminal-info-popup').classList.add('hidden');
+}
+
+document.getElementById('terminal-popup-close').addEventListener('click', hideTerminalPopup);
+document.getElementById('terminal-popup-select').addEventListener('click', () => {
+  const popup = document.getElementById('terminal-info-popup');
+  if (popup._terminal) {
+    selectedTerminalId = popup._terminal.id;
+    updateTerminalDisplay();
+  }
+  hideTerminalPopup();
+});
+
+// Map click during planning: detect terminal clicks
+mapCanvas.addEventListener('click', (e) => {
+  const isPlanning = screens.planning?.classList.contains('active');
+  if (!isPlanning) return;
+  if (isPanning) return;
+
+  const rect = mapCanvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const click = canvasToLatLon(cx, cy, rect.width, rect.height);
+
+  // Check if click is near any terminal
+  for (const terminal of Object.values(OIL_TERMINALS)) {
+    const dist = Math.sqrt(Math.pow(click.lat - terminal.lat, 2) + Math.pow(click.lon - terminal.lon, 2));
+    if (dist < (terminal.loadRadius || 0.15) + 0.1) {
+      showTerminalPopup(terminal, e.clientX, e.clientY);
+      centerViewportOn(terminal.lat, terminal.lon);
+      return;
+    }
+  }
+
+  // Clicking elsewhere hides popup
+  hideTerminalPopup();
+});
 
 // ============================================
 // SHIP PURCHASE MODAL
@@ -840,28 +905,66 @@ function updateNPCShips(dt) {
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
 
-    // Only move if not on land
+    // Check ahead for land - look further to avoid getting close to coast
+    const lookAhead = speedDeg * 3; // look 3 seconds ahead
+    const lookRad = npc.heading * Math.PI / 180;
+    const aheadLon = npc.lon + Math.sin(lookRad) * lookAhead;
+    const aheadLat = npc.lat + Math.cos(lookRad) * lookAhead;
+
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon;
       npc.lat = newLat;
       npc.stuckCount = 0;
+      // If land ahead, start turning early
+      if (isOnLand(aheadLat, aheadLon)) {
+        // Try both sides, pick the one that's clearer
+        const tryAngles = [45, -45, 90, -90];
+        for (const angle of tryAngles) {
+          const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+          const tryLon = npc.lon + Math.sin(tryRad) * lookAhead;
+          const tryLat = npc.lat + Math.cos(tryRad) * lookAhead;
+          if (!isOnLand(tryLat, tryLon)) {
+            npc.targetHeading = normalizeAngle(npc.heading + angle);
+            npc.wanderOffset = 0;
+            break;
+          }
+        }
+      }
     } else {
+      // On land - try systematic angles to find clear water
       npc.stuckCount = (npc.stuckCount || 0) + 1;
-      npc.targetHeading = normalizeAngle(npc.heading + 90 + Math.random() * 180);
-      npc.heading = normalizeAngle(npc.heading + (Math.random() > 0.5 ? 30 : -30));
-      npc.wanderTimer = 3;
-      if (npc.stuckCount > 120) {
+      let escaped = false;
+      const tryAngles = [90, -90, 120, -120, 150, -150, 180];
+      for (const angle of tryAngles) {
+        const tryHeading = normalizeAngle(npc.heading + angle);
+        const tryRad = tryHeading * Math.PI / 180;
+        const tryLon = npc.lon + Math.sin(tryRad) * speedDeg * dt * 2;
+        const tryLat = npc.lat + Math.cos(tryRad) * speedDeg * dt * 2;
+        if (!isOnLand(tryLat, tryLon)) {
+          npc.heading = tryHeading;
+          npc.targetHeading = tryHeading;
+          npc.wanderOffset = 0;
+          // Move in the clear direction
+          npc.lon = npc.lon + Math.sin(tryRad) * speedDeg * dt;
+          npc.lat = npc.lat + Math.cos(tryRad) * speedDeg * dt;
+          escaped = true;
+          break;
+        }
+      }
+      if (!escaped) {
+        npc.heading = normalizeAngle(npc.heading + 180);
+        npc.targetHeading = npc.heading;
+      }
+      if (npc.stuckCount > 60) {
         // Respawn from edge
-        const replacement = createNPCTanker(false);
-        npcShips[i] = replacement;
+        npcShips[i] = createNPCTanker(false);
         continue;
       }
     }
 
     // If exited the map, respawn as a new ship entering from off-screen
     if (npc.lon > 60.5 || npc.lon < 46.5 || npc.lat > 31.0 || npc.lat < 23.0) {
-      const replacement = createNPCTanker(false);
-      npcShips[i] = replacement;
+      npcShips[i] = createNPCTanker(false);
     }
   }
 }
@@ -1502,14 +1605,9 @@ mapCanvas.addEventListener('click', (e) => {
   }
 });
 
-// Right-click clears all waypoints
+// Prevent context menu on map canvas
 mapCanvas.addEventListener('contextmenu', (e) => {
-  if (transitActive && simWaypoints.length > 0) {
-    simWaypoints = [];
-    simTargetPoint = null;
-    simState.speed = 0;
-    updateClearWpButton();
-  }
+  e.preventDefault();
 });
 
 // ============================================

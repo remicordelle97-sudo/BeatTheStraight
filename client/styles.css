@@ -401,6 +401,45 @@ h1 {
   letter-spacing: 2px;
 }
 
+/* Terminal Info Popup */
+.terminal-popup {
+  position: absolute;
+  width: 250px;
+  background: rgba(10, 14, 26, 0.96);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  padding: 12px;
+  pointer-events: auto;
+  z-index: 50;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.terminal-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--primary);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.terminal-popup-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 3px 0;
+  color: var(--text);
+}
+
+.terminal-popup-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
 /* Ship Purchase Modal */
 .modal-overlay {
   position: fixed;

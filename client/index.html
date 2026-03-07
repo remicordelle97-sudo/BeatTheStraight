@@ -71,18 +71,26 @@
           </div>
         </div>
 
-        <!-- Terminal section -->
+        <!-- Selected terminal display -->
         <div class="dash-section">
-          <div class="dash-section-title" data-toggle="terminal">
-            OIL TERMINAL <span class="dash-toggle-icon">&#9660;</span>
-          </div>
-          <div class="dash-section-body" id="dash-terminal">
-            <div id="terminal-selector" class="option-grid"></div>
+          <div class="dash-section-title">TERMINAL</div>
+          <div class="dash-section-body">
+            <div id="selected-terminal-display" class="muted">Click a terminal on the map to select</div>
           </div>
         </div>
 
         <button id="btn-submit-plan" class="btn btn-primary dash-launch-btn">LAUNCH TRANSIT</button>
         <div id="plan-waiting" class="hidden muted">Waiting for other captains...</div>
+      </div>
+
+      <!-- Terminal Info Popup (shown when clicking a terminal on map) -->
+      <div id="terminal-info-popup" class="terminal-popup hidden">
+        <div class="terminal-popup-header">
+          <span id="terminal-popup-name"></span>
+          <button id="terminal-popup-close" class="btn btn-small btn-ghost">&times;</button>
+        </div>
+        <div id="terminal-popup-body"></div>
+        <button id="terminal-popup-select" class="btn btn-small btn-primary" style="width:100%;margin-top:6px;">SELECT TERMINAL</button>
       </div>
 
       <!-- Ship Purchase Modal -->
@@ -152,7 +160,7 @@
       <div id="hud-cargo-status" class="hud-cargo loading">NAVIGATE TO TERMINAL</div>
 
       <!-- Steering instruction -->
-      <div id="hud-steer-hint">Left-click: set waypoints | Right-click: clear waypoints | Right-drag: pan | Scroll: zoom</div>
+      <div id="hud-steer-hint">Left-click: set waypoints | Right-drag: pan | Scroll: zoom</div>
 
       <!-- Game Speed Toggle -->
       <div id="hud-speed-toggle">
