@@ -1,9 +1,9 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints } from './map.js';
+import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
-  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT
+  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, MILITARY_BASES
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -1552,6 +1552,20 @@ function checkDangerZonesAllShips(elapsed) {
         state.totalMoneyLoss += outcome.moneyLoss;
         if (outcome.delayHours >= 720) state.seized = true;
         if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
+        // Spawn missile animation for missile events
+        if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
+          const missileBases = MILITARY_BASES.filter(b => b.type === 'missile');
+          if (missileBases.length > 0) {
+            // Pick closest missile base
+            let closest = missileBases[0];
+            let minDist = Infinity;
+            for (const b of missileBases) {
+              const d = Math.hypot(b.lat - state.lat, b.lon - state.lon);
+              if (d < minDist) { minDist = d; closest = b; }
+            }
+            spawnMissile(closest.lat, closest.lon, state.lat, state.lon);
+          }
+        }
         let extra = '';
         if (outcome.damagePercent > 0) extra += ` [Dmg: ${Math.round(outcome.damagePercent * 100)}%]`;
         if (outcome.moneyLoss > 0) extra += ` [Loss: ${Math.round(outcome.moneyLoss * 100)}%]`;

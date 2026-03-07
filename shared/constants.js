@@ -19,7 +19,7 @@ export const SIM_CONFIG = {
   TIME_SCALE: 60,           // 1 real second = 60 game seconds (1 game minute)
   END_LON: 57.2,            // Finish line longitude (Gulf of Oman exit)
   KNOTS_TO_DEG_PER_SEC: 0.25 / 60,
-  EVENT_CHECK_INTERVAL: 3000,
+  EVENT_CHECK_INTERVAL: 1000,
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
@@ -165,7 +165,7 @@ export const DANGER_ZONES = [
     name: 'Anti-Ship Missile Range',
     color: 'rgba(180, 30, 30, 0.08)',
     borderColor: 'rgba(180, 30, 30, 0.25)',
-    bounds: { north: 27.0, south: 26.3, west: 55.5, east: 56.8 },
+    bounds: { north: 30.0, south: 24.5, west: 47.5, east: 58.0 },
     events: ['missile_alert'],
     baseProbability: 0.10,
     label: 'MISSILE RANGE'
@@ -180,6 +180,30 @@ export const DANGER_ZONES = [
     baseProbability: 0.08,
     label: 'DEEP WATER'
   }
+];
+
+// Major military bases around the Persian Gulf
+export const MILITARY_BASES = [
+  { id: 'bandar_abbas', name: 'Bandar Abbas Naval Base', country: 'Iran', type: 'naval',
+    lat: 27.19, lon: 56.27, color: '#cc4444', icon: 'anchor' },
+  { id: 'jask', name: 'Jask Naval Base', country: 'Iran', type: 'naval',
+    lat: 25.65, lon: 57.77, color: '#cc4444', icon: 'anchor' },
+  { id: 'bushehr', name: 'Bushehr Naval Base', country: 'Iran', type: 'naval',
+    lat: 28.97, lon: 50.85, color: '#cc4444', icon: 'anchor' },
+  { id: 'abu_musa', name: 'Abu Musa Island Base', country: 'Iran', type: 'missile',
+    lat: 25.87, lon: 55.03, color: '#dd3333', icon: 'missile' },
+  { id: 'sirri', name: 'Sirri Island IRGC Base', country: 'Iran', type: 'missile',
+    lat: 25.91, lon: 54.54, color: '#dd3333', icon: 'missile' },
+  { id: 'qeshm', name: 'Qeshm IRGC Base', country: 'Iran', type: 'missile',
+    lat: 26.95, lon: 56.15, color: '#dd3333', icon: 'missile' },
+  { id: 'al_udeid', name: 'Al Udeid Air Base', country: 'US', type: 'air',
+    lat: 25.12, lon: 51.32, color: '#4488cc', icon: 'plane' },
+  { id: 'fifth_fleet', name: 'NSA Bahrain (5th Fleet)', country: 'US', type: 'naval',
+    lat: 26.22, lon: 50.59, color: '#4488cc', icon: 'anchor' },
+  { id: 'fujairah', name: 'Fujairah Naval Base', country: 'UAE', type: 'naval',
+    lat: 25.12, lon: 56.33, color: '#44aa88', icon: 'anchor' },
+  { id: 'musandam', name: 'Oman Radar Station', country: 'Oman', type: 'radar',
+    lat: 26.15, lon: 56.25, color: '#44aa88', icon: 'radar' },
 ];
 
 // Key geographic points

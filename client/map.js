@@ -1,7 +1,10 @@
 // Persian Gulf fullscreen map renderer with pan/zoom
 import {
-  MAP_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT
+  MAP_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT, MILITARY_BASES
 } from '../shared/constants.js';
+
+// Active missile animations
+const activeMissiles = [];
 
 // Viewport state (mutable, controlled by main.js)
 let viewport = { ...DEFAULT_VIEWPORT };
@@ -401,6 +404,226 @@ function drawFinishLine(ctx, drawW, drawH) {
 }
 
 // ============================================
+// MILITARY BASES
+// ============================================
+function drawMilitaryBases(ctx, drawW, drawH) {
+  for (const base of MILITARY_BASES) {
+    const { x, y } = latLonToCanvas(base.lat, base.lon, drawW, drawH);
+    if (x < -30 || x > drawW + 30 || y < -30 || y > drawH + 30) continue;
+
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 800 + base.lat * 10);
+
+    // Range ring
+    ctx.beginPath();
+    ctx.arc(x, y, 18, 0, Math.PI * 2);
+    ctx.strokeStyle = base.color.replace(')', `, ${0.15 * pulse})`).replace('rgb', 'rgba');
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Base icon
+    ctx.save();
+    ctx.translate(x, y);
+    if (base.icon === 'missile') {
+      // Missile icon - upward pointing triangle with exhaust
+      ctx.fillStyle = base.color;
+      ctx.globalAlpha = pulse;
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(-4, 4);
+      ctx.lineTo(4, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-2, 4);
+      ctx.lineTo(0, 7);
+      ctx.lineTo(2, 4);
+      ctx.fillStyle = '#ff6600';
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (base.icon === 'anchor') {
+      // Anchor icon
+      ctx.fillStyle = base.color;
+      ctx.beginPath();
+      ctx.arc(0, -3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = base.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 6);
+      ctx.moveTo(-4, 6);
+      ctx.lineTo(4, 6);
+      ctx.stroke();
+    } else if (base.icon === 'plane') {
+      // Plane icon
+      ctx.fillStyle = base.color;
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(-6, 2);
+      ctx.lineTo(-2, 2);
+      ctx.lineTo(-2, 6);
+      ctx.lineTo(2, 6);
+      ctx.lineTo(2, 2);
+      ctx.lineTo(6, 2);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Radar icon - concentric arcs
+      ctx.strokeStyle = base.color;
+      ctx.lineWidth = 1;
+      for (let r = 3; r <= 7; r += 2) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r, -Math.PI * 0.7, -Math.PI * 0.3);
+        ctx.stroke();
+      }
+      ctx.fillStyle = base.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Label
+    ctx.fillStyle = base.color;
+    ctx.font = '8px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(base.name, x, y + 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '7px Courier New';
+    ctx.fillText(base.country, x, y + 22);
+    ctx.textAlign = 'left';
+  }
+}
+
+// ============================================
+// MISSILE ANIMATION SYSTEM
+// ============================================
+export function spawnMissile(fromLat, fromLon, toLat, toLon) {
+  activeMissiles.push({
+    fromLat, fromLon, toLat, toLon,
+    progress: 0,
+    startTime: Date.now(),
+    duration: 2500,
+    trail: [],
+    exploding: false,
+    explosionStart: 0,
+  });
+}
+
+function updateAndDrawMissiles(ctx, drawW, drawH) {
+  const now = Date.now();
+  for (let i = activeMissiles.length - 1; i >= 0; i--) {
+    const m = activeMissiles[i];
+    const elapsed = now - m.startTime;
+
+    if (!m.exploding) {
+      m.progress = Math.min(1, elapsed / m.duration);
+      const t = m.progress;
+      // Parabolic arc - missile rises then descends
+      const arcHeight = 0.3; // degrees of arc height
+      const currentLat = m.fromLat + (m.toLat - m.fromLat) * t + arcHeight * Math.sin(t * Math.PI);
+      const currentLon = m.fromLon + (m.toLon - m.fromLon) * t;
+
+      m.trail.push({ lat: currentLat, lon: currentLon, time: now });
+      // Keep trail for 1.5 seconds
+      m.trail = m.trail.filter(p => now - p.time < 1500);
+
+      // Draw trail (smoke/exhaust)
+      if (m.trail.length > 1) {
+        for (let j = 1; j < m.trail.length; j++) {
+          const alpha = (j / m.trail.length) * 0.6;
+          const p0 = latLonToCanvas(m.trail[j - 1].lat, m.trail[j - 1].lon, drawW, drawH);
+          const p1 = latLonToCanvas(m.trail[j].lat, m.trail[j].lon, drawW, drawH);
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(255, 140, 40, ${alpha})`;
+          ctx.lineWidth = 2;
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.stroke();
+          // Smoke behind
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(180, 180, 180, ${alpha * 0.3})`;
+          ctx.lineWidth = 4;
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.stroke();
+        }
+      }
+
+      // Draw missile head
+      const pos = latLonToCanvas(currentLat, currentLon, drawW, drawH);
+      // Glow
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
+      ctx.fill();
+      // Missile body
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff4400';
+      ctx.fill();
+      ctx.strokeStyle = '#ffaa00';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Launch flash at origin
+      if (elapsed < 400) {
+        const flashAlpha = (1 - elapsed / 400) * 0.5;
+        const origin = latLonToCanvas(m.fromLat, m.fromLon, drawW, drawH);
+        ctx.beginPath();
+        ctx.arc(origin.x, origin.y, 8 + elapsed / 30, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 200, 50, ${flashAlpha})`;
+        ctx.fill();
+      }
+
+      // Start explosion when missile arrives
+      if (m.progress >= 1) {
+        m.exploding = true;
+        m.explosionStart = now;
+      }
+    } else {
+      // Explosion animation
+      const explodeElapsed = now - m.explosionStart;
+      const explodeDuration = 1200;
+      if (explodeElapsed > explodeDuration) {
+        activeMissiles.splice(i, 1);
+        continue;
+      }
+      const explosionProgress = explodeElapsed / explodeDuration;
+      const pos = latLonToCanvas(m.toLat, m.toLon, drawW, drawH);
+
+      // Expanding rings
+      for (let ring = 0; ring < 3; ring++) {
+        const ringDelay = ring * 0.15;
+        const ringProgress = Math.max(0, explosionProgress - ringDelay);
+        if (ringProgress <= 0) continue;
+        const radius = ringProgress * 30 + ring * 5;
+        const alpha = (1 - ringProgress) * 0.5;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, ${100 + ring * 50}, 0, ${alpha})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Central flash
+      const flashAlpha = (1 - explosionProgress) * 0.8;
+      const flashRadius = 5 + explosionProgress * 15;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, flashRadius, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, flashRadius);
+      grad.addColorStop(0, `rgba(255, 255, 200, ${flashAlpha})`);
+      grad.addColorStop(0.4, `rgba(255, 140, 0, ${flashAlpha * 0.6})`);
+      grad.addColorStop(1, `rgba(200, 30, 0, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+  }
+}
+
+// ============================================
 // MAIN DRAW FUNCTION
 // ============================================
 function drawMap(canvas, options = {}) {
@@ -507,6 +730,9 @@ function drawMap(canvas, options = {}) {
     ctx.fillText('P E R S I A N   G U L F', gulfLabel.x, gulfLabel.y);
   }
 
+  // Military bases
+  drawMilitaryBases(ctx, drawW, drawH);
+
   // Oil terminals (always shown)
   if (options.showTerminals) {
     drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId);
@@ -560,6 +786,9 @@ function drawMap(canvas, options = {}) {
   if (options.waypoints && options.waypoints.length > 0 && options.ship) {
     drawWaypoints(ctx, options.waypoints, options.ship, drawW, drawH);
   }
+
+  // Missile animations (drawn on top of everything except minimap)
+  updateAndDrawMissiles(ctx, drawW, drawH);
 
   // Minimap
   if (options.showMinimap && options.ship) {
@@ -773,4 +1002,4 @@ function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
   });
 }
 
-export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints };
+export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints, spawnMissile };
