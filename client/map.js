@@ -626,7 +626,7 @@ function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
   planeCooldowns[baseId] = now + 180000; // 3-minute cooldown
 
   const dist = Math.hypot(toLat - fromLat, toLon - fromLon);
-  const flightMs = (dist / PLANE_SPEED_DEG_PER_SEC) * 1000;
+  const flightMs = (dist / PLANE_SPEED_DEG_PER_SEC) * 1000 * 0.7; // faster approach
   const loiterDuration = 4000 + Math.random() * 4000; // 4-8s circling near target
 
   // Random weave parameters (unique per sortie)
@@ -699,15 +699,20 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         // Transition to orbit: one continuous circle that spirals in then out
         p.phase = 'orbit';
         p.phaseStart = now;
-        // Total orbit time = loiter + returnLoiter duration
-        p.orbitDuration = p.loiterDuration + p.returnLoiterDuration;
-        // Total angle: ~3.5 full turns (2 loiter + 1.5 return)
+        // Total orbit time = loiter + returnLoiter duration (slower than approach)
+        p.orbitDuration = (p.loiterDuration + p.returnLoiterDuration) * 1.3;
+        // Total angle: ~3.5 full turns
         p.orbitTotalAngle = p.loiterDir * Math.PI * 2 * 3.5;
         // Seed orbit start angle from approach direction
         p.orbitStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
-        // Strike happens at 40% through the orbit (during the inward spiral)
+        // Strike happens at 40% through the orbit
         p.orbitStrikeT = 0.4;
         p.orbitStruck = false;
+        // Random wobble params for organic-looking orbit
+        p.wobbleFreq1 = 2 + Math.random() * 3;
+        p.wobbleFreq2 = 5 + Math.random() * 4;
+        p.wobbleAmp1 = 0.15 + Math.random() * 0.15; // 15-30% radius variation
+        p.wobbleAmp2 = 0.05 + Math.random() * 0.08;
       }
     } else if (p.phase === 'orbit') {
       // One continuous orbit: spiral in, circle, drop bomb, spiral out
@@ -717,21 +722,33 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       // Radius envelope: grows from 0 → full in first 15%, holds, shrinks to 0 in last 20%
       let rFactor;
       if (t < 0.15) {
-        rFactor = t / 0.15; // spiral in
+        rFactor = t / 0.15;
       } else if (t > 0.80) {
-        rFactor = (1 - t) / 0.20; // spiral out
+        rFactor = (1 - t) / 0.20;
       } else {
-        rFactor = 1.0; // full orbit
+        rFactor = 1.0;
       }
-      const r = p.loiterRadius * rFactor;
+      // Add organic wobble so it doesn't look like a perfect circle
+      const wobble = 1 + Math.sin(angle * p.wobbleFreq1) * p.wobbleAmp1
+                       + Math.sin(angle * p.wobbleFreq2) * p.wobbleAmp2;
+      const r = p.loiterRadius * rFactor * wobble;
 
       currentLat = p.toLat + Math.sin(angle) * r;
       currentLon = p.toLon + Math.cos(angle) * r;
 
-      // Analytical tangent for heading
-      const tangentLat = Math.cos(angle) * p.loiterDir;
-      const tangentLon = -Math.sin(angle) * p.loiterDir;
-      canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
+      // Heading from finite difference for accuracy with wobble
+      const dt = 0.002;
+      const nextAngle = p.orbitStartAngle + p.orbitTotalAngle * Math.min(1, t + dt);
+      let nextRFactor;
+      if ((t + dt) < 0.15) nextRFactor = (t + dt) / 0.15;
+      else if ((t + dt) > 0.80) nextRFactor = (1 - (t + dt)) / 0.20;
+      else nextRFactor = 1.0;
+      const nextWobble = 1 + Math.sin(nextAngle * p.wobbleFreq1) * p.wobbleAmp1
+                           + Math.sin(nextAngle * p.wobbleFreq2) * p.wobbleAmp2;
+      const nextR = p.loiterRadius * nextRFactor * nextWobble;
+      const nextLat = p.toLat + Math.sin(nextAngle) * nextR;
+      const nextLon = p.toLon + Math.cos(nextAngle) * nextR;
+      canvasAngle = latLonHeadingToCanvas(nextLat - currentLat, nextLon - currentLon);
 
       // Trigger strike explosion at the right moment
       if (!p.orbitStruck && t >= p.orbitStrikeT) {
