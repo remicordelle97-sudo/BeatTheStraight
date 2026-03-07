@@ -864,11 +864,13 @@ function transitLoop(timestamp) {
       state.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, state.lat));
       state.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, state.lon));
 
-      // Trail
+      // Trail - expire points older than 60 seconds
       const trail = shipTrails[ship.id];
-      if (trail && (trail.length === 0 || elapsed - trail[trail.length - 1].t > 0.5)) {
-        trail.push({ lat: state.lat, lon: state.lon, t: elapsed });
-        if (trail.length > 200) trail.shift();
+      if (trail) {
+        if (trail.length === 0 || elapsed - trail[trail.length - 1].t > 0.5) {
+          trail.push({ lat: state.lat, lon: state.lon, t: elapsed });
+        }
+        while (trail.length > 0 && elapsed - trail[0].t > 60) trail.shift();
       }
 
       // Terminal cargo loading
