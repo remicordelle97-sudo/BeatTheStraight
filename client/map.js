@@ -367,14 +367,15 @@ function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
   }
 }
 
-function drawTrail(ctx, trail, drawW, drawH) {
+function drawTrail(ctx, trail, drawW, drawH, colorBase) {
   if (trail.length < 2) return;
   const len = trail.length;
+  const base = colorBase || 'rgba(240, 160, 48,';
   ctx.lineWidth = 1.5;
   for (let i = 1; i < len; i++) {
     const alpha = (i / len) * 0.45;
     ctx.beginPath();
-    ctx.strokeStyle = `rgba(240, 160, 48, ${alpha.toFixed(3)})`;
+    ctx.strokeStyle = `${base} ${alpha.toFixed(3)})`;
     const p0 = latLonToCanvas(trail[i - 1].lat, trail[i - 1].lon, drawW, drawH);
     const p1 = latLonToCanvas(trail[i].lat, trail[i].lon, drawW, drawH);
     ctx.moveTo(p0.x, p0.y);
@@ -455,18 +456,24 @@ function drawMap(canvas, options = {}) {
   drawCoastline(ctx, BAHRAIN, '#1a281a', drawW, drawH);
   drawCoastline(ctx, QATAR, '#1a281a', drawW, drawH);
 
-  // Country labels
+  // Major city labels
   ctx.fillStyle = '#2a3a2a';
-  ctx.font = '14px Courier New';
+  ctx.font = '11px Courier New';
 
   const labels = [
-    [29.0, 51.5, 'I R A N'],
-    [25.0, 49.5, 'S A U D I   A R A B I A'],
-    [24.5, 54.5, 'U A E'],
-    [29.5, 47.8, 'I R A Q'],
-    [29.0, 48.0, 'K U W A I T'],
-    [24.5, 57.0, 'O M A N'],
-    [25.8, 51.3, 'Q A T A R'],
+    [29.07, 48.00, 'Kuwait City'],
+    [30.50, 47.80, 'Basra'],
+    [27.50, 52.60, 'Shiraz'],
+    [28.97, 50.85, 'Bushehr'],
+    [26.43, 50.10, 'Dammam'],
+    [24.47, 54.37, 'Abu Dhabi'],
+    [25.28, 55.30, 'Dubai'],
+    [25.42, 55.50, 'Sharjah'],
+    [25.35, 56.35, 'Fujairah'],
+    [23.61, 58.54, 'Muscat'],
+    [25.30, 51.53, 'Doha'],
+    [26.22, 50.59, 'Manama'],
+    [27.19, 56.27, 'Bandar Abbas'],
   ];
 
   for (const [lat, lon, text] of labels) {
@@ -506,9 +513,11 @@ function drawMap(canvas, options = {}) {
     drawDropoffPoint(ctx, drawW, drawH);
   }
 
-  // Ship trail (for selected ship)
-  if (options.trail) {
-    drawTrail(ctx, options.trail, drawW, drawH);
+  // Ship trails (all ships)
+  if (options.allTrails) {
+    for (const t of options.allTrails) {
+      drawTrail(ctx, t.trail, drawW, drawH, t.color);
+    }
   }
 
   // NPC ships

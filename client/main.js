@@ -627,6 +627,7 @@ function createNPCTanker(staggered) {
     targetTerminal: terminal,
     state: staggered ? (['entering','heading_to_terminal','loading','departing'])[Math.floor(Math.random()*4)] : NPC_STATE.ENTERING,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
+    trail: [],
   };
 
   if (staggered && npc.state === NPC_STATE.LOADING) {
@@ -679,7 +680,7 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
   return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
 }
 
-function updateNPCShips(dt) {
+function updateNPCShips(dt, elapsed) {
   for (let i = 0; i < npcShips.length; i++) {
     const npc = npcShips[i];
     if (npc.state === NPC_STATE.LOADING) {
@@ -771,6 +772,15 @@ function updateNPCShips(dt) {
       }
       if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
+    // NPC trail
+    if (npc.speed > 0) {
+      const t = npc.trail;
+      if (t.length === 0 || elapsed - t[t.length - 1].t > 0.5) {
+        t.push({ lat: npc.lat, lon: npc.lon, t: elapsed });
+      }
+      while (t.length > 0 && elapsed - t[0].t > 4) t.shift();
+    }
+
     if (npc.lon > 60.5 || npc.lon < 46.5 || npc.lat > 31.0 || npc.lat < 23.0) npcShips[i] = createNPCTanker(false);
   }
 }
@@ -929,7 +939,7 @@ function transitLoop(timestamp) {
         if (trail.length === 0 || elapsed - trail[trail.length - 1].t > 0.5) {
           trail.push({ lat: state.lat, lon: state.lon, t: elapsed });
         }
-        while (trail.length > 0 && elapsed - trail[0].t > 5) trail.shift();
+        while (trail.length > 0 && elapsed - trail[0].t > 4) trail.shift();
       }
 
       // Terminal cargo loading (cargo type must match)
@@ -977,7 +987,7 @@ function transitLoop(timestamp) {
     }
   }
 
-  updateNPCShips(dt);
+  updateNPCShips(dt, elapsed);
   updateMilitaryShips(dt);
   checkCollisions(elapsed);
 
@@ -990,23 +1000,28 @@ function transitLoop(timestamp) {
 
   // Render
   const selectedState = selectedShipId ? shipStates[selectedShipId] : null;
-  const selectedTrail = selectedShipId ? (shipTrails[selectedShipId] || []) : [];
   const selectedWps = selectedShipId ? (shipWaypoints[selectedShipId] || []) : [];
 
   const playerShips = [];
+  const allTrails = [];
   if (me) {
     for (const ship of me.fleet) {
       const st = shipStates[ship.id];
       if (st && !st.destroyed && !st.seized) {
         playerShips.push({ lat: st.lat, lon: st.lon, heading: st.heading, isSelected: ship.id === selectedShipId });
+        const t = shipTrails[ship.id];
+        if (t && t.length > 1) allTrails.push({ trail: t, color: ship.id === selectedShipId ? 'rgba(240, 160, 48,' : 'rgba(64, 192, 112,' });
       }
     }
+  }
+  for (const npc of npcShips) {
+    if (npc.trail && npc.trail.length > 1) allTrails.push({ trail: npc.trail, color: 'rgba(100, 120, 160,' });
   }
 
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
-    ship: selectedState, trail: selectedTrail,
+    ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
     npcShips, militaryShips, showMinimap: true, playerShips,
