@@ -58,11 +58,7 @@ class GameState {
   }
 
   updateMarketConditions() {
-    const levels = Object.keys(RISK_LEVELS);
-    const currentIdx = levels.indexOf(this.riskLevel);
-    const shift = Math.random() < 0.3 ? (Math.random() < 0.5 ? -1 : 1) : 0;
-    const newIdx = Math.max(0, Math.min(levels.length - 1, currentIdx + shift));
-    this.riskLevel = levels[newIdx];
+    // Risk level locked at CRITICAL for testing
     const risk = RISK_LEVELS[this.riskLevel];
     const volatility = 0.9 + Math.random() * 0.2;
     this.oilPrice = Math.round(BASE_OIL_PRICE * risk.oilPriceMultiplier * volatility * 100) / 100;
