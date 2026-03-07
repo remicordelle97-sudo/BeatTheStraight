@@ -74,9 +74,9 @@ io.on('connection', (socket) => {
 
     game.startPlanning();
     io.to(game.id).emit('game_update', game.serialize());
-    io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING, round: game.round });
+    io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING });
     callback?.({ success: true });
-    console.log(`Game ${game.id} started, round ${game.round}`);
+    console.log(`Game ${game.id} started`);
   });
 
   // Player submits their plan (ship, AIS, insurance, time selections)
@@ -117,13 +117,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('buy_ship', ({ shipTypeId }, callback) => {
+  socket.on('buy_ship', ({ shipTypeId, aisId, insuranceId }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
     const game = games.get(info.gameId);
     if (!game) { callback?.({ success: false }); return; }
 
-    const ship = game.buyShip(socket.id, shipTypeId);
+    const ship = game.buyShip(socket.id, shipTypeId, aisId || 'FULL_BROADCAST', insuranceId || 'NONE');
     if (!ship) {
       callback?.({ success: false, error: 'Cannot afford ship' });
       return;
@@ -147,25 +147,6 @@ io.on('connection', (socket) => {
 
     socket.emit('game_update', game.serialize());
     callback?.({ success: true, ...result });
-  });
-
-  socket.on('next_round', (_, callback) => {
-    const info = socketMap.get(socket.id);
-    if (!info) { callback?.({ success: false }); return; }
-    const game = games.get(info.gameId);
-    if (!game || game.hostId !== socket.id) {
-      callback?.({ success: false, error: 'Only host can advance' });
-      return;
-    }
-
-    const continued = game.nextRound();
-    if (continued) {
-      io.to(game.id).emit('game_update', game.serialize());
-      io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING, round: game.round });
-    } else {
-      io.to(game.id).emit('game_over', { leaderboard: game.getLeaderboard() });
-    }
-    callback?.({ success: true, continued });
   });
 
   socket.on('get_options', (_, callback) => {

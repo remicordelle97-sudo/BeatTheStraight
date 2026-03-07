@@ -23,9 +23,12 @@ let joinMode = false;
 
 // Planning selections
 let selectedShipId = null;
-let selectedAisId = null;
-let selectedInsuranceId = null;
 let selectedTerminalId = null;
+
+// Ship purchase modal state
+let modalShipTypeId = null;
+let modalAisId = null;
+let modalInsuranceId = null;
 
 // Game speed state
 let gameSpeedMultiplier = 1; // 1x, 2x, 4x
@@ -388,7 +391,6 @@ document.getElementById('btn-start').addEventListener('click', () => {
 function renderPlanning() {
   if (!gameState || !options) return;
 
-  document.getElementById('plan-round').textContent = gameState.round;
   const riskBadge = document.getElementById('plan-risk');
   riskBadge.textContent = gameState.riskInfo.name.toUpperCase();
   riskBadge.className = `risk-badge risk-${gameState.riskLevel}`;
@@ -398,8 +400,6 @@ function renderPlanning() {
   document.getElementById('plan-cash').textContent = formatMoney(me?.cash || 0);
 
   selectedShipId = null;
-  selectedAisId = null;
-  selectedInsuranceId = null;
   selectedTerminalId = null;
 
   // Terminal selector
@@ -422,14 +422,12 @@ function renderPlanning() {
       terminalSelector.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       selectedTerminalId = card.dataset.key;
-      // Center map on selected terminal
       const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
       if (terminal) centerViewportOn(terminal.lat, terminal.lon);
-      updateCostPreview();
     });
   });
 
-  // Ship selector
+  // Ship selector - shows fleet with AIS/insurance info
   const shipSelector = document.getElementById('ship-selector');
   if (me && me.fleet.length > 0) {
     shipSelector.innerHTML = me.fleet.map(s => `
@@ -442,6 +440,7 @@ function renderPlanning() {
             HP: ${Math.round(s.health * 100)}%
           </span>
         </div>
+        <div class="option-desc">${s.aisName || 'Full AIS'} | ${s.insuranceName || 'No Insurance'}</div>
       </div>
     `).join('');
 
@@ -450,7 +449,6 @@ function renderPlanning() {
         shipSelector.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         selectedShipId = card.dataset.shipId;
-        updateCostPreview();
       });
     });
 
@@ -459,49 +457,14 @@ function renderPlanning() {
       shipSelector.querySelector('.option-card')?.classList.add('selected');
     }
   } else {
-    shipSelector.innerHTML = '<div class="muted">No ships! You\'re out.</div>';
+    shipSelector.innerHTML = '<div class="muted">No ships! Buy one to get started.</div>';
   }
-
-  // AIS selector
-  renderOptionSelector('ais-selector', options.aisOptions, (key, opt) => {
-    const detClass = opt.detectionMultiplier <= 0.5 ? 'stat-good' : opt.detectionMultiplier >= 1.2 ? 'stat-bad' : 'stat-warn';
-    return `
-      <div class="option-name">${opt.name}</div>
-      <div class="option-desc">${opt.description}</div>
-      <div class="option-stats">
-        <span class="stat ${detClass}">Detection: ${opt.detectionMultiplier}x</span>
-        ${opt.legalPenalty > 0 ? `<span class="stat stat-bad">Fine: ${formatMoney(opt.legalPenalty)}</span>` : ''}
-      </div>
-    `;
-  }, (key) => { selectedAisId = key; updateCostPreview(); });
-
-  // Insurance selector
-  renderOptionSelector('insurance-selector', options.insuranceOptions, (key, opt) => `
-    <div class="option-name">${opt.name}</div>
-    <div class="option-desc">${opt.description}</div>
-    <div class="option-stats">
-      <span class="stat">${(opt.costPercent * 100).toFixed(0)}% premium</span>
-      <span class="stat ${opt.coveragePercent >= 0.8 ? 'stat-good' : opt.coveragePercent > 0 ? 'stat-warn' : 'stat-bad'}">
-        ${Math.round(opt.coveragePercent * 100)}% coverage
-      </span>
-    </div>
-  `, (key) => { selectedInsuranceId = key; updateCostPreview(); });
 
   document.getElementById('btn-submit-plan').classList.remove('hidden');
   document.getElementById('plan-waiting').classList.add('hidden');
-  updateCostPreview();
 
-  // Buy ship button in planning dashboard
-  const buyShipBtn = document.getElementById('btn-buy-ship');
-  const dashShop = document.getElementById('dash-shop');
-  if (buyShipBtn) {
-    buyShipBtn.onclick = () => {
-      dashShop.classList.toggle('hidden');
-      if (!dashShop.classList.contains('hidden')) {
-        renderPlanningShop();
-      }
-    };
-  }
+  // Buy ship button opens modal
+  document.getElementById('btn-buy-ship').onclick = () => openShipPurchaseModal();
 
   // Section toggle (collapse/expand)
   document.querySelectorAll('.dash-section-title[data-toggle]').forEach(title => {
@@ -522,15 +485,33 @@ function renderPlanning() {
   setViewport(viewport);
 }
 
-function renderPlanningShop() {
-  const shop = document.getElementById('ship-shop-planning');
-  if (!shop || !options) return;
+// ============================================
+// SHIP PURCHASE MODAL
+// ============================================
+function openShipPurchaseModal() {
+  if (!options) return;
+  const modal = document.getElementById('ship-purchase-modal');
+  modal.classList.remove('hidden');
+
+  modalShipTypeId = null;
+  modalAisId = null;
+  modalInsuranceId = null;
+
+  // Reset to step 1
+  document.getElementById('modal-step-ship').classList.remove('hidden');
+  document.getElementById('modal-step-config').classList.add('hidden');
+
   const me = gameState.players.find(p => p.id === myId);
-  shop.innerHTML = Object.entries(options.shipTypes).map(([key, s]) => `
-    <div class="option-card" data-buy-key="${key}">
+
+  // Render ship type list
+  const shipList = document.getElementById('modal-ship-list');
+  shipList.innerHTML = Object.entries(options.shipTypes).map(([key, s]) => `
+    <div class="option-card" data-type-key="${key}">
       <div class="option-name">${s.name}</div>
+      <div class="option-desc">${s.description}</div>
       <div class="option-stats">
         <span class="stat">${(s.capacity / 1000).toFixed(0)}K DWT</span>
+        <span class="stat">${s.speed} kts</span>
         <span class="stat">${formatMoney(s.cost)}</span>
         <span class="stat ${(me?.cash || 0) >= s.cost ? 'stat-good' : 'stat-bad'}">
           ${(me?.cash || 0) >= s.cost ? 'Can Afford' : 'Too Expensive'}
@@ -538,82 +519,120 @@ function renderPlanningShop() {
       </div>
     </div>
   `).join('');
-  shop.querySelectorAll('.option-card[data-buy-key]').forEach(card => {
+
+  shipList.querySelectorAll('.option-card').forEach(card => {
     card.addEventListener('click', () => {
-      socket.emit('buy_ship', { shipTypeId: card.dataset.buyKey }, (res) => {
-        if (res.success) {
-          // gameState is updated via game_update event; re-render after short delay
-          setTimeout(() => renderPlanning(), 100);
-        } else {
-          showError(res.error || 'Cannot buy ship');
-        }
-      });
+      const key = card.dataset.typeKey;
+      const shipType = options.shipTypes[key];
+      const meCash = me?.cash || 0;
+      if (meCash < shipType.cost) {
+        showError('Cannot afford this ship');
+        return;
+      }
+      modalShipTypeId = key;
+      showModalConfigStep(shipType);
     });
   });
 }
 
-function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
-  const container = document.getElementById(containerId);
-  container.innerHTML = Object.entries(optionsObj).map(([key, opt]) => `
-    <div class="option-card" data-key="${key}">
-      ${renderFn(key, opt)}
+function showModalConfigStep(shipType) {
+  document.getElementById('modal-step-ship').classList.add('hidden');
+  document.getElementById('modal-step-config').classList.remove('hidden');
+  document.getElementById('modal-ship-name').textContent = shipType.name;
+
+  modalAisId = null;
+  modalInsuranceId = null;
+
+  // Render AIS options
+  const aisList = document.getElementById('modal-ais-list');
+  aisList.innerHTML = Object.entries(options.aisOptions).map(([key, opt]) => {
+    const detClass = opt.detectionMultiplier <= 0.5 ? 'stat-good' : opt.detectionMultiplier >= 1.2 ? 'stat-bad' : 'stat-warn';
+    return `
+      <div class="option-card" data-ais-key="${key}">
+        <div class="option-name">${opt.name}</div>
+        <div class="option-desc">${opt.description}</div>
+        <div class="option-stats">
+          <span class="stat ${detClass}">Detection: ${opt.detectionMultiplier}x</span>
+          ${opt.legalPenalty > 0 ? `<span class="stat stat-bad">Fine: ${formatMoney(opt.legalPenalty)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  aisList.querySelectorAll('.option-card').forEach(card => {
+    card.addEventListener('click', () => {
+      aisList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      modalAisId = card.dataset.aisKey;
+    });
+  });
+
+  // Render insurance options
+  const insList = document.getElementById('modal-insurance-list');
+  insList.innerHTML = Object.entries(options.insuranceOptions).map(([key, opt]) => `
+    <div class="option-card" data-ins-key="${key}">
+      <div class="option-name">${opt.name}</div>
+      <div class="option-desc">${opt.description}</div>
+      <div class="option-stats">
+        <span class="stat">${(opt.costPercent * 100).toFixed(0)}% premium</span>
+        <span class="stat ${opt.coveragePercent >= 0.8 ? 'stat-good' : opt.coveragePercent > 0 ? 'stat-warn' : 'stat-bad'}">
+          ${Math.round(opt.coveragePercent * 100)}% coverage
+        </span>
+      </div>
     </div>
   `).join('');
 
-  container.querySelectorAll('.option-card').forEach(card => {
+  insList.querySelectorAll('.option-card').forEach(card => {
     card.addEventListener('click', () => {
-      container.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      insList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
-      onSelect(card.dataset.key);
+      modalInsuranceId = card.dataset.insKey;
     });
   });
 }
 
-function updateCostPreview() {
-  const preview = document.getElementById('cost-preview');
-  const me = gameState?.players.find(p => p.id === myId);
-  if (!me || !selectedShipId || !selectedInsuranceId || !selectedTerminalId || !selectedAisId) {
-    preview.innerHTML = '<div class="muted">Select all options to see costs</div>';
+function closeShipPurchaseModal() {
+  document.getElementById('ship-purchase-modal').classList.add('hidden');
+}
+
+document.getElementById('modal-cancel').addEventListener('click', closeShipPurchaseModal);
+
+document.getElementById('modal-confirm-buy').addEventListener('click', () => {
+  if (!modalShipTypeId || !modalAisId || !modalInsuranceId) {
+    showError('Select AIS and insurance before confirming');
     return;
   }
 
-  const ship = me.fleet.find(s => s.id === selectedShipId);
-  const insurance = options.insuranceOptions[selectedInsuranceId];
-  const ais = selectedAisId ? options.aisOptions[selectedAisId] : null;
-  const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
-  if (!ship || !insurance || !terminal) return;
-
-  const cargoBarrels = ship.capacity * 7.33;
-  const cargoValue = cargoBarrels * gameState.oilPrice * terminal.loadingBonus;
-  const insuranceCost = cargoValue * insurance.costPercent;
-  const fuelCost = ship.fuelPerHour * 14 * FUEL_COST_PER_UNIT / 1000; // ~14 hours average
-  const legalPenalty = ais ? ais.legalPenalty : 0;
-  const totalCost = insuranceCost + fuelCost + legalPenalty;
-
-  preview.innerHTML = `
-    <div class="cost-line"><span>Terminal:</span><span>${terminal.name}</span></div>
-    <div class="cost-line"><span>Cargo Value:</span><span>${formatMoney(cargoValue)}</span></div>
-    <div class="cost-line"><span>Insurance:</span><span>-${formatMoney(insuranceCost)}</span></div>
-    <div class="cost-line"><span>Est. Fuel:</span><span>-${formatMoney(fuelCost)}</span></div>
-    ${legalPenalty > 0 ? `<div class="cost-line"><span>Legal Risk:</span><span class="stat-bad">-${formatMoney(legalPenalty)}</span></div>` : ''}
-    <div class="cost-line cost-total">
-      <span>Est. Max Profit:</span>
-      <span class="stat-good">${formatMoney(cargoValue - totalCost)}</span>
-    </div>
-  `;
-}
+  socket.emit('buy_ship', {
+    shipTypeId: modalShipTypeId,
+    aisId: modalAisId,
+    insuranceId: modalInsuranceId
+  }, (res) => {
+    if (res.success) {
+      closeShipPurchaseModal();
+      setTimeout(() => renderPlanning(), 100);
+    } else {
+      showError(res.error || 'Cannot buy ship');
+    }
+  });
+});
 
 // Submit plan and start transit
 document.getElementById('btn-submit-plan').addEventListener('click', () => {
-  if (!selectedShipId || !selectedAisId || !selectedInsuranceId || !selectedTerminalId) {
-    showError('Select all options before launching');
+  if (!selectedShipId || !selectedTerminalId) {
+    showError('Select a ship and terminal before launching');
     return;
   }
 
   const me = gameState.players.find(p => p.id === myId);
   const ship = me.fleet.find(s => s.id === selectedShipId);
-  const ais = options.aisOptions[selectedAisId];
-  const insurance = options.insuranceOptions[selectedInsuranceId];
+  if (!ship) { showError('Ship not found'); return; }
+
+  // Use ship's stored AIS/insurance
+  const aisId = ship.aisId || 'FULL_BROADCAST';
+  const insuranceId = ship.insuranceId || 'NONE';
+  const ais = options.aisOptions[aisId];
+  const insurance = options.insuranceOptions[insuranceId];
   const time = { id: 'day', name: 'Daytime', visibilityMultiplier: 1.0 };
   const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
 
@@ -622,8 +641,8 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
   socket.emit('submit_plan', {
     shipId: selectedShipId,
     routeId: 'PLAYER_NAVIGATED',
-    aisId: selectedAisId,
-    insuranceId: selectedInsuranceId,
+    aisId: aisId,
+    insuranceId: insuranceId,
     terminalId: selectedTerminalId
   }, (res) => {
     if (res.success) {
@@ -1440,16 +1459,6 @@ function renderResults(myResult) {
 
   renderLeaderboard();
   renderFleetManagement();
-
-  const btnNext = document.getElementById('btn-next-round');
-  const resultsWaiting = document.getElementById('results-waiting');
-  if (isHost) {
-    btnNext.classList.remove('hidden');
-    resultsWaiting.classList.add('hidden');
-  } else {
-    btnNext.classList.add('hidden');
-    resultsWaiting.classList.remove('hidden');
-  }
 }
 
 function renderLeaderboard() {
@@ -1510,13 +1519,17 @@ function renderFleetManagement() {
 
 // Global handlers
 window.buyShip = (typeId) => {
-  socket.emit('buy_ship', { shipTypeId: typeId }, (res) => {
-    if (res.success) {
-      renderFleetManagement();
-    } else {
-      showError(res.error || 'Cannot buy ship');
-    }
-  });
+  // Open modal for AIS/insurance selection
+  openShipPurchaseModal();
+  // Pre-select the ship type
+  if (options?.shipTypes[typeId]) {
+    const cards = document.querySelectorAll('#modal-ship-list .option-card');
+    cards.forEach(c => {
+      if (c.dataset.id === typeId) c.classList.add('selected');
+    });
+    modalShipTypeId = typeId;
+    showModalConfigStep(options.shipTypes[typeId]);
+  }
 };
 
 window.repairShip = (shipId) => {
@@ -1529,11 +1542,10 @@ window.repairShip = (shipId) => {
   });
 };
 
-// Next round
-document.getElementById('btn-next-round').addEventListener('click', () => {
-  socket.emit('next_round', null, (res) => {
-    if (!res.success) showError(res.error);
-  });
+// Continue to next transit (return to planning)
+document.getElementById('btn-continue').addEventListener('click', () => {
+  showScreen('planning');
+  renderPlanning();
 });
 
 // ============================================
@@ -1579,7 +1591,7 @@ socket.on('game_update', (state) => {
   }
 });
 
-socket.on('phase_change', ({ phase, round }) => {
+socket.on('phase_change', ({ phase }) => {
   if (phase === 'planning') {
     showScreen('planning');
     renderPlanning();

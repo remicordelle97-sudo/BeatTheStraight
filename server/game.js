@@ -13,12 +13,11 @@ class GameState {
     this.id = id;
     this.hostId = hostId;
     this.phase = GAME_PHASES.LOBBY;
-    this.round = 1;
-    this.maxRounds = 10;
     this.riskLevel = 'MODERATE';
     this.oilPrice = BASE_OIL_PRICE * RISK_LEVELS.MODERATE.oilPriceMultiplier;
     this.players = {};
     this.transitLog = [];
+    this.transitCount = 0;
     this.createdAt = Date.now();
   }
 
@@ -28,7 +27,7 @@ class GameState {
       id: playerId,
       name: playerName,
       cash: STARTING_CASH,
-      fleet: [{ ...SHIP_TYPES.SMALL_TANKER, health: 1.0, id: 'ship_0' }],
+      fleet: [],
       totalProfit: 0,
       totalLosses: 0,
       successfulTransits: 0,
@@ -126,20 +125,28 @@ class GameState {
       player.fleet = player.fleet.filter(s => s.id !== player.currentPlan.shipId);
     }
 
-    this.phase = GAME_PHASES.REINVEST;
+    this.transitCount++;
+    this.phase = GAME_PHASES.PLANNING;
+    this.updateMarketConditions();
     return this.serialize();
   }
 
-  buyShip(playerId, shipTypeId) {
+  buyShip(playerId, shipTypeId, aisId, insuranceId) {
     const player = this.players[playerId];
     const shipType = SHIP_TYPES[shipTypeId];
-    if (!player || !shipType) return null;
+    const ais = AIS_OPTIONS[aisId];
+    const insurance = INSURANCE_OPTIONS[insuranceId];
+    if (!player || !shipType || !ais || !insurance) return null;
     if (player.cash < shipType.cost) return null;
 
     const newShip = {
       ...shipType,
       health: 1.0,
-      id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+      id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      aisId: aisId,
+      aisName: ais.name,
+      insuranceId: insuranceId,
+      insuranceName: insurance.name
     };
     player.cash -= shipType.cost;
     player.fleet.push(newShip);
@@ -158,16 +165,6 @@ class GameState {
     player.cash -= repairCost;
     ship.health = 1.0;
     return { repairCost, ship };
-  }
-
-  nextRound() {
-    this.round++;
-    if (this.round > this.maxRounds) {
-      this.phase = GAME_PHASES.RESULTS;
-      return false;
-    }
-    this.startPlanning();
-    return true;
   }
 
   getLeaderboard() {
@@ -191,8 +188,7 @@ class GameState {
     return {
       id: this.id,
       phase: this.phase,
-      round: this.round,
-      maxRounds: this.maxRounds,
+      transitCount: this.transitCount,
       riskLevel: this.riskLevel,
       riskInfo: RISK_LEVELS[this.riskLevel],
       oilPrice: this.oilPrice,

@@ -49,14 +49,13 @@
     <div id="screen-planning" class="screen">
       <!-- Top-left dashboard -->
       <div class="planning-dashboard">
-        <!-- Header row: round, risk, money -->
+        <!-- Header row: risk, oil price, money -->
         <div class="dash-header">
           <div class="dash-header-left">
-            <span class="dash-round">RD <span id="plan-round">1</span>/10</span>
             <span class="risk-badge" id="plan-risk">MODERATE</span>
+            <span class="dash-oil">OIL $<span id="plan-oil-price">0</span>/bbl</span>
           </div>
           <div class="dash-header-right">
-            <span class="dash-oil">OIL $<span id="plan-oil-price">0</span>/bbl</span>
             <span class="dash-cash">$<span id="plan-cash">0</span></span>
           </div>
         </div>
@@ -72,12 +71,6 @@
           </div>
         </div>
 
-        <!-- Buy Ship Panel (hidden by default) -->
-        <div id="dash-shop" class="dash-section hidden">
-          <div class="dash-section-title">BUY SHIP</div>
-          <div class="dash-section-body" id="ship-shop-planning" class="option-grid"></div>
-        </div>
-
         <!-- Terminal section -->
         <div class="dash-section">
           <div class="dash-section-title" data-toggle="terminal">
@@ -88,36 +81,38 @@
           </div>
         </div>
 
-        <!-- AIS section -->
-        <div class="dash-section">
-          <div class="dash-section-title" data-toggle="ais">
-            AIS TRANSPONDER <span class="dash-toggle-icon">&#9660;</span>
-          </div>
-          <div class="dash-section-body" id="dash-ais">
-            <div id="ais-selector" class="option-grid"></div>
-          </div>
-        </div>
-
-        <!-- Insurance section -->
-        <div class="dash-section">
-          <div class="dash-section-title" data-toggle="insurance">
-            INSURANCE <span class="dash-toggle-icon">&#9660;</span>
-          </div>
-          <div class="dash-section-body" id="dash-insurance">
-            <div id="insurance-selector" class="option-grid"></div>
-          </div>
-        </div>
-
-        <!-- Mission summary -->
-        <div class="dash-section">
-          <div class="dash-section-title">MISSION SUMMARY</div>
-          <div class="dash-section-body">
-            <div id="cost-preview" class="cost-preview"></div>
-          </div>
-        </div>
-
         <button id="btn-submit-plan" class="btn btn-primary dash-launch-btn">LAUNCH TRANSIT</button>
         <div id="plan-waiting" class="hidden muted">Waiting for other captains...</div>
+      </div>
+
+      <!-- Ship Purchase Modal -->
+      <div id="ship-purchase-modal" class="modal-overlay hidden">
+        <div class="modal-panel">
+          <div class="modal-header">PURCHASE SHIP</div>
+
+          <div class="modal-step" id="modal-step-ship">
+            <div class="modal-step-title">1. SELECT SHIP TYPE</div>
+            <div id="modal-ship-list" class="option-grid"></div>
+          </div>
+
+          <div class="modal-step hidden" id="modal-step-config">
+            <div class="modal-step-title">2. CONFIGURE <span id="modal-ship-name"></span></div>
+
+            <div class="modal-sub-section">
+              <div class="modal-sub-title">AIS TRANSPONDER</div>
+              <div id="modal-ais-list" class="option-grid"></div>
+            </div>
+
+            <div class="modal-sub-section">
+              <div class="modal-sub-title">INSURANCE</div>
+              <div id="modal-insurance-list" class="option-grid"></div>
+            </div>
+
+            <button id="modal-confirm-buy" class="btn btn-primary dash-launch-btn">CONFIRM PURCHASE</button>
+          </div>
+
+          <button id="modal-cancel" class="btn btn-small btn-ghost" style="width:100%;margin-top:8px;">CANCEL</button>
+        </div>
       </div>
     </div>
 
@@ -214,8 +209,7 @@
           <h4>BUY NEW SHIPS</h4>
           <div id="ship-shop" class="option-grid"></div>
         </div>
-        <button id="btn-next-round" class="btn btn-primary btn-large hidden">NEXT ROUND</button>
-        <p id="results-waiting" class="muted hidden">Waiting for host...</p>
+        <button id="btn-continue" class="btn btn-primary btn-large">CONTINUE</button>
       </div>
     </div>
 
