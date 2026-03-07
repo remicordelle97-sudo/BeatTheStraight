@@ -1815,6 +1815,8 @@ function pickMissileTarget(bases, cities) {
 function updateAmbientWar(elapsed) {
   const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
   const ambientChance = risk.eventFrequency;
+  const rl = gameState?.riskLevel || 'LOW';
+  const planeChance = rl === 'CRITICAL' ? 0.5 : rl === 'HIGH' ? 0.25 : rl === 'MODERATE' ? 0.4 : 0.4;
 
   const iranMissileBases = MILITARY_BASES.filter(b => b.country === 'Iran' && (b.type === 'missile' || b.type === 'naval'));
   const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
@@ -1848,7 +1850,7 @@ function updateAmbientWar(elapsed) {
         }
       }
 
-      if (iranAirBases.length > 0 && Math.random() < 0.4) {
+      if (iranAirBases.length > 0 && Math.random() < planeChance) {
         const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
         const target = pickMissileTarget(alliedBases, alliedCities);
         if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
@@ -1890,7 +1892,7 @@ function updateAmbientWar(elapsed) {
         }
       }
 
-      if (alliedAirBases.length > 0 && Math.random() < 0.35) {
+      if (alliedAirBases.length > 0 && Math.random() < planeChance) {
         const airBase = alliedAirBases[Math.floor(Math.random() * alliedAirBases.length)];
         const target = pickMissileTarget(iranMissileBases, iranCities);
         if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
