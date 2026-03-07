@@ -1268,14 +1268,14 @@ function updateNPCShips(dt, elapsed) {
     npc.lat = Math.max(MAP_BOUNDS.south + 0.1, Math.min(MAP_BOUNDS.north - 0.1, npc.lat));
     npc.lon = Math.max(MAP_BOUNDS.west + 0.1, Math.min(MAP_BOUNDS.east - 0.1, npc.lon));
 
-    // Trail
+    // Trail — always expire old points so trail fades when stopped
+    const t = npc.trail;
     if (npc.speed > 0) {
-      const t = npc.trail;
       if (t.length === 0 || elapsed - t[t.length - 1].t > 0.5) {
         t.push({ lat: npc.lat, lon: npc.lon, t: elapsed });
       }
-      while (t.length > 0 && elapsed - t[0].t > 4) t.shift();
     }
+    while (t.length > 0 && elapsed - t[0].t > 4) t.shift();
   }
 }
 

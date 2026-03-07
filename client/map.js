@@ -635,17 +635,30 @@ function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
   const loiterRadius = 0.15 + Math.random() * 0.1; // circling radius near target
   const loiterDir = Math.random() < 0.5 ? 1 : -1; // CW or CCW
 
+  // Compute approach direction unit vector (from base toward target)
+  const adLat = toLat - fromLat;
+  const adLon = toLon - fromLon;
+  const adLen = Math.hypot(adLat, adLon) || 1;
+  const approachLat = adLat / adLen; // unit forward (toward target)
+  const approachLon = adLon / adLen;
+  // Perpendicular (to the right of approach direction)
+  const perpLat = -approachLon * loiterDir;
+  const perpLon = approachLat * loiterDir;
+
   activePlanes.push({
     baseId, fromLat, fromLon, toLat, toLon,
     startTime: now,
-    phase: 'outbound', // outbound -> loiter -> strike -> returnLoiter -> return
+    phase: 'outbound', // outbound -> orbit -> return
     phaseStart: now,
     flightDuration: flightMs,
     loiterDuration,
-    returnLoiterDuration: 2000 + Math.random() * 3000,
     trail: [],
     weaveFreq, weaveAmp, loiterRadius, loiterDir,
-    strikeTime: 0,
+    // Approach/orbit geometry
+    approachLat, approachLon, perpLat, perpLon,
+    // Ellipse semi-axes: wider perpendicular to approach, narrower along it
+    ellipseA: loiterRadius * 1.3,  // perpendicular (lateral) semi-axis
+    ellipseB: loiterRadius * 0.7,  // along approach (forward) semi-axis
   });
 }
 
@@ -688,77 +701,94 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     if (p.phase === 'outbound') {
       const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
-      // Ease-in: slow takeoff, accelerates to cruising speed
-      const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep for gentle start and steady cruise
-      const cur = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, t, p.weaveFreq, p.weaveAmp);
-      currentLat = cur.lat;
-      currentLon = cur.lon;
-      const prevT = Math.max(0, t - 0.01);
-      const prev = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, prevT, p.weaveFreq, p.weaveAmp);
-      canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
+      // Ease-out: fast departure, decelerating as we approach the target/loop entry
+      // Using cubic ease-out for a smooth deceleration into the loop
+      const t = 1 - Math.pow(1 - tRaw, 3);
+
+      // Fly straight at the target — no weave on approach
+      // But the endpoint is offset: we aim slightly past the target so the
+      // ellipse entry point is on the approach side of the target
+      const entryOffsetLat = p.toLat - p.approachLat * p.ellipseB;
+      const entryOffsetLon = p.toLon - p.approachLon * p.ellipseB;
+      currentLat = p.fromLat + (entryOffsetLat - p.fromLat) * t;
+      currentLon = p.fromLon + (entryOffsetLon - p.fromLon) * t;
+
+      // Heading: straight toward target
+      canvasAngle = latLonHeadingToCanvas(
+        entryOffsetLat - p.fromLat,
+        entryOffsetLon - p.fromLon
+      );
 
       if (tRaw >= 1) {
-        // Transition to orbit: one continuous circle that spirals in then out
+        // Transition to elliptical orbit
         p.phase = 'orbit';
         p.phaseStart = now;
-        // Half-circle arc: sweep in, strike near midpoint, sweep out
-        p.orbitDuration = p.loiterDuration * 0.8;
-        // One half turn (PI radians)
-        p.orbitTotalAngle = p.loiterDir * Math.PI;
-        // Seed orbit start angle so tangent at entry matches approach heading
-        // Tangent = (cos(a)*dir, -sin(a)*dir), so for tangent ∝ (dLat, dLon):
-        // cos(a)*dir = dLat, -sin(a)*dir = dLon → a = atan2(-dLon*dir, dLat*dir)
-        const dLat = cur.lat - prev.lat;
-        const dLon = cur.lon - prev.lon;
-        p.orbitStartAngle = Math.atan2(-dLon * p.loiterDir, dLat * p.loiterDir);
-        // Strike at midpoint of the arc
-        p.orbitStrikeT = 0.5;
+        p.orbitDuration = p.loiterDuration;
+        p.orbitStrikeT = 0.5; // bomb drops at top of loop (slowest point)
         p.orbitStruck = false;
-        // Subtle wobble
-        p.wobbleFreq = 1.5 + Math.random() * 1.0;
-        p.wobbleAmp = 0.06 + Math.random() * 0.06;
       }
     } else if (p.phase === 'orbit') {
-      // One continuous orbit: spiral in, circle, drop bomb, spiral out
-      const t = Math.min(1, phaseElapsed / p.orbitDuration);
-      const angle = p.orbitStartAngle + p.orbitTotalAngle * t;
+      // Full elliptical loop around the target
+      // theta goes from 0 (entry, behind target) through PI (top, far side)
+      // to 2*PI (exit, back behind target)
+      const tRaw = Math.min(1, phaseElapsed / p.orbitDuration);
 
-      // Radius envelope: grows from 0 → full in first 25%, then holds
-      // (no shrink at end — return phase picks up from exit position)
-      let rFactor;
-      if (t < 0.25) {
-        rFactor = t / 0.25;
-      } else {
-        rFactor = 1.0;
-      }
-      // Subtle wobble so it's not a perfect circle
-      const wobble = 1 + Math.sin(angle * p.wobbleFreq) * p.wobbleAmp;
-      const r = p.loiterRadius * rFactor * wobble;
+      // Variable speed: slowest at the top (t=0.5), fastest at entry/exit
+      // g(t) = t + (k/(2π)) * sin(2πt)  where k controls speed variation
+      // dg/dt = 1 + k*cos(2πt): at t=0,1 → 1+k (fast), at t=0.5 → 1-k (slow)
+      const k = 0.45; // speed ratio: top is ~0.55x, entry/exit is ~1.45x
+      const g = tRaw + (k / (2 * Math.PI)) * Math.sin(2 * Math.PI * tRaw);
+      // Normalize g so g(1) maps to exactly 1
+      const gNorm = g; // sin(2π) = 0, so g(1) = 1 already
 
-      currentLat = p.toLat + Math.sin(angle) * r;
-      currentLon = p.toLon + Math.cos(angle) * r;
+      // Ellipse angle: full loop (2π), direction determined by loiterDir
+      const theta = p.loiterDir * 2 * Math.PI * gNorm;
 
-      // Analytical tangent for smooth heading
-      const tangentLat = Math.cos(angle) * p.loiterDir;
-      const tangentLon = -Math.sin(angle) * p.loiterDir;
+      // Ellipse position in local coordinates:
+      // lateral offset = ellipseA * sin(theta) (perpendicular to approach)
+      // forward offset = -ellipseB * (1 - cos(theta)) (pushes away from entry)
+      // At theta=0: lateral=0, forward=0 (entry point)
+      // At theta=π: lateral=0, forward=-2*ellipseB (far side, past target)
+      const lateralOffset = p.ellipseA * Math.sin(theta);
+      const forwardOffset = -p.ellipseB * (1 - Math.cos(theta));
+
+      // The entry point is behind the target by ellipseB (from outbound endpoint)
+      const entryLat = p.toLat - p.approachLat * p.ellipseB;
+      const entryLon = p.toLon - p.approachLon * p.ellipseB;
+
+      currentLat = entryLat + p.perpLat * lateralOffset + p.approachLat * forwardOffset;
+      currentLon = entryLon + p.perpLon * lateralOffset + p.approachLon * forwardOffset;
+
+      // Analytical tangent for heading (derivative of position w.r.t. theta)
+      // d(lateral)/dθ = ellipseA * cos(θ)
+      // d(forward)/dθ = -ellipseB * sin(θ) ... wait: d/dθ[-B*(1-cos(θ))] = -B*sin(θ)
+      const dLateral = p.ellipseA * Math.cos(theta) * p.loiterDir;
+      const dForward = -p.ellipseB * Math.sin(theta) * p.loiterDir;
+      const tangentLat = p.perpLat * dLateral + p.approachLat * dForward;
+      const tangentLon = p.perpLon * dLateral + p.approachLon * dForward;
       canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
 
-      // Trigger bomb drop at the right moment
-      if (!p.orbitStruck && t >= p.orbitStrikeT) {
+      // Trigger bomb drop at the top of the loop (t=0.5, slowest point)
+      if (!p.orbitStruck && tRaw >= p.orbitStrikeT) {
         p.orbitStruck = true;
         p.bombDropTime = now;
         p.bombFromLat = currentLat;
         p.bombFromLon = currentLon;
       }
 
-      // Bomb drop animation: falls from plane to target over 800ms
+      // Bomb drop animation: falls from plane position to target over 800ms
       const bombDuration = 800;
       if (p.bombDropTime && !p.explosionStart) {
         const bombElapsed = now - p.bombDropTime;
         const bt = Math.min(1, bombElapsed / bombDuration);
-        // Interpolate from drop position to target with slight forward drift
-        const bombLat = p.bombFromLat + (p.toLat - p.bombFromLat) * bt;
-        const bombLon = p.bombFromLon + (p.toLon - p.bombFromLon) * bt;
+
+        // Track the plane's current position for the bomb origin to stay under it initially
+        const bombStartLat = p.bombFromLat;
+        const bombStartLon = p.bombFromLon;
+
+        // Interpolate from drop position to target
+        const bombLat = bombStartLat + (p.toLat - bombStartLat) * bt;
+        const bombLon = bombStartLon + (p.toLon - bombStartLon) * bt;
         const bombPos = latLonToCanvas(bombLat, bombLon, drawW, drawH);
 
         // Growing shadow on ground
@@ -801,14 +831,12 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         if (explodeElapsed < explodeDuration) {
           const strikeProgress = explodeElapsed / explodeDuration;
           const epos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
-          // Fireball
           const alpha = (1 - strikeProgress) * 0.7;
           const radius = 4 + strikeProgress * 22;
           ctx.beginPath();
           ctx.arc(epos.x, epos.y, radius, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(255, 160, 30, ${alpha})`;
           ctx.fill();
-          // Inner bright core
           if (strikeProgress < 0.5) {
             const coreAlpha = (1 - strikeProgress * 2) * 0.8;
             ctx.beginPath();
@@ -816,7 +844,6 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
             ctx.fillStyle = `rgba(255, 255, 200, ${coreAlpha})`;
             ctx.fill();
           }
-          // Smoke ring
           if (strikeProgress > 0.3) {
             const smokeAlpha = (1 - strikeProgress) * 0.3;
             const smokeR = radius * 1.5;
@@ -829,7 +856,7 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         }
       }
 
-      if (t >= 1) {
+      if (tRaw >= 1) {
         p.phase = 'return';
         p.phaseStart = now;
         p.returnFromLat = currentLat;
@@ -838,18 +865,16 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     } else if (p.phase === 'return') {
       const rFromLat = p.returnFromLat || p.toLat;
       const rFromLon = p.returnFromLon || p.toLon;
-      // Longer return flight to account for deceleration
-      const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.3));
-      // Ease-in-out: gradual acceleration from target, cruise, then decelerate near base
-      const t = tRaw < 0.5
-        ? 2 * tRaw * tRaw                      // ease-in first half
-        : 1 - Math.pow(-2 * tRaw + 2, 2) / 2; // ease-out second half
-      const cur = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
-      currentLat = cur.lat;
-      currentLon = cur.lon;
-      const prevT = Math.max(0, t - 0.01);
-      const prev = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, prevT, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
-      canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
+      const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.2));
+      // Ease-in (cubic): accelerates away from the loop, then cruises home
+      const t = tRaw * tRaw * (3 - 2 * tRaw);
+      currentLat = rFromLat + (p.fromLat - rFromLat) * t;
+      currentLon = rFromLon + (p.fromLon - rFromLon) * t;
+
+      canvasAngle = latLonHeadingToCanvas(
+        p.fromLat - rFromLat,
+        p.fromLon - rFromLon
+      );
 
       if (tRaw >= 1) {
         activePlanes.splice(i, 1);
