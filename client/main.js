@@ -491,9 +491,65 @@ function renderPlanning() {
   document.getElementById('plan-waiting').classList.add('hidden');
   updateCostPreview();
 
+  // Buy ship button in planning dashboard
+  const buyShipBtn = document.getElementById('btn-buy-ship');
+  const dashShop = document.getElementById('dash-shop');
+  if (buyShipBtn) {
+    buyShipBtn.onclick = () => {
+      dashShop.classList.toggle('hidden');
+      if (!dashShop.classList.contains('hidden')) {
+        renderPlanningShop();
+      }
+    };
+  }
+
+  // Section toggle (collapse/expand)
+  document.querySelectorAll('.dash-section-title[data-toggle]').forEach(title => {
+    title.onclick = () => {
+      const body = title.nextElementSibling;
+      if (body) {
+        body.classList.toggle('collapsed');
+        const icon = title.querySelector('.dash-toggle-icon');
+        if (icon) {
+          icon.innerHTML = body.classList.contains('collapsed') ? '&#9654;' : '&#9660;';
+        }
+      }
+    };
+  });
+
   // Show map with terminals during planning (zoom out to show gulf + spawn area)
   viewport = { north: 30.0, south: 23.0, west: 47.5, east: 60.0 };
   setViewport(viewport);
+}
+
+function renderPlanningShop() {
+  const shop = document.getElementById('ship-shop-planning');
+  if (!shop || !options) return;
+  const me = gameState.players.find(p => p.id === myId);
+  shop.innerHTML = Object.entries(options.shipTypes).map(([key, s]) => `
+    <div class="option-card" data-buy-key="${key}">
+      <div class="option-name">${s.name}</div>
+      <div class="option-stats">
+        <span class="stat">${(s.capacity / 1000).toFixed(0)}K DWT</span>
+        <span class="stat">${formatMoney(s.cost)}</span>
+        <span class="stat ${(me?.cash || 0) >= s.cost ? 'stat-good' : 'stat-bad'}">
+          ${(me?.cash || 0) >= s.cost ? 'Can Afford' : 'Too Expensive'}
+        </span>
+      </div>
+    </div>
+  `).join('');
+  shop.querySelectorAll('.option-card[data-buy-key]').forEach(card => {
+    card.addEventListener('click', () => {
+      socket.emit('buy_ship', { shipTypeId: card.dataset.buyKey }, (res) => {
+        if (res.success) {
+          // gameState is updated via game_update event; re-render after short delay
+          setTimeout(() => renderPlanning(), 100);
+        } else {
+          showError(res.error || 'Cannot buy ship');
+        }
+      });
+    });
+  });
 }
 
 function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
