@@ -32,7 +32,6 @@ let simGameTime = 0;
 let lastFrameTime = 0;
 let zoneCooldowns = {};
 let lastEventCheck = 0;
-let lastCollisionCheck = 0;
 
 // Multi-ship state
 let shipStates = {};
@@ -650,7 +649,7 @@ function enterGame() {
   simGameTime = 0;
   zoneCooldowns = {};
   lastEventCheck = 0;
-  lastCollisionCheck = 0;
+
 
   const me = gameState.players.find(p => p.id === myId);
   if (me) {
@@ -1191,39 +1190,6 @@ function updateMilitaryShips(dt) {
 }
 
 // ============================================
-// COLLISION DETECTION
-// ============================================
-function checkCollisions(elapsed) {
-  if (elapsed - lastCollisionCheck < 2) return;
-  lastCollisionCheck = elapsed;
-  const me = gameState?.players.find(p => p.id === myId);
-  if (!me) return;
-  for (const ship of me.fleet) {
-    const state = shipStates[ship.id];
-    if (!state || state.destroyed || state.seized) continue;
-    for (const npc of npcShips) {
-      const dist = distanceDeg(state.lat, state.lon, npc.lat, npc.lon);
-      if (dist < SIM_CONFIG.COLLISION_RADIUS) {
-        if (dist < SIM_CONFIG.COLLISION_RADIUS * 0.5) {
-          state.totalDamage += 0.15;
-          addTransitEvent('COLLISION', `${ship.name}: Major collision with ${npc.name}!`, 'danger');
-        } else {
-          state.totalDamage += 0.03;
-          addTransitEvent('NEAR MISS', `${ship.name}: Glancing blow with ${npc.name}.`, 'danger');
-        }
-        updateFleetPanel();
-      }
-    }
-    for (const mil of militaryShips) {
-      const dist = distanceDeg(state.lat, state.lon, mil.lat, mil.lon);
-      if (dist < mil.dangerRadius && Math.random() < mil.friendlyFireChance) {
-        state.totalDamage += 0.05; state.totalMoneyLoss += 0.02;
-        addTransitEvent('MILITARY INCIDENT', `${ship.name}: Incident near ${mil.name}.`, 'danger');
-        updateFleetPanel();
-      }
-    }
-  }
-}
 
 // ============================================
 // TRANSIT LOOP
@@ -1466,7 +1432,6 @@ function transitLoop(timestamp) {
 
   updateNPCShips(dt, elapsed);
   updateMilitaryShips(dt);
-  checkCollisions(elapsed);
 
   if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
