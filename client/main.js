@@ -1634,11 +1634,21 @@ function updateAmbientWar(elapsed) {
   const alliedAirBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && b.type === 'air');
   const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
 
-  // --- Iranian strikes toward allies ---
+  // --- Coordinated Iranian salvo toward allies ---
   if (iranMissileBases.length > 0 && Math.random() < 0.6) {
-    const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
-    const target = pickMissileTarget(alliedBases, alliedCities);
-    if (target) spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+    // Pick 2-5 bases to fire in a coordinated salvo
+    const salvoSize = 2 + Math.floor(Math.random() * Math.min(4, iranMissileBases.length));
+    const shuffled = [...iranMissileBases].sort(() => Math.random() - 0.5);
+    const firingBases = shuffled.slice(0, salvoSize);
+    for (let si = 0; si < firingBases.length; si++) {
+      const launcher = firingBases[si];
+      const target = pickMissileTarget(alliedBases, alliedCities);
+      if (target) {
+        // Stagger launches within ~0.8s window
+        const delay = si * (100 + Math.random() * 200);
+        setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
+      }
+    }
   }
 
   if (iranAirBases.length > 0 && Math.random() < 0.4) {
@@ -1647,11 +1657,19 @@ function updateAmbientWar(elapsed) {
     if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
   }
 
-  // --- Allied counter-strikes toward Iran ---
+  // --- Coordinated allied counter-salvo toward Iran ---
   if (alliedMissileBases.length > 0 && Math.random() < 0.5) {
-    const launcher = alliedMissileBases[Math.floor(Math.random() * alliedMissileBases.length)];
-    const target = pickMissileTarget(iranMissileBases, iranCities);
-    if (target) spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+    const salvoSize = 2 + Math.floor(Math.random() * Math.min(3, alliedMissileBases.length));
+    const shuffled = [...alliedMissileBases].sort(() => Math.random() - 0.5);
+    const firingBases = shuffled.slice(0, salvoSize);
+    for (let si = 0; si < firingBases.length; si++) {
+      const launcher = firingBases[si];
+      const target = pickMissileTarget(iranMissileBases, iranCities);
+      if (target) {
+        const delay = si * (100 + Math.random() * 200);
+        setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
+      }
+    }
   }
 
   if (alliedAirBases.length > 0 && Math.random() < 0.35) {
@@ -1662,23 +1680,24 @@ function updateAmbientWar(elapsed) {
 
   // --- Missiles targeting NPC ships (small chance) ---
   if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
-    // Pick a moving NPC (not loading/unloading)
     const movingNpcs = npcShips.filter(n => n.speed > 0);
     if (movingNpcs.length > 0) {
       const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
       const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
+      // Aim at NPC's current position (with scatter)
       const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
-      spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon);
-      // Mark NPC for destruction after missile flight time
-      const dist = Math.hypot(targetNpc.lat - launcher.lat, targetNpc.lon - launcher.lon);
-      const missileFlightMs = 5000; // matches missile duration
-      setTimeout(() => {
-        const idx = npcShips.indexOf(targetNpc);
-        if (idx !== -1) {
-          addTransitEvent('NPC SHIP HIT', `${targetNpc.name} struck by missile!`, 'danger');
-          npcShips[idx] = createNPCTanker(false);
+      spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon, {
+        onImpact: (impactLat, impactLon) => {
+          // Only destroy NPC if missile lands within ~0.1 degrees (~10km)
+          const idx = npcShips.indexOf(targetNpc);
+          if (idx === -1) return;
+          const dist = Math.hypot(targetNpc.lat - impactLat, targetNpc.lon - impactLon);
+          if (dist < 0.1) {
+            addTransitEvent('NPC SHIP HIT', `${targetNpc.shipName} struck by missile!`, 'danger');
+            npcShips[idx] = createNPCTanker(false);
+          }
         }
-      }, missileFlightMs);
+      });
     }
   }
 }

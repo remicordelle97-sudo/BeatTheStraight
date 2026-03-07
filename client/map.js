@@ -495,7 +495,7 @@ function drawMilitaryBases(ctx, drawW, drawH, lbl = {}) {
 // ============================================
 // MISSILE ANIMATION SYSTEM
 // ============================================
-function spawnMissile(fromLat, fromLon, toLat, toLon) {
+function spawnMissile(fromLat, fromLon, toLat, toLon, opts = {}) {
   activeMissiles.push({
     fromLat, fromLon, toLat, toLon,
     progress: 0,
@@ -504,6 +504,7 @@ function spawnMissile(fromLat, fromLon, toLat, toLon) {
     trail: [],
     exploding: false,
     explosionStart: 0,
+    onImpact: opts.onImpact || null,
   });
 }
 
@@ -577,6 +578,7 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
       if (m.progress >= 1) {
         m.exploding = true;
         m.explosionStart = now;
+        if (m.onImpact) { m.onImpact(m.toLat, m.toLon); m.onImpact = null; }
       }
     } else {
       // Explosion animation
