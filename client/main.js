@@ -168,7 +168,7 @@ document.getElementById('fleet-toggle').addEventListener('click', () => {
   icon.textContent = hidden ? '▾' : '▸';
 });
 
-// NPC hover detection
+// NPC and military ship hover detection
 mapCanvas.addEventListener('mousemove', (e) => {
   const rect = mapCanvas.getBoundingClientRect();
   const cx = e.clientX - rect.left;
@@ -185,6 +185,21 @@ mapCanvas.addEventListener('mousemove', (e) => {
         <div class="npc-detail">Dest: ${getNPCDestination(npc)}</div>`;
       hoverPanel.classList.remove('hidden');
       found = true; break;
+    }
+  }
+  if (!found) {
+    for (const mil of militaryShips) {
+      const pos = latLonToCanvas(mil.lat, mil.lon, rect.width, rect.height);
+      if (Math.sqrt(Math.pow(cx - pos.x, 2) + Math.pow(cy - pos.y, 2)) < 15) {
+        const statusText = mil.state === 'idle' ? 'Station Keeping' : 'Patrolling';
+        hoverPanel.innerHTML = `
+          <div class="npc-name">${mil.name}</div>
+          <div class="npc-detail">Country: ${mil.country}</div>
+          <div class="npc-detail">Speed: ${Math.round(mil.speed)} kts</div>
+          <div class="npc-detail">Status: ${statusText}</div>`;
+        hoverPanel.classList.remove('hidden');
+        found = true; break;
+      }
     }
   }
   if (!found) hoverPanel.classList.add('hidden');
@@ -950,12 +965,9 @@ const NPC_STATE = {
   WAITING_SAFE: 'waiting_safe', // anchored outside danger zone, waiting for conditions to improve
 };
 
-// Safe anchorage zones outside the Strait (UAE coast, Gulf of Oman)
+// Safe anchorage zone — Gulf of Oman only
 const SAFE_ANCHORAGES = [
-  { lat: 25.2, lon: 55.3, name: 'Dubai Anchorage' },
-  { lat: 25.0, lon: 56.3, name: 'Fujairah Anchorage' },
   { lat: 24.5, lon: 57.8, name: 'Gulf of Oman' },
-  { lat: 26.2, lon: 52.5, name: 'Western Gulf' },
 ];
 
 const NPC_SHIP_NAMES = [
@@ -1083,6 +1095,16 @@ function npcShouldSeekSafety(npc) {
 function updateNPCShips(dt, elapsed) {
   for (let i = 0; i < npcShips.length; i++) {
     const npc = npcShips[i];
+
+    // Trail — always expire old points so trail fades even when stopped
+    // Must run before any `continue` so stopped boats still expire their trails
+    const trail = npc.trail;
+    if (npc.speed > 0) {
+      if (trail.length === 0 || elapsed - trail[trail.length - 1].t > 0.5) {
+        trail.push({ lat: npc.lat, lon: npc.lon, t: elapsed });
+      }
+    }
+    while (trail.length > 0 && elapsed - trail[0].t > 4) trail.shift();
 
     // WAITING_SAFE: heading to or anchored at safe zone
     if (npc.state === NPC_STATE.WAITING_SAFE) {
@@ -1268,14 +1290,6 @@ function updateNPCShips(dt, elapsed) {
     npc.lat = Math.max(MAP_BOUNDS.south + 0.1, Math.min(MAP_BOUNDS.north - 0.1, npc.lat));
     npc.lon = Math.max(MAP_BOUNDS.west + 0.1, Math.min(MAP_BOUNDS.east - 0.1, npc.lon));
 
-    // Trail — always expire old points so trail fades when stopped
-    const t = npc.trail;
-    if (npc.speed > 0) {
-      if (t.length === 0 || elapsed - t[t.length - 1].t > 0.5) {
-        t.push({ lat: npc.lat, lon: npc.lon, t: elapsed });
-      }
-    }
-    while (t.length > 0 && elapsed - t[0].t > 4) t.shift();
   }
 }
 
