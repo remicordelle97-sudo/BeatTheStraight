@@ -203,3 +203,11 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Beat The Straight server running on port ${PORT}`);
 });
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Kill the old process first:`);
+    console.error(`  lsof -ti :${PORT} | xargs kill -9`);
+    process.exit(1);
+  }
+  throw err;
+});

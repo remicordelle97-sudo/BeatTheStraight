@@ -109,6 +109,11 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showError('Enter a captain name'); return; }
 
+  if (!socket.connected) {
+    showError('Not connected to server. Is the server running?');
+    return;
+  }
+
   if (joinMode) {
     const code = document.getElementById('input-game-id').value.trim().toUpperCase();
     if (!code) { showError('Enter a game code'); return; }
@@ -897,10 +902,14 @@ socket.on('disconnect', () => {
 // ============================================
 function drawBackgroundMap() {
   if (transitActive) return; // Transit has its own render loop
-  drawMap(mapCanvas, {
-    showZones: screens.planning.classList.contains('active'),
-    showStartEnd: screens.planning.classList.contains('active')
-  });
+  try {
+    drawMap(mapCanvas, {
+      showZones: screens.planning.classList.contains('active'),
+      showStartEnd: screens.planning.classList.contains('active')
+    });
+  } catch (e) {
+    console.error('Map draw error:', e);
+  }
 }
 
 // Redraw on resize
