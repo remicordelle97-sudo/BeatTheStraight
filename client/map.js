@@ -674,13 +674,12 @@ function planeWeavePos(fromLat, fromLon, toLat, toLon, t, weaveFreq, weaveAmp) {
   };
 }
 
-// Convert lat/lon heading to canvas rotation angle
-// atan2(dLon, dLat) gives angle from north in lat/lon space
-// but on canvas Y is inverted (north = up = -Y), so we need to
-// convert to canvas angle where 0 = right, PI/2 = down
+// Convert lat/lon velocity to canvas rotation angle.
+// Canvas: +X = east (dLon>0), +Y = south (dLat<0 i.e. north is up).
+// atan2(canvasY, canvasX) where canvasY = -dLat, canvasX = dLon.
+// Result: 0 = east, PI/2 = south, -PI/2 = north, PI = west.
 function latLonHeadingToCanvas(dLat, dLon) {
-  // On canvas: +X = east (lon increases), +Y = south (lat decreases)
-  return Math.atan2(dLon, -dLat);
+  return Math.atan2(-dLat, dLon);
 }
 
 function updateAndDrawPlanes(ctx, drawW, drawH) {
@@ -690,25 +689,37 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     const phaseElapsed = now - p.phaseStart;
 
     let currentLat, currentLon;
+    // Each phase computes canvasAngle analytically for smooth heading
+    let canvasAngle;
 
     if (p.phase === 'outbound') {
       const t = Math.min(1, phaseElapsed / p.flightDuration);
       const cur = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, t, p.weaveFreq, p.weaveAmp);
       currentLat = cur.lat;
       currentLon = cur.lon;
+      // Heading from finite difference on the weave curve
+      const prevT = Math.max(0, t - 0.02);
+      const prev = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, prevT, p.weaveFreq, p.weaveAmp);
+      canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
 
       if (t >= 1) {
         p.phase = 'loiter';
         p.phaseStart = now;
-        p.loiterAngle = Math.atan2(p.toLon - p.fromLon, p.toLat - p.fromLat);
+        // Seed loiter start angle from approach direction
+        p.loiterStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
       }
     } else if (p.phase === 'loiter') {
       const t = Math.min(1, phaseElapsed / p.loiterDuration);
-      const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 2;
+      const angle = (p.loiterStartAngle || 0) + p.loiterDir * t * Math.PI * 2;
+      // Spiral outward: radius grows from 0 to full in first 25%
       const spiralT = Math.min(1, t * 4);
       const r = p.loiterRadius * spiralT;
-      currentLat = p.toLat + Math.cos(angle) * r;
-      currentLon = p.toLon + Math.sin(angle) * r;
+      currentLat = p.toLat + Math.sin(angle) * r;
+      currentLon = p.toLon + Math.cos(angle) * r;
+      // Analytical tangent to circle: d/dt of (sin(angle), cos(angle)) = (cos(angle), -sin(angle)) * loiterDir
+      const tangentLat = Math.cos(angle) * p.loiterDir;
+      const tangentLon = -Math.sin(angle) * p.loiterDir;
+      canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
 
       if (t >= 1) {
         p.phase = 'strike';
@@ -716,13 +727,17 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         p.phaseStart = now;
         p.strikeLat = currentLat;
         p.strikeLon = currentLon;
+        p.strikeAngle = canvasAngle;
         p.strikeRadius = r;
+        p.strikeLoiterAngle = angle; // save for returnLoiter continuity
       }
     } else if (p.phase === 'strike') {
       const strikeDuration = 800;
       const strikeElapsed = now - p.strikeTime;
       currentLat = p.strikeLat;
       currentLon = p.strikeLon;
+      // Hold last loiter heading while hovering over target
+      canvasAngle = p.strikeAngle;
 
       const strikeProgress = strikeElapsed / strikeDuration;
       const epos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
@@ -736,17 +751,29 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       if (strikeElapsed >= strikeDuration) {
         p.phase = 'returnLoiter';
         p.phaseStart = now;
-        p.loiterAngle = Math.atan2(p.strikeLon - p.toLon, p.strikeLat - p.toLat);
+        // Continue from where loiter left off for seamless transition
+        p.returnLoiterStartAngle = p.strikeLoiterAngle || Math.atan2(p.strikeLon - p.toLon, p.strikeLat - p.toLat);
         p.returnLoiterRadius = p.strikeRadius || p.loiterRadius;
       }
     } else if (p.phase === 'returnLoiter') {
       const t = Math.min(1, phaseElapsed / p.returnLoiterDuration);
       const r = p.returnLoiterRadius;
-      const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 1.5;
+      const angle = p.returnLoiterStartAngle + p.loiterDir * t * Math.PI * 1.5;
+      // Spiral inward: radius shrinks to 0 in last 40%
       const spiralT = 1 - Math.max(0, (t - 0.6) / 0.4);
       const curR = r * spiralT;
-      currentLat = p.toLat + Math.cos(angle) * curR;
-      currentLon = p.toLon + Math.sin(angle) * curR;
+      currentLat = p.toLat + Math.sin(angle) * curR;
+      currentLon = p.toLon + Math.cos(angle) * curR;
+
+      if (spiralT < 0.1) {
+        // Spiral collapsed — point toward home base
+        canvasAngle = latLonHeadingToCanvas(p.fromLat - p.toLat, p.fromLon - p.toLon);
+      } else {
+        // Analytical tangent
+        const tangentLat = Math.cos(angle) * p.loiterDir;
+        const tangentLon = -Math.sin(angle) * p.loiterDir;
+        canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
+      }
 
       if (t >= 1) {
         p.phase = 'return';
@@ -761,32 +788,15 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const cur = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
       currentLat = cur.lat;
       currentLon = cur.lon;
+      const prevT = Math.max(0, t - 0.02);
+      const prev = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, prevT, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
+      canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
 
       if (t >= 1) {
         activePlanes.splice(i, 1);
         continue;
       }
     }
-
-    // Compute heading from actual velocity (position delta between frames)
-    // This guarantees the nose always points in the direction of movement
-    let canvasAngle;
-    if (p._prevLat != null && p._prevLon != null) {
-      const dLat = currentLat - p._prevLat;
-      const dLon = currentLon - p._prevLon;
-      if (Math.abs(dLat) > 1e-9 || Math.abs(dLon) > 1e-9) {
-        canvasAngle = latLonHeadingToCanvas(dLat, dLon);
-        p._lastAngle = canvasAngle;
-      } else {
-        canvasAngle = p._lastAngle || 0;
-      }
-    } else {
-      // First frame: compute from general direction of travel
-      canvasAngle = latLonHeadingToCanvas(p.toLat - p.fromLat, p.toLon - p.fromLon);
-      p._lastAngle = canvasAngle;
-    }
-    p._prevLat = currentLat;
-    p._prevLon = currentLon;
 
     // Trail
     p.trail.push({ lat: currentLat, lon: currentLon, time: now });
@@ -805,11 +815,14 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       }
     }
 
-    // Draw plane icon — nose points in direction of travel
+    // Draw plane icon — nose is at (0, -7) pointing in -Y direction.
+    // canvasAngle: 0 = east, PI/2 = south. The -Y nose needs rotating
+    // by (canvasAngle - PI/2) to align: when canvasAngle=0 (east),
+    // rotation = -PI/2 maps nose from -Y to +X (east). Correct.
     const pos = latLonToCanvas(currentLat, currentLon, drawW, drawH);
     ctx.save();
     ctx.translate(pos.x, pos.y);
-    ctx.rotate(canvasAngle + Math.PI / 2);
+    ctx.rotate(canvasAngle - Math.PI / 2);
     ctx.fillStyle = '#88aadd';
     ctx.beginPath();
     ctx.moveTo(0, -7);    // nose
@@ -829,9 +842,10 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     ctx.stroke();
     ctx.restore();
 
-    // Engine glow behind the tail
-    const glowDx = -Math.cos(canvasAngle) * 8;
-    const glowDy = -Math.sin(canvasAngle) * 8;
+    // Engine glow behind the tail (opposite of travel direction)
+    const glowAngle = canvasAngle + Math.PI; // opposite of heading
+    const glowDx = Math.cos(glowAngle) * 8;
+    const glowDy = Math.sin(glowAngle) * 8;
     ctx.beginPath();
     ctx.arc(pos.x + glowDx, pos.y + glowDy, 2 + Math.random(), 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
