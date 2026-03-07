@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints } from './map.js';
+import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
@@ -26,6 +26,10 @@ let selectedShipId = null;
 let selectedAisId = null;
 let selectedInsuranceId = null;
 let selectedTerminalId = null;
+
+// Game speed state
+let gameSpeedMultiplier = 1; // 1x, 2x, 4x
+const SPEED_OPTIONS = [1, 2, 4];
 
 // Transit simulation state
 let transitActive = false;
@@ -184,6 +188,73 @@ function centerViewportOn(lat, lon) {
 }
 
 initPanZoom();
+
+// ============================================
+// GAME SPEED TOGGLE
+// ============================================
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const speed = parseInt(btn.dataset.speed);
+    gameSpeedMultiplier = speed;
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// ============================================
+// SHIP CONTROL PANEL
+// ============================================
+let shipControlOpen = false;
+
+function openShipControlPanel() {
+  const panel = document.getElementById('ship-control-panel');
+  panel.classList.remove('hidden');
+  shipControlOpen = true;
+
+  // Update speed display
+  document.getElementById('scp-speed-value').textContent = `${simState.speed} kts`;
+
+  // Update AIS button states
+  const currentAisId = transitPlan.ais.id;
+  document.querySelectorAll('.scp-ais-btn').forEach(btn => {
+    const aisKey = btn.dataset.ais;
+    const aisOpt = options.aisOptions[aisKey];
+    btn.classList.toggle('active', aisOpt && aisOpt.id === currentAisId);
+  });
+}
+
+function closeShipControlPanel() {
+  document.getElementById('ship-control-panel').classList.add('hidden');
+  shipControlOpen = false;
+}
+
+document.getElementById('scp-close').addEventListener('click', closeShipControlPanel);
+
+document.getElementById('scp-speed-down').addEventListener('click', () => {
+  if (!simState) return;
+  simState.speed = Math.max(3, simState.speed - 1);
+  document.getElementById('scp-speed-value').textContent = `${simState.speed} kts`;
+});
+
+document.getElementById('scp-speed-up').addEventListener('click', () => {
+  if (!simState || !transitPlan) return;
+  simState.speed = Math.min(transitPlan.ship.speed, simState.speed + 1);
+  document.getElementById('scp-speed-value').textContent = `${simState.speed} kts`;
+});
+
+document.querySelectorAll('.scp-ais-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!transitPlan || !options) return;
+    const aisKey = btn.dataset.ais;
+    const aisOpt = options.aisOptions[aisKey];
+    if (aisOpt) {
+      transitPlan.ais = aisOpt;
+      document.querySelectorAll('.scp-ais-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
+    }
+  });
+});
 
 // ============================================
 // TITLE SCREEN
@@ -497,8 +568,12 @@ function spawnNPCShips() {
   for (let i = 0; i < count; i++) {
     const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
     const goingEast = Math.random() > 0.4; // Most traffic goes east through strait
-    const lon = 54.0 + Math.random() * 3.0; // Spread across strait area
-    const lat = 26.0 + Math.random() * 1.2; // In the strait channel
+    let lon, lat;
+    // Ensure NPC doesn't spawn on land
+    do {
+      lon = 54.0 + Math.random() * 3.0;
+      lat = 26.0 + Math.random() * 1.2;
+    } while (isOnLand(lat, lon));
 
     npcShips.push({
       lat, lon,
@@ -518,9 +593,14 @@ function spawnMilitaryShips() {
   const types = Object.values(MILITARY_SHIPS);
   for (const type of types) {
     const pb = type.patrolBounds;
+    let spLat, spLon;
+    do {
+      spLat = pb.south + Math.random() * (pb.north - pb.south);
+      spLon = pb.west + Math.random() * (pb.east - pb.west);
+    } while (isOnLand(spLat, spLon));
     militaryShips.push({
-      lat: pb.south + Math.random() * (pb.north - pb.south),
-      lon: pb.west + Math.random() * (pb.east - pb.west),
+      lat: spLat,
+      lon: spLon,
       heading: Math.random() * 360,
       speed: type.speed * (0.3 + Math.random() * 0.5), // patrol at lower speed
       size: type.size,
@@ -554,14 +634,26 @@ function updateNPCShips(dt) {
     // Move (nautical: 0°=North, 90°=East)
     const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
-    npc.lon += Math.sin(rad) * speedDeg * dt;
-    npc.lat += Math.cos(rad) * speedDeg * dt;
+    const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
+    const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
+
+    // Only move if not on land
+    if (!isOnLand(newLat, newLon)) {
+      npc.lon = newLon;
+      npc.lat = newLat;
+    } else {
+      // Turn away from land
+      npc.targetHeading = normalizeAngle(npc.heading + 180);
+      npc.wanderTimer = 2;
+    }
 
     // Remove and respawn if out of bounds
     if (npc.lon > 59.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
       const goingEast = Math.random() > 0.4;
-      npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
-      npc.lat = 26.0 + Math.random() * 1.2;
+      do {
+        npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
+        npc.lat = 26.0 + Math.random() * 1.2;
+      } while (isOnLand(npc.lat, npc.lon));
       npc.heading = goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20;
       npc.targetHeading = goingEast ? 90 : 270;
     }
@@ -591,8 +683,18 @@ function updateMilitaryShips(dt) {
     // Move (nautical: 0°=North, 90°=East)
     const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = mil.heading * Math.PI / 180;
-    mil.lon += Math.sin(rad) * speedDeg * dt;
-    mil.lat += Math.cos(rad) * speedDeg * dt;
+    const newMilLon = mil.lon + Math.sin(rad) * speedDeg * dt;
+    const newMilLat = mil.lat + Math.cos(rad) * speedDeg * dt;
+
+    // Only move if not on land
+    if (!isOnLand(newMilLat, newMilLon)) {
+      mil.lon = newMilLon;
+      mil.lat = newMilLat;
+    } else {
+      // Turn away from land
+      mil.targetHeading = normalizeAngle(mil.heading + 180);
+      mil.patrolTimer = 2;
+    }
 
     // Clamp to patrol bounds
     const pb = mil.patrolBounds;
@@ -775,9 +877,9 @@ function transitLoop(timestamp) {
   if (!transitActive) return;
 
   const elapsed = (timestamp - simStartTime) / 1000;
-  const dt = 1 / 60;
+  const dt = (1 / 60) * gameSpeedMultiplier;
 
-  simGameTime = elapsed * SIM_CONFIG.TIME_SCALE;
+  simGameTime = elapsed * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
   // Update ship heading
   const headingDiff = angleDiff(simState.heading, simState.targetHeading);
@@ -1143,6 +1245,26 @@ mapCanvas.addEventListener('click', (e) => {
   const cy = e.clientY - rect.top;
 
   const target = canvasToLatLon(cx, cy, rect.width, rect.height);
+
+  // Check if clicking on own ship (within ~20px)
+  if (simState) {
+    const shipPos = latLonToCanvas(simState.lat, simState.lon, rect.width, rect.height);
+    const dx = cx - shipPos.x;
+    const dy = cy - shipPos.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 20) {
+      if (shipControlOpen) {
+        closeShipControlPanel();
+      } else {
+        openShipControlPanel();
+      }
+      return;
+    }
+  }
+
+  // Close ship control panel if clicking elsewhere
+  if (shipControlOpen) {
+    closeShipControlPanel();
+  }
 
   // Don't allow waypoints on land
   if (isOnLand(target.lat, target.lon)) return;

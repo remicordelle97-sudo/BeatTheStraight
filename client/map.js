@@ -258,10 +258,25 @@ function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
   ctx.translate(x, y);
   ctx.rotate(rad);
 
+  // Glow for player ship (draw behind)
+  if (options.isPlayer) {
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 1.8, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(240, 160, 48, 0.12)';
+    ctx.fill();
+  }
+
+  // Ship hull - elongated shape with pointed bow and flat stern
   ctx.beginPath();
-  ctx.moveTo(size, 0);
-  ctx.lineTo(-size * 0.6, -size * 0.5);
-  ctx.lineTo(-size * 0.6, size * 0.5);
+  ctx.moveTo(size * 1.2, 0);                    // Bow (pointed front)
+  ctx.lineTo(size * 0.5, -size * 0.35);         // Forward starboard
+  ctx.lineTo(-size * 0.5, -size * 0.4);         // Mid starboard
+  ctx.lineTo(-size * 0.8, -size * 0.35);        // Aft starboard
+  ctx.lineTo(-size * 0.9, -size * 0.15);        // Stern starboard corner
+  ctx.lineTo(-size * 0.9, size * 0.15);         // Stern port corner
+  ctx.lineTo(-size * 0.8, size * 0.35);         // Aft port
+  ctx.lineTo(-size * 0.5, size * 0.4);          // Mid port
+  ctx.lineTo(size * 0.5, size * 0.35);          // Forward port
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.fill();
@@ -269,18 +284,32 @@ function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  // Glow for player ship
-  if (options.isPlayer) {
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(240, 160, 48, 0.15)';
-    ctx.fill();
-  }
+  // Superstructure / bridge (aft section, slightly raised look)
+  const bridgeColor = options.isPlayer ? '#d08020' :
+    options.isMilitary ? (options.color === '#cc4444' || options.color === '#dd3333' ? '#993333' : '#336699') :
+    '#4a6070';
+  ctx.beginPath();
+  ctx.rect(-size * 0.6, -size * 0.2, size * 0.4, size * 0.4);
+  ctx.fillStyle = bridgeColor;
+  ctx.fill();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Deck line (center line along ship)
+  ctx.beginPath();
+  ctx.moveTo(size * 0.8, 0);
+  ctx.lineTo(-size * 0.15, 0);
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 0.5;
+  ctx.globalAlpha = 0.5;
+  ctx.stroke();
+  ctx.globalAlpha = 1.0;
 
   // Military ship indicator
   if (options.isMilitary) {
     ctx.beginPath();
-    ctx.arc(0, 0, size * 1.3, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 1.4, 0, Math.PI * 2);
     ctx.strokeStyle = options.color === '#cc4444' || options.color === '#dd3333'
       ? 'rgba(200, 50, 50, 0.3)' : 'rgba(50, 100, 200, 0.3)';
     ctx.lineWidth = 1;

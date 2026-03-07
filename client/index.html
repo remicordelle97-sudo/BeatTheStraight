@@ -126,6 +126,38 @@
       <!-- Steering instruction -->
       <div id="hud-steer-hint">Left-click: set waypoints | Right-click: clear waypoints | Right-drag: pan | Scroll: zoom</div>
 
+      <!-- Game Speed Toggle -->
+      <div id="hud-speed-toggle">
+        <div class="speed-label">SPEED</div>
+        <div class="speed-buttons">
+          <button class="speed-btn active" data-speed="1">1x</button>
+          <button class="speed-btn" data-speed="2">2x</button>
+          <button class="speed-btn" data-speed="4">4x</button>
+        </div>
+      </div>
+
+      <!-- Ship Control Panel (shown when clicking own ship) -->
+      <div id="ship-control-panel" class="hidden">
+        <div class="scp-header">SHIP CONTROLS</div>
+        <div class="scp-section">
+          <div class="scp-label">SPEED</div>
+          <div class="scp-speed-control">
+            <button id="scp-speed-down" class="btn btn-small">-</button>
+            <span id="scp-speed-value">14 kts</span>
+            <button id="scp-speed-up" class="btn btn-small">+</button>
+          </div>
+        </div>
+        <div class="scp-section">
+          <div class="scp-label">AIS TRANSPONDER</div>
+          <div id="scp-ais-options" class="scp-ais-grid">
+            <button class="scp-ais-btn" data-ais="FULL_BROADCAST">FULL</button>
+            <button class="scp-ais-btn" data-ais="REDUCED">REDUCED</button>
+            <button class="scp-ais-btn" data-ais="DARK">DARK</button>
+          </div>
+        </div>
+        <button id="scp-close" class="btn btn-small btn-ghost">CLOSE</button>
+      </div>
+
       <!-- Compass -->
       <div id="hud-compass">
         <canvas id="compass-canvas" width="100" height="100"></canvas>
