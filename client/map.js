@@ -448,16 +448,16 @@ function drawMap(canvas, options = {}) {
   }
 
   // Coastlines
-  drawCoastline(ctx, IRAN_COAST, '#141e14', drawW, drawH);
-  drawCoastline(ctx, ARAB_COAST, '#141e14', drawW, drawH);
-  drawCoastline(ctx, QESHM, '#1a281a', drawW, drawH);
-  drawCoastline(ctx, LARAK, '#1a281a', drawW, drawH);
-  drawCoastline(ctx, HORMUZ_ISLAND, '#1a281a', drawW, drawH);
-  drawCoastline(ctx, BAHRAIN, '#1a281a', drawW, drawH);
-  drawCoastline(ctx, QATAR, '#1a281a', drawW, drawH);
+  drawCoastline(ctx, IRAN_COAST, '#3a2e1e', drawW, drawH);    // mountainous brown
+  drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);   // sandy desert
+  drawCoastline(ctx, QESHM, '#8a7050', drawW, drawH);        // rocky island
+  drawCoastline(ctx, LARAK, '#8a7050', drawW, drawH);
+  drawCoastline(ctx, HORMUZ_ISLAND, '#8a7050', drawW, drawH);
+  drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
+  drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
 
   // Major city labels
-  ctx.fillStyle = '#2a3a2a';
+  ctx.fillStyle = '#5a4a30';
   ctx.font = '11px Courier New';
 
   const labels = [
