@@ -202,7 +202,7 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`Beat The Straight server running on port ${PORT}`);
+  console.log(`Beat The Strait server running on port ${PORT}`);
 });
 httpServer.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
