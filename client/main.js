@@ -870,7 +870,7 @@ function transitLoop(timestamp) {
         if (trail.length === 0 || elapsed - trail[trail.length - 1].t > 0.5) {
           trail.push({ lat: state.lat, lon: state.lon, t: elapsed });
         }
-        while (trail.length > 0 && elapsed - trail[0].t > 3) trail.shift();
+        while (trail.length > 0 && elapsed - trail[0].t > 5) trail.shift();
       }
 
       // Terminal cargo loading
