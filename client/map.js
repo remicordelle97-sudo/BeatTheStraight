@@ -971,7 +971,7 @@ function drawMap(canvas, options = {}) {
     for (const mil of options.militaryShips) {
       drawShip(ctx, mil.lat, mil.lon, mil.heading, drawW, drawH, {
         size: mil.size || 10, color: mil.color || '#4488cc', strokeColor: '#fff',
-        isMilitary: true, label: mil.name,
+        isMilitary: true, label: lbl.baseNames !== false ? mil.name : undefined,
       });
     }
   }
