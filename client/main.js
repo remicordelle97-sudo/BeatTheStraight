@@ -237,8 +237,10 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
-  state.speed = Math.min(ship?.speed || 16, state.speed + 1);
-  document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
+  state.speed = Math.min(20, state.speed + 1);
+  const ratedSpeed = ship?.speed || 16;
+  const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
+  document.getElementById('scp-speed-value').textContent = label;
 });
 
 document.querySelectorAll('.scp-ais-btn').forEach(btn => {
@@ -724,20 +726,31 @@ function updateNPCShips(dt) {
       }
     } else {
       npc.stuckCount = (npc.stuckCount || 0) + 1;
+      // Use a fixed probe distance so escape works regardless of speed/dt
+      const probeDist = 0.05;
       let escaped = false;
       for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
         const th = normalizeAngle(npc.heading + angle);
         const tr = th * Math.PI / 180;
-        const tLon = npc.lon + Math.sin(tr) * speedDeg * dt * 2;
-        const tLat = npc.lat + Math.cos(tr) * speedDeg * dt * 2;
+        const tLon = npc.lon + Math.sin(tr) * probeDist;
+        const tLat = npc.lat + Math.cos(tr) * probeDist;
         if (!isOnLand(tLat, tLon)) {
           npc.heading = th; npc.targetHeading = th; npc.wanderOffset = 0;
-          npc.lon += Math.sin(tr) * speedDeg * dt; npc.lat += Math.cos(tr) * speedDeg * dt;
+          // Push out of land with a meaningful step
+          npc.lon += Math.sin(tr) * probeDist * 0.5;
+          npc.lat += Math.cos(tr) * probeDist * 0.5;
           escaped = true; break;
         }
       }
-      if (!escaped) { npc.heading = normalizeAngle(npc.heading + 180); npc.targetHeading = npc.heading; }
-      if (npc.stuckCount > 60) { npcShips[i] = createNPCTanker(false); continue; }
+      if (!escaped) {
+        // Reverse and push back
+        npc.heading = normalizeAngle(npc.heading + 180);
+        npc.targetHeading = npc.heading;
+        const rr = npc.heading * Math.PI / 180;
+        npc.lon += Math.sin(rr) * probeDist * 0.5;
+        npc.lat += Math.cos(rr) * probeDist * 0.5;
+      }
+      if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
     if (npc.lon > 60.5 || npc.lon < 46.5 || npc.lat > 31.0 || npc.lat < 23.0) npcShips[i] = createNPCTanker(false);
   }
@@ -864,6 +877,33 @@ function transitLoop(timestamp) {
       state.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, state.lat));
       state.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, state.lon));
 
+      // Overspeed reliability check — pushing beyond rated speed risks malfunction
+      const ratedSpeed = ship.speed || 16;
+      if (state.speed > ratedSpeed && !state.destroyed && !state.seized) {
+        const overRatio = (state.speed - ratedSpeed) / (20 - ratedSpeed || 1);
+        // Higher overspeed = higher malfunction chance per tick
+        const malfunctionProb = 0.0005 + overRatio * 0.003;
+        if (Math.random() < malfunctionProb * dt * 60) {
+          const roll = Math.random();
+          if (roll < 0.4) {
+            // Engine stall — speed drops to half rated
+            state.speed = Math.round(ratedSpeed * 0.5);
+            addTransitEvent('ENGINE MALFUNCTION', `${ship.name}: Engine stall from overspeed! Speed reduced to ${state.speed} kts.`, 'danger');
+          } else if (roll < 0.75) {
+            // Mechanical damage
+            const dmg = 0.03 + overRatio * 0.07;
+            state.totalDamage = Math.min(0.89, state.totalDamage + dmg);
+            state.speed = Math.min(state.speed, ratedSpeed);
+            addTransitEvent('MECHANICAL FAILURE', `${ship.name}: Hull stress damage (${Math.round(dmg * 100)}%) from overspeed!`, 'danger');
+          } else {
+            // Fuel system failure — dead stop
+            state.speed = 0;
+            addTransitEvent('FUEL SYSTEM FAILURE', `${ship.name}: Fuel line rupture from overspeed! Engines offline.`, 'danger');
+          }
+          updateFleetPanel();
+        }
+      }
+
       // Trail - expire points older than 60 seconds
       const trail = shipTrails[ship.id];
       if (trail) {
@@ -969,7 +1009,10 @@ function updateHUD() {
   const ship = getSelectedShipData();
 
   if (state && ship) {
-    document.getElementById('hud-speed').textContent = `${state.speed} kts`;
+    const ratedSpd = ship.speed || 16;
+    const speedEl = document.getElementById('hud-speed');
+    speedEl.textContent = `${state.speed} kts`;
+    speedEl.style.color = state.speed > ratedSpd ? '#e04040' : state.speed > 0 ? '#40c070' : '#6b7394';
     document.getElementById('hud-heading').innerHTML = `${Math.round(state.heading)}&deg;`;
     const hp = state.health - state.totalDamage;
     document.getElementById('hud-health').textContent = `${Math.round(hp * 100)}%`;
@@ -1042,9 +1085,16 @@ function addTransitEvent(name, text, type) {
   const container = document.getElementById('hud-events');
   const div = document.createElement('div');
   div.className = `event-item ${type || ''}`;
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'event-close';
+  closeBtn.textContent = '\u00d7';
+  closeBtn.addEventListener('click', () => { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); });
   div.innerHTML = `<div class="event-name">${name}</div><div class="event-outcome">${text}</div>`;
+  div.appendChild(closeBtn);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  // Auto-dismiss after 60 seconds
+  setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 60000);
   while (container.children.length > 8) {
     container.firstChild.style.opacity = '0';
     setTimeout(() => container.firstChild?.remove(), 300);

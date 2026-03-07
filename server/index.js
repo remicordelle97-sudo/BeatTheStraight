@@ -154,7 +154,7 @@ io.on('connection', (socket) => {
     if (!info) { callback?.({ success: false }); return; }
     const game = games.get(info.gameId);
     if (!game) { callback?.({ success: false }); return; }
-    const player = game.players.find(p => p.id === socket.id);
+    const player = game.players[socket.id];
     if (!player) { callback?.({ success: false }); return; }
     player.cash = (player.cash || 0) + (revenue || 0);
     io.to(game.id).emit('game_update', game.serialize());

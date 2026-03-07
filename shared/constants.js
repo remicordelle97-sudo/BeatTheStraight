@@ -73,12 +73,12 @@ export const OIL_TERMINALS = {
     name: 'Jebel Dhanna',
     country: 'UAE',
     cargoType: 'oil',
-    lat: 24.30,
-    lon: 52.10,
+    lat: 24.50,
+    lon: 51.80,
     capacity: 'Medium',
     loadingBonus: 0.95,
     description: 'ADNOC terminal in Abu Dhabi. Premium pricing.',
-    loadRadius: 0.12
+    loadRadius: 0.15
   },
   DAS_ISLAND: {
     id: 'das_island',
