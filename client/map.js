@@ -487,6 +487,12 @@ function drawMilitaryBases(ctx, drawW, drawH, lbl = {}) {
 }
 
 // ============================================
+// IMPACT CALLBACK — called for every missile/bomb impact
+// ============================================
+let globalImpactHandler = null;
+function setImpactHandler(handler) { globalImpactHandler = handler; }
+
+// ============================================
 // MISSILE ANIMATION SYSTEM
 // ============================================
 function spawnMissile(fromLat, fromLon, toLat, toLon, opts = {}) {
@@ -573,6 +579,7 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
         m.exploding = true;
         m.explosionStart = now;
         if (m.onImpact) { m.onImpact(m.toLat, m.toLon); m.onImpact = null; }
+        if (globalImpactHandler) globalImpactHandler(m.toLat, m.toLon, 'missile');
       }
     } else {
       // Explosion animation
@@ -811,6 +818,7 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         // Start explosion when bomb lands
         if (bt >= 1) {
           p.explosionStart = now;
+          if (globalImpactHandler) globalImpactHandler(p.toLat, p.toLon, 'bomb');
         }
       }
 
@@ -1311,4 +1319,4 @@ function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
   });
 }
 
-export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints, spawnMissile, spawnPlane };
+export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints, spawnMissile, spawnPlane, setImpactHandler };

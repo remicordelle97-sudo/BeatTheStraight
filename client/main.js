@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane } from './map.js';
+import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane, setImpactHandler } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
@@ -744,6 +744,69 @@ function spawnShipState(ship) {
   shipTrails[ship.id] = [];
   shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
 }
+
+// ============================================
+// UNIVERSAL IMPACT HANDLER — proximity damage for all missiles & bombs
+// ============================================
+const BLAST_RADIUS = 0.12;       // degrees (~13km) — max damage range
+const MISSILE_MAX_DMG = 0.20;    // max damage at epicenter for missiles
+const BOMB_MAX_DMG = 0.30;       // max damage at epicenter for bombs
+const NPC_KILL_THRESHOLD = 0.08; // NPC destroyed if impact within this range
+
+setImpactHandler((impactLat, impactLon, type) => {
+  const maxDmg = type === 'bomb' ? BOMB_MAX_DMG : MISSILE_MAX_DMG;
+
+  // --- Check player ships ---
+  const me = gameState?.players?.find(p => p.id === myId);
+  if (me) {
+    for (const ship of me.fleet) {
+      const state = shipStates[ship.id];
+      if (!state || state.destroyed || state.seized) continue;
+      const dist = Math.hypot(state.lat - impactLat, state.lon - impactLon);
+      if (dist < BLAST_RADIUS) {
+        // Linear falloff: full damage at epicenter, zero at edge
+        const intensity = 1 - (dist / BLAST_RADIUS);
+        const defLevel = ship.defenseUpgrade || 0;
+        const defReduction = 1 - defLevel * 0.15;
+        const dmg = maxDmg * intensity * defReduction;
+        state.totalDamage = Math.min(0.95, state.totalDamage + dmg);
+        if (dmg > 0.05) {
+          state.speed = Math.round(Math.max(5, (ship.speed || 16) * (1 - state.totalDamage * 0.5)));
+        }
+        const pct = Math.round(dmg * 100);
+        const label = type === 'bomb' ? 'AIRSTRIKE HIT' : 'MISSILE HIT';
+        addTransitEvent(`${ship.name}: ${label}`, `${dist < 0.03 ? 'Direct hit' : 'Near miss shrapnel'}! [Dmg: ${pct}%]`, 'danger');
+        updateFleetPanel();
+      }
+    }
+  }
+
+  // --- Check NPC ships ---
+  for (let i = npcShips.length - 1; i >= 0; i--) {
+    const npc = npcShips[i];
+    const dist = Math.hypot(npc.lat - impactLat, npc.lon - impactLon);
+    if (dist < NPC_KILL_THRESHOLD) {
+      // Close hit — NPC destroyed
+      addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}!`, 'danger');
+      npcShips[i] = createNPCTanker(false);
+    } else if (dist < BLAST_RADIUS) {
+      // Glancing hit — NPC takes speed penalty and may divert
+      const intensity = 1 - (dist / BLAST_RADIUS);
+      npc.speed = Math.max(3, npc.speed * (1 - intensity * 0.5));
+      if (intensity > 0.3 && npc.state !== 'waiting_safe') {
+        // Spooked — divert to safety
+        const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
+        npc.safeAnchorage = SAFE_ANCHORAGES[0];
+        npc.savedState = npc.state;
+        npc.state = 'waiting_safe';
+        npc.waitTimer = 30 + Math.random() * 60;
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
+        npc.speed = npc.baseSpeed * 0.6;
+        npc._cautionChecked = false;
+      }
+    }
+  }
+});
 
 // ============================================
 // FLEET PANEL (top-left, always visible during transit)
@@ -1792,23 +1855,14 @@ function updateAmbientWar(elapsed) {
       }
 
       // --- Missiles targeting NPC ships (small chance, Iranian only) ---
+      // Damage is handled by the global impact handler (proximity-based)
       if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
         const movingNpcs = npcShips.filter(n => n.speed > 0);
         if (movingNpcs.length > 0) {
           const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
           const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
           const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
-          spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon, {
-            onImpact: (impactLat, impactLon) => {
-              const idx = npcShips.indexOf(targetNpc);
-              if (idx === -1) return;
-              const dist = Math.hypot(targetNpc.lat - impactLat, targetNpc.lon - impactLon);
-              if (dist < 0.1) {
-                addTransitEvent('NPC SHIP HIT', `${targetNpc.shipName} struck by missile!`, 'danger');
-                npcShips[idx] = createNPCTanker(false);
-              }
-            }
-          });
+          spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon);
         }
       }
     }
