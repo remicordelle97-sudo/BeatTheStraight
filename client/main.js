@@ -44,6 +44,16 @@ let selectedShipId = null;
 let npcShips = [];
 let militaryShips = [];
 
+// Map label visibility settings
+const mapLabelSettings = {
+  cityNames: true,
+  countryNames: true,
+  baseNames: true,
+  terminalNames: true,
+  waterLabels: true,
+  zoneLabels: true,
+};
+
 let viewport = { ...DEFAULT_VIEWPORT };
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
@@ -209,6 +219,27 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
     btn.classList.add('active');
   });
 });
+
+// ============================================
+// SETTINGS MENU
+// ============================================
+document.getElementById('settings-btn').addEventListener('click', () => {
+  document.getElementById('settings-panel').classList.toggle('hidden');
+});
+
+const labelToggleMap = {
+  'toggle-city-names': 'cityNames',
+  'toggle-country-names': 'countryNames',
+  'toggle-base-names': 'baseNames',
+  'toggle-terminal-names': 'terminalNames',
+  'toggle-water-labels': 'waterLabels',
+  'toggle-zone-labels': 'zoneLabels',
+};
+for (const [elId, key] of Object.entries(labelToggleMap)) {
+  document.getElementById(elId).addEventListener('change', (e) => {
+    mapLabelSettings[key] = e.target.checked;
+  });
+}
 
 // ============================================
 // CLEAR WAYPOINTS
@@ -1502,6 +1533,7 @@ function transitLoop(timestamp) {
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
     npcShips, militaryShips, showMinimap: true, playerShips,
+    labels: mapLabelSettings,
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);

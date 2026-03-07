@@ -181,7 +181,7 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH) {
   ctx.stroke();
 }
 
-function drawDangerZones(ctx, drawW, drawH) {
+function drawDangerZones(ctx, drawW, drawH, lbl = {}) {
   for (const zone of DANGER_ZONES) {
     const tl = latLonToCanvas(zone.bounds.north, zone.bounds.west, drawW, drawH);
     const br = latLonToCanvas(zone.bounds.south, zone.bounds.east, drawW, drawH);
@@ -197,13 +197,15 @@ function drawDangerZones(ctx, drawW, drawH) {
     ctx.strokeRect(tl.x, tl.y, w, h);
     ctx.setLineDash([]);
 
-    ctx.fillStyle = zone.borderColor;
-    ctx.font = '10px Courier New';
-    ctx.fillText(zone.label, tl.x + 6, tl.y + 14);
+    if (lbl.zoneLabels !== false) {
+      ctx.fillStyle = zone.borderColor;
+      ctx.font = '10px Courier New';
+      ctx.fillText(zone.label, tl.x + 6, tl.y + 14);
+    }
   }
 }
 
-function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
+function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const { x, y } = latLonToCanvas(terminal.lat, terminal.lon, drawW, drawH);
 
@@ -229,13 +231,18 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
     ctx.stroke();
 
     // Label
-    ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
-    ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
-    ctx.textAlign = 'left';
-    ctx.fillText(terminal.name, x + sz + 4, y - 2);
-    ctx.fillStyle = '#6b7394';
-    ctx.font = '9px Courier New';
-    ctx.fillText(isLng ? `${terminal.country} (LNG)` : terminal.country, x + sz + 4, y + 9);
+    if (lbl.terminalNames !== false) {
+      ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
+      ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
+      ctx.textAlign = 'left';
+      ctx.fillText(terminal.name, x + sz + 4, y - 2);
+    }
+    if (lbl.countryNames !== false) {
+      ctx.fillStyle = '#6b7394';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText(isLng ? `${terminal.country} (LNG)` : terminal.country, x + sz + 4, y + 9);
+    }
     ctx.textAlign = 'left';
   }
 }
@@ -398,7 +405,7 @@ function drawFinishLine(ctx, drawW, drawH) {
 // ============================================
 // MILITARY BASES
 // ============================================
-function drawMilitaryBases(ctx, drawW, drawH) {
+function drawMilitaryBases(ctx, drawW, drawH, lbl = {}) {
   for (const base of MILITARY_BASES) {
     const { x, y } = latLonToCanvas(base.lat, base.lon, drawW, drawH);
     if (x < -30 || x > drawW + 30 || y < -30 || y > drawH + 30) continue;
@@ -469,13 +476,18 @@ function drawMilitaryBases(ctx, drawW, drawH) {
     ctx.restore();
 
     // Label
-    ctx.fillStyle = base.color;
-    ctx.font = '8px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText(base.name, x, y + 14);
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.font = '7px Courier New';
-    ctx.fillText(base.country, x, y + 22);
+    if (lbl.baseNames !== false) {
+      ctx.fillStyle = base.color;
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(base.name, x, y + 14);
+    }
+    if (lbl.countryNames !== false) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(base.country, x, y + 22);
+    }
     ctx.textAlign = 'left';
   }
 }
@@ -689,23 +701,23 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       if (t >= 1) {
         p.phase = 'loiter';
         p.phaseStart = now;
-        p.loiterAngle = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+        // Start loiter angle from where plane actually is relative to target
+        p.loiterAngle = Math.atan2(currentLon - p.toLon, currentLat - p.toLat);
       }
     } else if (p.phase === 'loiter') {
       const t = Math.min(1, phaseElapsed / p.loiterDuration);
       const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 2;
       currentLat = p.toLat + Math.cos(angle) * p.loiterRadius;
       currentLon = p.toLon + Math.sin(angle) * p.loiterRadius;
-      // Tangent to circle: derivative of (cos(a), sin(a)) is (-sin(a), cos(a))
-      const dLat = -Math.sin(angle) * p.loiterDir;
-      const dLon = Math.cos(angle) * p.loiterDir;
+      // Tangent to circle
+      const dLat = -Math.sin(angle) * p.loiterDir * p.loiterRadius;
+      const dLon = Math.cos(angle) * p.loiterDir * p.loiterRadius;
       canvasAngle = latLonHeadingToCanvas(dLat, dLon);
 
       if (t >= 1) {
         p.phase = 'strike';
         p.strikeTime = now;
         p.phaseStart = now;
-        // Store last position so plane stays visible during strike
         p.strikeLat = currentLat;
         p.strikeLon = currentLon;
         p.strikeAngle = canvasAngle;
@@ -713,7 +725,6 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     } else if (p.phase === 'strike') {
       const strikeDuration = 800;
       const strikeElapsed = now - p.strikeTime;
-      // Plane flies through the strike point, not disappearing
       currentLat = p.strikeLat;
       currentLon = p.strikeLon;
       canvasAngle = p.strikeAngle;
@@ -731,28 +742,34 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       if (strikeElapsed >= strikeDuration) {
         p.phase = 'returnLoiter';
         p.phaseStart = now;
-        p.loiterAngle = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+        // Start from current position
+        p.loiterAngle = Math.atan2(p.strikeLon - p.toLon, p.strikeLat - p.toLat);
       }
     } else if (p.phase === 'returnLoiter') {
       const t = Math.min(1, phaseElapsed / p.returnLoiterDuration);
       const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 1.5;
       currentLat = p.toLat + Math.cos(angle) * p.loiterRadius * 0.8;
       currentLon = p.toLon + Math.sin(angle) * p.loiterRadius * 0.8;
-      const dLat = -Math.sin(angle) * p.loiterDir;
-      const dLon = Math.cos(angle) * p.loiterDir;
+      const dLat = -Math.sin(angle) * p.loiterDir * p.loiterRadius * 0.8;
+      const dLon = Math.cos(angle) * p.loiterDir * p.loiterRadius * 0.8;
       canvasAngle = latLonHeadingToCanvas(dLat, dLon);
 
       if (t >= 1) {
         p.phase = 'return';
         p.phaseStart = now;
+        // Store where we are so return starts from here
+        p.returnFromLat = currentLat;
+        p.returnFromLon = currentLon;
       }
     } else if (p.phase === 'return') {
+      const rFromLat = p.returnFromLat || p.toLat;
+      const rFromLon = p.returnFromLon || p.toLon;
       const t = Math.min(1, phaseElapsed / p.flightDuration);
-      const cur = planeWeavePos(p.toLat, p.toLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
+      const cur = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
       currentLat = cur.lat;
       currentLon = cur.lon;
       const prevT = Math.max(0, t - 0.02);
-      const prev = planeWeavePos(p.toLat, p.toLon, p.fromLat, p.fromLon, prevT, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
+      const prev = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, prevT, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
       canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
 
       if (t >= 1) {
@@ -871,63 +888,65 @@ function drawMap(canvas, options = {}) {
   drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
   drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
 
+  const lbl = options.labels || {};
+
   // Major city labels
-  ctx.fillStyle = '#5a4a30';
-  ctx.font = '11px Courier New';
-
-  const labels = [
-    [29.07, 48.00, 'Kuwait City'],
-    [30.50, 47.80, 'Basra'],
-    [27.50, 52.60, 'Shiraz'],
-    [28.97, 50.85, 'Bushehr'],
-    [26.43, 50.10, 'Dammam'],
-    [24.47, 54.37, 'Abu Dhabi'],
-    [25.28, 55.30, 'Dubai'],
-    [25.42, 55.50, 'Sharjah'],
-    [25.35, 56.35, 'Fujairah'],
-    [23.61, 58.54, 'Muscat'],
-    [25.30, 51.53, 'Doha'],
-    [26.22, 50.59, 'Manama'],
-    [27.19, 56.27, 'Bandar Abbas'],
-  ];
-
-  for (const [lat, lon, text] of labels) {
-    const pos = latLonToCanvas(lat, lon, drawW, drawH);
-    if (pos.x > -100 && pos.x < drawW + 100 && pos.y > -30 && pos.y < drawH + 30) {
-      ctx.fillText(text, pos.x, pos.y);
+  if (lbl.cityNames !== false) {
+    ctx.fillStyle = '#5a4a30';
+    ctx.font = '11px Courier New';
+    const labels = [
+      [29.07, 48.00, 'Kuwait City'],
+      [30.50, 47.80, 'Basra'],
+      [27.50, 52.60, 'Shiraz'],
+      [28.97, 50.85, 'Bushehr'],
+      [26.43, 50.10, 'Dammam'],
+      [24.47, 54.37, 'Abu Dhabi'],
+      [25.28, 55.30, 'Dubai'],
+      [25.42, 55.50, 'Sharjah'],
+      [25.35, 56.35, 'Fujairah'],
+      [23.61, 58.54, 'Muscat'],
+      [25.30, 51.53, 'Doha'],
+      [26.22, 50.59, 'Manama'],
+      [27.19, 56.27, 'Bandar Abbas'],
+    ];
+    for (const [lat, lon, text] of labels) {
+      const pos = latLonToCanvas(lat, lon, drawW, drawH);
+      if (pos.x > -100 && pos.x < drawW + 100 && pos.y > -30 && pos.y < drawH + 30) {
+        ctx.fillText(text, pos.x, pos.y);
+      }
     }
   }
 
-  // Gulf of Oman label
-  const omanGulfLabel = latLonToCanvas(25.5, 58.2, drawW, drawH);
-  if (omanGulfLabel.x > 0 && omanGulfLabel.x < drawW && omanGulfLabel.y > 0 && omanGulfLabel.y < drawH) {
-    ctx.fillStyle = '#1e3050';
-    ctx.font = '14px Courier New';
-    ctx.fillText('G U L F   O F   O M A N', omanGulfLabel.x, omanGulfLabel.y);
-  }
+  // Water body labels
+  if (lbl.waterLabels !== false) {
+    const omanGulfLabel = latLonToCanvas(25.5, 58.2, drawW, drawH);
+    if (omanGulfLabel.x > 0 && omanGulfLabel.x < drawW && omanGulfLabel.y > 0 && omanGulfLabel.y < drawH) {
+      ctx.fillStyle = '#1e3050';
+      ctx.font = '14px Courier New';
+      ctx.fillText('G U L F   O F   O M A N', omanGulfLabel.x, omanGulfLabel.y);
+    }
 
-  // Strait label
-  ctx.fillStyle = '#1e3050';
-  ctx.font = '12px Courier New';
-  const straitLabel = latLonToCanvas(26.45, 55.6, drawW, drawH);
-  if (straitLabel.x > 0 && straitLabel.x < drawW && straitLabel.y > 0 && straitLabel.y < drawH) {
-    ctx.fillText('S T R A I T   O F   H O R M U Z', straitLabel.x, straitLabel.y);
-  }
-
-  // Persian Gulf label
-  const gulfLabel = latLonToCanvas(27.0, 51.5, drawW, drawH);
-  if (gulfLabel.x > 0 && gulfLabel.x < drawW && gulfLabel.y > 0 && gulfLabel.y < drawH) {
     ctx.fillStyle = '#1e3050';
-    ctx.font = '16px Courier New';
-    ctx.fillText('P E R S I A N   G U L F', gulfLabel.x, gulfLabel.y);
+    ctx.font = '12px Courier New';
+    const straitLabel = latLonToCanvas(26.45, 55.6, drawW, drawH);
+    if (straitLabel.x > 0 && straitLabel.x < drawW && straitLabel.y > 0 && straitLabel.y < drawH) {
+      ctx.fillText('S T R A I T   O F   H O R M U Z', straitLabel.x, straitLabel.y);
+    }
+
+    const gulfLabel = latLonToCanvas(27.0, 51.5, drawW, drawH);
+    if (gulfLabel.x > 0 && gulfLabel.x < drawW && gulfLabel.y > 0 && gulfLabel.y < drawH) {
+      ctx.fillStyle = '#1e3050';
+      ctx.font = '16px Courier New';
+      ctx.fillText('P E R S I A N   G U L F', gulfLabel.x, gulfLabel.y);
+    }
   }
 
   // Military bases
-  drawMilitaryBases(ctx, drawW, drawH);
+  drawMilitaryBases(ctx, drawW, drawH, lbl);
 
   // Oil terminals (always shown)
   if (options.showTerminals) {
-    drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId);
+    drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId, lbl);
     drawDropoffPoint(ctx, drawW, drawH);
   }
 
