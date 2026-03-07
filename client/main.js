@@ -471,7 +471,6 @@ function addWaypointForSelectedShip(target) {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   if (isOnLand(target.lat, target.lon)) return;
   const wps = shipWaypoints[selectedShipId] || [];
-  if (wps.length >= 10) return;
   wps.push(target);
   shipWaypoints[selectedShipId] = wps;
   updateClearWpButton();
