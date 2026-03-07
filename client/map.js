@@ -687,15 +687,17 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     let canvasAngle;
 
     if (p.phase === 'outbound') {
-      const t = Math.min(1, phaseElapsed / p.flightDuration);
+      const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
+      // Ease-in: slow takeoff, accelerates to cruising speed
+      const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep for gentle start and steady cruise
       const cur = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, t, p.weaveFreq, p.weaveAmp);
       currentLat = cur.lat;
       currentLon = cur.lon;
-      const prevT = Math.max(0, t - 0.02);
+      const prevT = Math.max(0, t - 0.01);
       const prev = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, prevT, p.weaveFreq, p.weaveAmp);
       canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
 
-      if (t >= 1) {
+      if (tRaw >= 1) {
         // Transition to orbit: one continuous circle that spirals in then out
         p.phase = 'orbit';
         p.phaseStart = now;
