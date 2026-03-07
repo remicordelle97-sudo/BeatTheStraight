@@ -104,7 +104,9 @@ function initPanZoom() {
     const factor = e.deltaY > 0 ? 1.15 : 0.87;
     const newLonRange = (vp.east - vp.west) * factor;
     const newLatRange = (vp.north - vp.south) * factor;
-    if (newLonRange < 0.5 || newLonRange > 30 || newLatRange < 0.3 || newLatRange > 20) return;
+    const maxLonRange = MAP_BOUNDS.east - MAP_BOUNDS.west;
+    const maxLatRange = MAP_BOUNDS.north - MAP_BOUNDS.south;
+    if (newLonRange < 0.5 || newLonRange > maxLonRange || newLatRange < 0.3 || newLatRange > maxLatRange) return;
     viewport = clampViewport({
       west: lonCenter - newLonRange * lonFrac,
       east: lonCenter + newLonRange * (1 - lonFrac),
