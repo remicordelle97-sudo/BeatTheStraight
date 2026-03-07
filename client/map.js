@@ -701,69 +701,59 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     if (p.phase === 'outbound') {
       const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
-      // Ease-out: fast departure, decelerating as we approach the target/loop entry
-      // Using cubic ease-out for a smooth deceleration into the loop
+      // Ease-out: fast departure, decelerating into the loop entry
       const t = 1 - Math.pow(1 - tRaw, 3);
 
-      // Fly straight at the target — no weave on approach
-      // But the endpoint is offset: we aim slightly past the target so the
-      // ellipse entry point is on the approach side of the target
-      const entryOffsetLat = p.toLat - p.approachLat * p.ellipseB;
-      const entryOffsetLon = p.toLon - p.approachLon * p.ellipseB;
-      currentLat = p.fromLat + (entryOffsetLat - p.fromLat) * t;
-      currentLon = p.fromLon + (entryOffsetLon - p.fromLon) * t;
+      // Fly straight toward the loop entry point (one ellipseB behind target)
+      const entryLat = p.toLat - p.approachLat * p.ellipseB;
+      const entryLon = p.toLon - p.approachLon * p.ellipseB;
+      currentLat = p.fromLat + (entryLat - p.fromLat) * t;
+      currentLon = p.fromLon + (entryLon - p.fromLon) * t;
 
-      // Heading: straight toward target
-      canvasAngle = latLonHeadingToCanvas(
-        entryOffsetLat - p.fromLat,
-        entryOffsetLon - p.fromLon
-      );
+      // Heading: straight along approach direction
+      canvasAngle = latLonHeadingToCanvas(p.approachLat, p.approachLon);
 
       if (tRaw >= 1) {
-        // Transition to elliptical orbit
         p.phase = 'orbit';
         p.phaseStart = now;
         p.orbitDuration = p.loiterDuration;
-        p.orbitStrikeT = 0.5; // bomb drops at top of loop (slowest point)
+        p.orbitStrikeT = 0.5; // bomb drops at closest approach (θ=π/2)
         p.orbitStruck = false;
       }
     } else if (p.phase === 'orbit') {
-      // Full elliptical loop around the target
-      // theta goes from 0 (entry, behind target) through PI (top, far side)
-      // to 2*PI (exit, back behind target)
+      // Half-loop: x = A*(1-cos(θ)), y = B*sin(θ) for θ ∈ [0, π]
+      //
+      // Local coords: x = lateral (perp to approach), y = forward (approach dir)
+      // At θ=0:   pos=(0,0)   tangent=(0,B)  → forward  (matches approach entry)
+      // At θ=π/2: pos=(A,B)   tangent=(A,0)  → lateral  (closest to target, bomb drop)
+      // At θ=π:   pos=(2A,0)  tangent=(0,-B) → backward (matches return to base)
+      //
+      // Tangent is continuous at both transitions — no sharp turns.
       const tRaw = Math.min(1, phaseElapsed / p.orbitDuration);
 
-      // Variable speed: slowest at the top (t=0.5), fastest at entry/exit
-      // g(t) = t + (k/(2π)) * sin(2πt)  where k controls speed variation
-      // dg/dt = 1 + k*cos(2πt): at t=0,1 → 1+k (fast), at t=0.5 → 1-k (slow)
-      const k = 0.45; // speed ratio: top is ~0.55x, entry/exit is ~1.45x
+      // Variable speed: slowest at t=0.5 (θ=π/2, bomb drop), fastest at entry/exit
+      // g(t) = t + (k/(2π))*sin(2πt), dg/dt = 1 + k*cos(2πt)
+      // At t=0,1: speed = 1+k (fast). At t=0.5: speed = 1-k (slow).
+      const k = 0.45;
       const g = tRaw + (k / (2 * Math.PI)) * Math.sin(2 * Math.PI * tRaw);
-      // Normalize g so g(1) maps to exactly 1
-      const gNorm = g; // sin(2π) = 0, so g(1) = 1 already
 
-      // Ellipse angle: full loop (2π), direction determined by loiterDir
-      const theta = p.loiterDir * 2 * Math.PI * gNorm;
+      // θ sweeps from 0 to π over the half-loop
+      const theta = Math.PI * g;
 
-      // Ellipse position in local coordinates:
-      // lateral offset = ellipseA * sin(theta) (perpendicular to approach)
-      // forward offset = -ellipseB * (1 - cos(theta)) (pushes away from entry)
-      // At theta=0: lateral=0, forward=0 (entry point)
-      // At theta=π: lateral=0, forward=-2*ellipseB (far side, past target)
-      const lateralOffset = p.ellipseA * Math.sin(theta);
-      const forwardOffset = -p.ellipseB * (1 - Math.cos(theta));
+      // Position in local coords, then transform to global
+      const lateralOffset = p.ellipseA * (1 - Math.cos(theta));
+      const forwardOffset = p.ellipseB * Math.sin(theta);
 
-      // The entry point is behind the target by ellipseB (from outbound endpoint)
+      // Entry point (global): one ellipseB behind the target
       const entryLat = p.toLat - p.approachLat * p.ellipseB;
       const entryLon = p.toLon - p.approachLon * p.ellipseB;
 
       currentLat = entryLat + p.perpLat * lateralOffset + p.approachLat * forwardOffset;
       currentLon = entryLon + p.perpLon * lateralOffset + p.approachLon * forwardOffset;
 
-      // Analytical tangent for heading (derivative of position w.r.t. theta)
-      // d(lateral)/dθ = ellipseA * cos(θ)
-      // d(forward)/dθ = -ellipseB * sin(θ) ... wait: d/dθ[-B*(1-cos(θ))] = -B*sin(θ)
-      const dLateral = p.ellipseA * Math.cos(theta) * p.loiterDir;
-      const dForward = -p.ellipseB * Math.sin(theta) * p.loiterDir;
+      // Analytical tangent: dx/dθ = A*sin(θ), dy/dθ = B*cos(θ)
+      const dLateral = p.ellipseA * Math.sin(theta);
+      const dForward = p.ellipseB * Math.cos(theta);
       const tangentLat = p.perpLat * dLateral + p.approachLat * dForward;
       const tangentLon = p.perpLon * dLateral + p.approachLon * dForward;
       canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
@@ -866,11 +856,13 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const rFromLat = p.returnFromLat || p.toLat;
       const rFromLon = p.returnFromLon || p.toLon;
       const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.2));
-      // Ease-in (cubic): accelerates away from the loop, then cruises home
+      // Smoothstep: starts fast (matching orbit exit speed), cruises, decelerates at base
       const t = tRaw * tRaw * (3 - 2 * tRaw);
       currentLat = rFromLat + (p.fromLat - rFromLat) * t;
       currentLon = rFromLon + (p.fromLon - rFromLon) * t;
 
+      // Heading from exit point toward base — matches orbit exit tangent
+      // (orbit exits heading backward = toward base direction)
       canvasAngle = latLonHeadingToCanvas(
         p.fromLat - rFromLat,
         p.fromLon - rFromLon
