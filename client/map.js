@@ -41,7 +41,11 @@ const IRAN_COAST = [
   [27.4, 57.3],
   [27.5, 57.6],
   [27.3, 58.0],
-  [30.5, 58.0],
+  [27.2, 58.5],
+  [27.1, 59.0],
+  [27.0, 59.5],
+  [26.9, 60.0],
+  [30.5, 60.0],
   [30.5, 47.0]
 ];
 
@@ -90,8 +94,14 @@ const ARAB_COAST = [
   [26.3, 57.0],
   [26.2, 57.3],
   [25.5, 57.5],
-  [24.5, 57.8],
-  [23.5, 58.0],
+  [24.8, 57.7],
+  [24.2, 57.9],
+  [23.8, 58.2],
+  [23.5, 58.5],
+  [23.2, 59.0],
+  [23.0, 59.5],
+  [22.8, 60.0],
+  [23.5, 60.0],
   [23.5, 47.0],
   [30.5, 47.0]
 ];
@@ -386,7 +396,7 @@ function drawMap(canvas, options = {}) {
     [24.5, 54.5, 'U A E'],
     [29.5, 47.8, 'I R A Q'],
     [29.0, 48.0, 'K U W A I T'],
-    [25.6, 56.8, 'O M A N'],
+    [24.5, 57.0, 'O M A N'],
     [25.8, 51.3, 'Q A T A R'],
   ];
 
@@ -395,6 +405,14 @@ function drawMap(canvas, options = {}) {
     if (pos.x > -100 && pos.x < drawW + 100 && pos.y > -30 && pos.y < drawH + 30) {
       ctx.fillText(text, pos.x, pos.y);
     }
+  }
+
+  // Gulf of Oman label
+  const omanGulfLabel = latLonToCanvas(25.5, 58.2, drawW, drawH);
+  if (omanGulfLabel.x > 0 && omanGulfLabel.x < drawW && omanGulfLabel.y > 0 && omanGulfLabel.y < drawH) {
+    ctx.fillStyle = '#1e3050';
+    ctx.font = '14px Courier New';
+    ctx.fillText('G U L F   O F   O M A N', omanGulfLabel.x, omanGulfLabel.y);
   }
 
   // Strait label

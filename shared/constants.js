@@ -2,7 +2,7 @@
 export const MAP_BOUNDS = {
   north: 30.5,
   south: 23.5,
-  east: 58.0,
+  east: 60.0,
   west: 47.0
 };
 
@@ -10,7 +10,7 @@ export const MAP_BOUNDS = {
 export const DEFAULT_VIEWPORT = {
   north: 28.0,
   south: 25.0,
-  east: 57.5,
+  east: 59.0,
   west: 53.5
 };
 
@@ -25,8 +25,8 @@ export const SIM_CONFIG = {
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
   NPC_COUNT: 8,              // number of NPC traffic ships
   MILITARY_COUNT: 4,         // number of military ships
-  SPAWN_LAT: 25.3,          // Gulf of Oman spawn point
-  SPAWN_LON: 57.8,
+  SPAWN_LAT: 25.3,          // Gulf of Oman spawn point (open water)
+  SPAWN_LON: 58.8,
   LOAD_RADIUS: 0.15,        // proximity to terminal to start loading (degrees)
 };
 

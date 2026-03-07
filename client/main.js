@@ -402,7 +402,7 @@ function renderPlanning() {
   updateCostPreview();
 
   // Show map with terminals during planning (zoom out to show gulf + spawn area)
-  viewport = { north: 30.0, south: 24.0, west: 47.5, east: 58.5 };
+  viewport = { north: 30.0, south: 23.0, west: 47.5, east: 60.0 };
   setViewport(viewport);
 }
 
@@ -558,7 +558,7 @@ function updateNPCShips(dt) {
     npc.lat += Math.cos(rad) * speedDeg * dt;
 
     // Remove and respawn if out of bounds
-    if (npc.lon > 58.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
+    if (npc.lon > 59.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
       const goingEast = Math.random() > 0.4;
       npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
       npc.lat = 26.0 + Math.random() * 1.2;
