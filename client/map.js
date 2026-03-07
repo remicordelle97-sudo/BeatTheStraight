@@ -705,8 +705,12 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         p.orbitDuration = p.loiterDuration * 0.8;
         // One half turn (PI radians)
         p.orbitTotalAngle = p.loiterDir * Math.PI;
-        // Seed orbit start angle from approach direction
-        p.orbitStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
+        // Seed orbit start angle so tangent at entry matches approach heading
+        // Tangent = (cos(a)*dir, -sin(a)*dir), so for tangent ∝ (dLat, dLon):
+        // cos(a)*dir = dLat, -sin(a)*dir = dLon → a = atan2(-dLon*dir, dLat*dir)
+        const dLat = cur.lat - prev.lat;
+        const dLon = cur.lon - prev.lon;
+        p.orbitStartAngle = Math.atan2(-dLon * p.loiterDir, dLat * p.loiterDir);
         // Strike at midpoint of the arc
         p.orbitStrikeT = 0.5;
         p.orbitStruck = false;
@@ -719,12 +723,11 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const t = Math.min(1, phaseElapsed / p.orbitDuration);
       const angle = p.orbitStartAngle + p.orbitTotalAngle * t;
 
-      // Radius envelope: grows from 0 → full in first 25%, holds, shrinks to 0 in last 25%
+      // Radius envelope: grows from 0 → full in first 25%, then holds
+      // (no shrink at end — return phase picks up from exit position)
       let rFactor;
       if (t < 0.25) {
         rFactor = t / 0.25;
-      } else if (t > 0.75) {
-        rFactor = (1 - t) / 0.25;
       } else {
         rFactor = 1.0;
       }
