@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { GameState, generateGameId } from './game.js';
 import {
-  ROUTES, SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
+  SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
   TIME_OPTIONS, GAME_PHASES
 } from '../shared/constants.js';
 
@@ -170,7 +170,6 @@ io.on('connection', (socket) => {
 
   socket.on('get_options', (_, callback) => {
     callback?.({
-      routes: ROUTES,
       shipTypes: SHIP_TYPES,
       aisOptions: AIS_OPTIONS,
       insuranceOptions: INSURANCE_OPTIONS,
