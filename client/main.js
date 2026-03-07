@@ -570,17 +570,26 @@ const NPC_STATE = {
   DEPARTING: 'departing',
 };
 
+function randomWaterPos(latMin, latMax, lonMin, lonMax, maxTries) {
+  for (let i = 0; i < (maxTries || 30); i++) {
+    const lat = latMin + Math.random() * (latMax - latMin);
+    const lon = lonMin + Math.random() * (lonMax - lonMin);
+    if (!isOnLand(lat, lon)) return { lat, lon };
+  }
+  // Fallback: known safe water point in Gulf of Oman
+  return { lat: 25.3, lon: 59.0 };
+}
+
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
   const terminals = Object.values(OIL_TERMINALS);
   const terminal = terminals[Math.floor(Math.random() * terminals.length)];
-  const lon = 59.5 + Math.random() * 1.0;
-  const lat = 24.5 + Math.random() * 2.0;
+  const spawn = randomWaterPos(24.5, 26.5, 59.5, 60.5);
   const heading = 250 + Math.random() * 30;
   const speed = type.speed + (Math.random() - 0.5) * 2;
 
   const npc = {
-    lat, lon, heading, targetHeading: heading, speed, baseSpeed: speed,
+    lat: spawn.lat, lon: spawn.lon, heading, targetHeading: heading, speed, baseSpeed: speed,
     size: type.size, color: type.color, name: type.name,
     targetTerminal: terminal,
     state: staggered ? (['entering','heading_to_terminal','loading','departing'])[Math.floor(Math.random()*4)] : NPC_STATE.ENTERING,
@@ -588,18 +597,21 @@ function createNPCTanker(staggered) {
   };
 
   if (staggered && npc.state === NPC_STATE.LOADING) {
-    npc.lat = terminal.lat + (Math.random() - 0.5) * 0.05;
-    npc.lon = terminal.lon + (Math.random() - 0.5) * 0.05;
+    const lp = randomWaterPos(terminal.lat - 0.05, terminal.lat + 0.05, terminal.lon - 0.05, terminal.lon + 0.05);
+    npc.lat = lp.lat; npc.lon = lp.lon;
     npc.speed = 0;
     npc.loadTimer = 10 + Math.random() * 20;
   } else if (staggered && npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-    npc.lat = terminal.lat + (Math.random() - 0.5) * 3;
-    npc.lon = terminal.lon + (Math.random() - 0.5) * 3;
+    // Place between spawn area and terminal, in water
+    const midLat = (spawn.lat + terminal.lat) / 2;
+    const midLon = (spawn.lon + terminal.lon) / 2;
+    const hp = randomWaterPos(midLat - 1, midLat + 1, midLon - 1, midLon + 1);
+    npc.lat = hp.lat; npc.lon = hp.lon;
     npc.heading = headingToTarget(npc.lat, npc.lon, terminal.lat, terminal.lon);
     npc.targetHeading = npc.heading;
   } else if (staggered && npc.state === NPC_STATE.DEPARTING) {
-    npc.lon = terminal.lon + Math.random() * (57.5 - terminal.lon);
-    npc.lat = 25 + Math.random() * 2.5;
+    const dp = randomWaterPos(25.0, 27.0, terminal.lon, 58.5);
+    npc.lat = dp.lat; npc.lon = dp.lon;
     npc.heading = headingToTarget(npc.lat, npc.lon, 25.3, 59.5);
     npc.targetHeading = npc.heading;
   }
