@@ -1031,10 +1031,14 @@ function spawnMilitaryShips() {
     const pos = randomWaterPos(pb.south, pb.north, pb.west, pb.east);
     const heading = Math.random() * 360;
     militaryShips.push({
-      lat: pos.lat, lon: pos.lon, heading, speed: type.speed * (0.5 + Math.random() * 0.3),
+      lat: pos.lat, lon: pos.lon, heading, baseSpeed: type.speed,
+      speed: 0, // start idle
       size: type.size, color: type.color, name: type.name, country: type.country,
       dangerRadius: type.dangerRadius, friendlyFireChance: type.friendlyFireChance,
-      patrolBounds: pb, targetHeading: heading, patrolTimer: 5 + Math.random() * 10, entered: true
+      patrolBounds: pb, targetHeading: heading,
+      state: 'idle', // 'idle' or 'moving'
+      idleTimer: Math.random() * 180, // stagger initial idle times
+      moveDest: null,
     });
   }
 }
@@ -1203,29 +1207,48 @@ function getNPCDestination(npc) {
 function updateMilitaryShips(dt) {
   for (const mil of militaryShips) {
     const pb = mil.patrolBounds;
-    if (!mil.entered && mil.lat >= pb.south && mil.lat <= pb.north && mil.lon >= pb.west && mil.lon <= pb.east) mil.entered = true;
-    if (mil.entered) {
-      mil.patrolTimer -= dt;
-      if (mil.patrolTimer <= 0) {
-        mil.targetHeading = headingToTarget(mil.lat, mil.lon,
-          pb.south + Math.random() * (pb.north - pb.south),
-          pb.west + Math.random() * (pb.east - pb.west));
-        mil.patrolTimer = 10 + Math.random() * 20;
+
+    if (mil.state === 'idle') {
+      mil.speed = 0;
+      mil.idleTimer -= dt;
+      if (mil.idleTimer <= 0) {
+        // Pick a nearby point within patrol zone (small adjustment)
+        const offsetLat = (Math.random() - 0.5) * (pb.north - pb.south) * 0.3;
+        const offsetLon = (Math.random() - 0.5) * (pb.east - pb.west) * 0.3;
+        let destLat = mil.lat + offsetLat;
+        let destLon = mil.lon + offsetLon;
+        // Clamp within patrol bounds
+        destLat = Math.max(pb.south, Math.min(pb.north, destLat));
+        destLon = Math.max(pb.west, Math.min(pb.east, destLon));
+        mil.moveDest = { lat: destLat, lon: destLon };
+        mil.targetHeading = headingToTarget(mil.lat, mil.lon, destLat, destLon);
+        mil.state = 'moving';
+        mil.speed = mil.baseSpeed * (0.3 + Math.random() * 0.3); // slow repositioning
       }
+    } else if (mil.state === 'moving') {
+      // Check if arrived at destination
+      const dist = distanceDeg(mil.lat, mil.lon, mil.moveDest.lat, mil.moveDest.lon);
+      if (dist < 0.02) {
+        mil.state = 'idle';
+        mil.idleTimer = 150 + Math.random() * 60; // ~3 minutes idle
+        mil.speed = 0;
+        continue;
+      }
+      // Steer toward destination
+      mil.targetHeading = headingToTarget(mil.lat, mil.lon, mil.moveDest.lat, mil.moveDest.lon);
     }
+
+    // Turn toward target heading
     const diff = angleDiff(mil.heading, mil.targetHeading);
     if (Math.abs(diff) > 0.5) mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
 
+    // Move
     const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = mil.heading * Math.PI / 180;
     const newLon = mil.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = mil.lat + Math.cos(rad) * speedDeg * dt;
     if (!isOnLand(newLat, newLon)) { mil.lon = newLon; mil.lat = newLat; }
     else { mil.targetHeading = normalizeAngle(mil.heading + 90 + Math.random() * 90); }
-
-    if (mil.entered && (mil.lat < pb.south - 0.5 || mil.lat > pb.north + 0.5 || mil.lon < pb.west - 0.5 || mil.lon > pb.east + 0.5)) {
-      mil.targetHeading = headingToTarget(mil.lat, mil.lon, (pb.south + pb.north) / 2, (pb.west + pb.east) / 2);
-    }
   }
 }
 
