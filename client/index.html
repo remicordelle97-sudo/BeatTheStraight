@@ -2,19 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Beat The Straight - Oil Tanker Strategy Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beat The Straight - Strait of Hormuz Simulator</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="app">
+    <!-- Fullscreen map canvas (always rendered behind everything) -->
+    <canvas id="game-map"></canvas>
+
     <!-- Title Screen -->
     <div id="screen-title" class="screen active">
       <div class="title-container">
         <div class="title-logo">
-          <div class="tanker-icon">🚢</div>
           <h1>BEAT THE<br><span class="highlight">STRAIGHT</span></h1>
-          <p class="subtitle">Strait of Hormuz Oil Tanker Strategy</p>
+          <p class="subtitle">Strait of Hormuz Live Simulator</p>
         </div>
         <div class="menu-buttons">
           <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
@@ -32,104 +34,118 @@
 
     <!-- Lobby Screen -->
     <div id="screen-lobby" class="screen">
-      <div class="screen-header">
-        <h2>GAME LOBBY</h2>
-        <div class="game-code">Code: <span id="lobby-code"></span></div>
+      <div class="panel-center">
+        <div class="screen-header">
+          <h2>GAME LOBBY</h2>
+          <div class="game-code">Code: <span id="lobby-code"></span></div>
+        </div>
+        <div class="player-list" id="lobby-players"></div>
+        <button id="btn-start" class="btn btn-primary btn-large hidden">START GAME</button>
+        <p id="lobby-waiting" class="muted">Waiting for host to start...</p>
       </div>
-      <div class="player-list" id="lobby-players"></div>
-      <button id="btn-start" class="btn btn-primary btn-large hidden">START GAME</button>
-      <p id="lobby-waiting" class="muted">Waiting for host to start...</p>
     </div>
 
-    <!-- Planning Screen -->
+    <!-- Planning Screen (sidebar overlay on map) -->
     <div id="screen-planning" class="screen">
-      <div class="screen-header">
-        <div class="round-info">
-          <span>Round <span id="plan-round">1</span>/10</span>
-          <span class="risk-badge" id="plan-risk">MODERATE</span>
+      <div class="planning-sidebar">
+        <div class="planning-header">
+          <div class="round-info">
+            <span>Round <span id="plan-round">1</span>/10</span>
+            <span class="risk-badge" id="plan-risk">MODERATE</span>
+          </div>
+          <div class="market-info">
+            <span>Oil: $<span id="plan-oil-price">0</span>/bbl</span>
+            <span>Cash: $<span id="plan-cash">0</span></span>
+          </div>
         </div>
-        <div class="market-info">
-          <span>Oil: $<span id="plan-oil-price">0</span>/bbl</span>
-          <span>Cash: $<span id="plan-cash">0</span></span>
+
+        <div class="planning-sections">
+          <div class="plan-section">
+            <h3>SELECT SHIP</h3>
+            <div id="ship-selector" class="option-grid"></div>
+          </div>
+          <div class="plan-section">
+            <h3>DEPARTURE TIME</h3>
+            <div id="time-selector" class="option-grid"></div>
+          </div>
+          <div class="plan-section">
+            <h3>AIS TRANSPONDER</h3>
+            <div id="ais-selector" class="option-grid"></div>
+          </div>
+          <div class="plan-section">
+            <h3>INSURANCE</h3>
+            <div id="insurance-selector" class="option-grid"></div>
+          </div>
+          <div class="plan-section">
+            <h3>MISSION SUMMARY</h3>
+            <div id="cost-preview" class="cost-preview"></div>
+          </div>
         </div>
+
+        <button id="btn-submit-plan" class="btn btn-primary btn-large">LAUNCH TRANSIT</button>
+        <div id="plan-waiting" class="hidden muted">Waiting for other captains...</div>
+        <p class="plan-hint">You will navigate the strait manually.<br>Steer to avoid danger zones shown on map.</p>
       </div>
-
-      <div class="planning-sections">
-        <!-- Ship Selection -->
-        <div class="plan-section">
-          <h3>SELECT SHIP</h3>
-          <div id="ship-selector" class="option-grid"></div>
-        </div>
-
-        <!-- Route Selection -->
-        <div class="plan-section">
-          <h3>CHOOSE ROUTE</h3>
-          <div id="route-selector" class="option-grid"></div>
-        </div>
-
-        <!-- Map Preview -->
-        <div class="plan-section">
-          <h3>MAP</h3>
-          <canvas id="map-canvas" width="400" height="300"></canvas>
-        </div>
-
-        <!-- Time Selection -->
-        <div class="plan-section">
-          <h3>DEPARTURE TIME</h3>
-          <div id="time-selector" class="option-grid"></div>
-        </div>
-
-        <!-- AIS Selection -->
-        <div class="plan-section">
-          <h3>AIS TRANSPONDER</h3>
-          <div id="ais-selector" class="option-grid"></div>
-        </div>
-
-        <!-- Insurance Selection -->
-        <div class="plan-section">
-          <h3>INSURANCE</h3>
-          <div id="insurance-selector" class="option-grid"></div>
-        </div>
-
-        <!-- Cost Preview -->
-        <div class="plan-section">
-          <h3>MISSION SUMMARY</h3>
-          <div id="cost-preview" class="cost-preview"></div>
-        </div>
-      </div>
-
-      <button id="btn-submit-plan" class="btn btn-primary btn-large">LAUNCH TRANSIT</button>
-      <div id="plan-waiting" class="hidden muted">Waiting for other captains...</div>
     </div>
 
-    <!-- Transit Animation Screen -->
+    <!-- Transit Screen (HUD overlay on fullscreen map) -->
     <div id="screen-transit" class="screen">
-      <div class="transit-header">
-        <h2>TRANSIT IN PROGRESS</h2>
-        <div class="transit-ship-name" id="transit-ship-name"></div>
+      <!-- Top HUD bar -->
+      <div id="hud-top">
+        <div class="hud-group">
+          <div class="hud-label">GAME TIME</div>
+          <div class="hud-value" id="hud-time">00:00</div>
+        </div>
+        <div class="hud-group">
+          <div class="hud-label">SPEED</div>
+          <div class="hud-value" id="hud-speed">0 kts</div>
+        </div>
+        <div class="hud-group">
+          <div class="hud-label">HEADING</div>
+          <div class="hud-value" id="hud-heading">090&deg;</div>
+        </div>
+        <div class="hud-group">
+          <div class="hud-label">SHIP HP</div>
+          <div class="hud-value" id="hud-health">100%</div>
+        </div>
+        <div class="hud-group">
+          <div class="hud-label">PROGRESS</div>
+          <div class="hud-value" id="hud-progress">0%</div>
+        </div>
       </div>
-      <canvas id="transit-canvas" width="400" height="400"></canvas>
-      <div id="transit-events" class="event-log"></div>
+
+      <!-- Ship status bar -->
+      <div id="hud-ship-name"></div>
+
+      <!-- Event notifications -->
+      <div id="hud-events"></div>
+
+      <!-- Steering instruction -->
+      <div id="hud-steer-hint">Click anywhere on the map to set heading</div>
+
+      <!-- Compass -->
+      <div id="hud-compass">
+        <canvas id="compass-canvas" width="100" height="100"></canvas>
+      </div>
     </div>
 
     <!-- Results Screen -->
     <div id="screen-results" class="screen">
-      <div class="screen-header">
-        <h2>TRANSIT REPORT</h2>
+      <div class="panel-center panel-wide">
+        <div class="screen-header">
+          <h2>TRANSIT REPORT</h2>
+        </div>
+        <div id="result-detail" class="result-detail"></div>
+        <div id="leaderboard" class="leaderboard"></div>
+        <div id="reinvest-section" class="reinvest-section">
+          <h3>FLEET MANAGEMENT</h3>
+          <div id="fleet-display" class="fleet-display"></div>
+          <h4>BUY NEW SHIPS</h4>
+          <div id="ship-shop" class="option-grid"></div>
+        </div>
+        <button id="btn-next-round" class="btn btn-primary btn-large hidden">NEXT ROUND</button>
+        <p id="results-waiting" class="muted hidden">Waiting for host...</p>
       </div>
-      <div id="result-detail" class="result-detail"></div>
-      <div id="leaderboard" class="leaderboard"></div>
-
-      <!-- Reinvest Section -->
-      <div id="reinvest-section" class="reinvest-section">
-        <h3>FLEET MANAGEMENT</h3>
-        <div id="fleet-display" class="fleet-display"></div>
-        <h4>BUY NEW SHIPS</h4>
-        <div id="ship-shop" class="option-grid"></div>
-      </div>
-
-      <button id="btn-next-round" class="btn btn-primary btn-large hidden">NEXT ROUND</button>
-      <p id="results-waiting" class="muted hidden">Waiting for host...</p>
     </div>
 
     <!-- Game Over Screen -->

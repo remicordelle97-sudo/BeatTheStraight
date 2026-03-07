@@ -1,5 +1,9 @@
 import { io } from 'socket.io-client';
-import { drawMap } from './map.js';
+import { drawMap, drawCompass, canvasToLatLon } from './map.js';
+import {
+  SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
+  FUEL_COST_PER_UNIT
+} from '../shared/constants.js';
 
 // Connect to server
 const socket = io(window.location.hostname === 'localhost'
@@ -7,21 +11,39 @@ const socket = io(window.location.hostname === 'localhost'
   : window.location.origin
 );
 
-// Game state
+// ============================================
+// STATE
+// ============================================
 let gameState = null;
 let myId = null;
 let isHost = false;
 let options = null;
-let joinMode = false; // true = joining, false = creating
+let joinMode = false;
 
-// Selections for planning
+// Planning selections
 let selectedShipId = null;
-let selectedRouteId = null;
 let selectedTimeId = null;
 let selectedAisId = null;
 let selectedInsuranceId = null;
 
-// DOM elements
+// Transit simulation state
+let transitActive = false;
+let simState = null; // { lat, lon, heading, targetHeading, speed, health, ... }
+let simTrail = [];
+let simEvents = [];
+let simStartTime = 0;
+let simGameTime = 0; // game seconds elapsed
+let simTargetPoint = null;
+let zoneCooldowns = {}; // zone_id -> last event timestamp
+let lastEventCheck = 0;
+let transitPlan = null; // { ship, ais, insurance, time }
+
+// ============================================
+// DOM
+// ============================================
+const mapCanvas = document.getElementById('game-map');
+const compassCanvas = document.getElementById('compass-canvas');
+
 const screens = {
   title: document.getElementById('screen-title'),
   lobby: document.getElementById('screen-lobby'),
@@ -50,7 +72,15 @@ function showError(msg) {
   setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
-// ---- Title Screen ----
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============================================
+// TITLE SCREEN
+// ============================================
 document.getElementById('btn-create').addEventListener('click', () => {
   joinMode = false;
   document.getElementById('name-input-area').classList.remove('hidden');
@@ -110,7 +140,6 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
   }
 });
 
-// Enter key support
 ['input-name', 'input-game-id'].forEach(id => {
   document.getElementById(id).addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('btn-confirm').click();
@@ -118,12 +147,12 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
 });
 
 function fetchOptions() {
-  socket.emit('get_options', null, (opts) => {
-    options = opts;
-  });
+  socket.emit('get_options', null, (opts) => { options = opts; });
 }
 
-// ---- Lobby Screen ----
+// ============================================
+// LOBBY
+// ============================================
 function renderLobby() {
   document.getElementById('lobby-code').textContent = gameState.id;
   const list = document.getElementById('lobby-players');
@@ -151,7 +180,9 @@ document.getElementById('btn-start').addEventListener('click', () => {
   });
 });
 
-// ---- Planning Screen ----
+// ============================================
+// PLANNING
+// ============================================
 function renderPlanning() {
   if (!gameState || !options) return;
 
@@ -164,9 +195,7 @@ function renderPlanning() {
   const me = gameState.players.find(p => p.id === myId);
   document.getElementById('plan-cash').textContent = formatMoney(me?.cash || 0);
 
-  // Reset selections
   selectedShipId = null;
-  selectedRouteId = null;
   selectedTimeId = null;
   selectedAisId = null;
   selectedInsuranceId = null;
@@ -196,33 +225,17 @@ function renderPlanning() {
       });
     });
 
-    // Auto-select first
     if (me.fleet.length === 1) {
       selectedShipId = me.fleet[0].id;
       shipSelector.querySelector('.option-card')?.classList.add('selected');
     }
   } else {
-    shipSelector.innerHTML = '<div class="muted">No ships available! You\'re out of the game.</div>';
+    shipSelector.innerHTML = '<div class="muted">No ships! You\'re out.</div>';
   }
 
-  // Route selector
-  renderOptionSelector('route-selector', options.routes, 'routeId', (key, route) => {
-    const riskClass = route.riskMultiplier <= 0.7 ? 'stat-good' : route.riskMultiplier >= 1.5 ? 'stat-bad' : 'stat-warn';
-    return `
-      <div class="option-name">${route.name}</div>
-      <div class="option-desc">${route.description}</div>
-      <div class="option-stats">
-        <span class="stat ${riskClass}">Risk: ${route.riskMultiplier}x</span>
-        <span class="stat">${route.timeHours}h</span>
-        <span class="stat">Fuel: ${route.fuelMultiplier}x</span>
-      </div>
-    `;
-  }, (key) => { selectedRouteId = key; updateMap(); updateCostPreview(); });
-
   // Time selector
-  renderOptionSelector('time-selector', options.timeOptions, 'timeId', (key, opt) => `
+  renderOptionSelector('time-selector', options.timeOptions, (key, opt) => `
     <div class="option-name">${opt.name}</div>
-    <div class="option-desc">${opt.description}</div>
     <div class="option-stats">
       <span class="stat ${opt.visibilityMultiplier <= 0.4 ? 'stat-good' : opt.visibilityMultiplier >= 0.8 ? 'stat-bad' : 'stat-warn'}">
         Vis: ${Math.round(opt.visibilityMultiplier * 100)}%
@@ -231,7 +244,7 @@ function renderPlanning() {
   `, (key) => { selectedTimeId = key; updateCostPreview(); });
 
   // AIS selector
-  renderOptionSelector('ais-selector', options.aisOptions, 'aisId', (key, opt) => {
+  renderOptionSelector('ais-selector', options.aisOptions, (key, opt) => {
     const detClass = opt.detectionMultiplier <= 0.5 ? 'stat-good' : opt.detectionMultiplier >= 1.2 ? 'stat-bad' : 'stat-warn';
     return `
       <div class="option-name">${opt.name}</div>
@@ -244,7 +257,7 @@ function renderPlanning() {
   }, (key) => { selectedAisId = key; updateCostPreview(); });
 
   // Insurance selector
-  renderOptionSelector('insurance-selector', options.insuranceOptions, 'insId', (key, opt) => `
+  renderOptionSelector('insurance-selector', options.insuranceOptions, (key, opt) => `
     <div class="option-name">${opt.name}</div>
     <div class="option-desc">${opt.description}</div>
     <div class="option-stats">
@@ -257,12 +270,10 @@ function renderPlanning() {
 
   document.getElementById('btn-submit-plan').classList.remove('hidden');
   document.getElementById('plan-waiting').classList.add('hidden');
-
-  updateMap();
   updateCostPreview();
 }
 
-function renderOptionSelector(containerId, optionsObj, dataAttr, renderFn, onSelect) {
+function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
   const container = document.getElementById(containerId);
   container.innerHTML = Object.entries(optionsObj).map(([key, opt]) => `
     <div class="option-card" data-key="${key}">
@@ -279,138 +290,419 @@ function renderOptionSelector(containerId, optionsObj, dataAttr, renderFn, onSel
   });
 }
 
-function updateMap() {
-  const canvas = document.getElementById('map-canvas');
-  let waypoints = null;
-  if (selectedRouteId && options?.routes[selectedRouteId]) {
-    waypoints = options.routes[selectedRouteId].waypoints;
-  }
-  drawMap(canvas, waypoints);
-}
-
 function updateCostPreview() {
   const preview = document.getElementById('cost-preview');
   const me = gameState?.players.find(p => p.id === myId);
-  if (!me || !selectedShipId || !selectedRouteId || !selectedInsuranceId) {
-    preview.innerHTML = '<div class="muted">Select all options to see cost breakdown</div>';
+  if (!me || !selectedShipId || !selectedInsuranceId) {
+    preview.innerHTML = '<div class="muted">Select all options to see costs</div>';
     return;
   }
 
   const ship = me.fleet.find(s => s.id === selectedShipId);
-  const route = options.routes[selectedRouteId];
   const insurance = options.insuranceOptions[selectedInsuranceId];
   const ais = selectedAisId ? options.aisOptions[selectedAisId] : null;
-
-  if (!ship || !route || !insurance) return;
+  if (!ship || !insurance) return;
 
   const cargoBarrels = ship.capacity * 7.33;
   const cargoValue = cargoBarrels * gameState.oilPrice;
   const insuranceCost = cargoValue * insurance.costPercent;
-  const fuelCost = ship.fuelPerHour * route.timeHours * route.fuelMultiplier * 600 / 1000;
+  // Estimate ~10 hours transit at average
+  const fuelCost = ship.fuelPerHour * 10 * FUEL_COST_PER_UNIT / 1000;
   const legalPenalty = ais ? ais.legalPenalty : 0;
   const totalCost = insuranceCost + fuelCost + legalPenalty;
-  const potentialRevenue = cargoValue;
 
   preview.innerHTML = `
     <div class="cost-line"><span>Cargo Value:</span><span>${formatMoney(cargoValue)}</span></div>
-    <div class="cost-line"><span>Cargo (barrels):</span><span>${Math.round(cargoBarrels).toLocaleString()}</span></div>
     <div class="cost-line"><span>Insurance:</span><span>-${formatMoney(insuranceCost)}</span></div>
-    <div class="cost-line"><span>Fuel:</span><span>-${formatMoney(fuelCost)}</span></div>
+    <div class="cost-line"><span>Est. Fuel:</span><span>-${formatMoney(fuelCost)}</span></div>
     ${legalPenalty > 0 ? `<div class="cost-line"><span>Legal Risk:</span><span class="stat-bad">-${formatMoney(legalPenalty)}</span></div>` : ''}
     <div class="cost-line cost-total">
-      <span>Max Profit:</span>
-      <span class="stat-good">${formatMoney(potentialRevenue - totalCost)}</span>
+      <span>Est. Max Profit:</span>
+      <span class="stat-good">${formatMoney(cargoValue - totalCost)}</span>
     </div>
   `;
 }
 
-// Submit plan
+// Submit plan and start transit
 document.getElementById('btn-submit-plan').addEventListener('click', () => {
-  if (!selectedShipId || !selectedRouteId || !selectedTimeId || !selectedAisId || !selectedInsuranceId) {
+  if (!selectedShipId || !selectedTimeId || !selectedAisId || !selectedInsuranceId) {
     showError('Select all options before launching');
     return;
   }
 
+  const me = gameState.players.find(p => p.id === myId);
+  const ship = me.fleet.find(s => s.id === selectedShipId);
+  const ais = options.aisOptions[selectedAisId];
+  const insurance = options.insuranceOptions[selectedInsuranceId];
+  const time = options.timeOptions[selectedTimeId];
+
+  transitPlan = { ship, ais, insurance, time };
+
+  // Tell server we're ready (server won't simulate - client does it)
   socket.emit('submit_plan', {
     shipId: selectedShipId,
-    routeId: selectedRouteId,
+    routeId: 'PLAYER_NAVIGATED', // special: player navigates manually
     timeId: selectedTimeId,
     aisId: selectedAisId,
     insuranceId: selectedInsuranceId
   }, (res) => {
     if (res.success) {
-      document.getElementById('btn-submit-plan').classList.add('hidden');
-      document.getElementById('plan-waiting').classList.remove('hidden');
+      startTransit();
     } else {
       showError(res.error || 'Failed to submit plan');
     }
   });
 });
 
-// ---- Transit Animation ----
-function showTransitAnimation(result, routeWaypoints) {
+// ============================================
+// TRANSIT SIMULATION
+// ============================================
+function startTransit() {
   showScreen('transit');
-  const shipName = result.shipName || 'Your Ship';
-  document.getElementById('transit-ship-name').textContent = shipName + ' - ' + result.route;
+  transitActive = true;
+  simStartTime = performance.now();
+  simGameTime = 0;
+  simTrail = [];
+  simEvents = [];
+  zoneCooldowns = {};
+  lastEventCheck = 0;
+  simTargetPoint = null;
 
-  const canvas = document.getElementById('transit-canvas');
-  const eventsContainer = document.getElementById('transit-events');
-  eventsContainer.innerHTML = '';
+  const ship = transitPlan.ship;
+  simState = {
+    lat: SIM_CONFIG.START_LAT,
+    lon: SIM_CONFIG.START_LON,
+    heading: 90, // east
+    targetHeading: 90,
+    speed: ship.speed,
+    health: ship.health,
+    totalDamage: 0,
+    totalMoneyLoss: 0,
+    totalDelay: 0,
+    seized: false,
+    destroyed: false
+  };
 
-  const events = result.events || [];
-  let progress = 0;
-  const duration = 4000; // 4 second animation
-  const startTime = Date.now();
+  // HUD setup
+  document.getElementById('hud-ship-name').textContent =
+    `${ship.name} - ${transitPlan.time.name}`;
+  document.getElementById('hud-events').innerHTML = '';
 
-  function animate() {
-    const elapsed = Date.now() - startTime;
-    progress = Math.min(elapsed / duration, 1);
+  // Start click-to-steer
+  mapCanvas.style.pointerEvents = 'auto';
+  mapCanvas.style.cursor = 'crosshair';
 
-    drawMap(canvas, routeWaypoints, progress);
+  addTransitEvent('DEPARTURE', `${ship.name} departing Persian Gulf`, 'success');
 
-    // Show events as they happen along the route
-    const eventsToShow = events.filter(e => {
-      const eventProgress = (e.checkpoint + 0.5) / (routeWaypoints.length - 1);
-      return progress >= eventProgress;
-    });
-
-    if (eventsContainer.children.length < eventsToShow.length) {
-      const newEvent = eventsToShow[eventsContainer.children.length];
-      const div = document.createElement('div');
-      const isDanger = newEvent.damagePercent > 0 || newEvent.moneyLossPercent > 0;
-      const isGood = newEvent.delayHours < 0;
-      div.className = `event-item ${isDanger ? 'danger' : isGood ? 'success' : ''}`;
-      div.innerHTML = `
-        <div class="event-name">${newEvent.event}</div>
-        <div class="event-outcome">${newEvent.outcome}</div>
-      `;
-      eventsContainer.appendChild(div);
-      eventsContainer.scrollTop = eventsContainer.scrollHeight;
-    }
-
-    if (progress < 1) {
-      requestAnimationFrame(animate);
-    } else {
-      // Add final result event
-      setTimeout(() => {
-        const finalDiv = document.createElement('div');
-        finalDiv.className = `event-item ${result.success ? 'success' : 'danger'}`;
-        finalDiv.innerHTML = `
-          <div class="event-name">${result.success ? 'TRANSIT COMPLETE' : result.seized ? 'VESSEL SEIZED' : 'VESSEL LOST'}</div>
-          <div class="event-outcome">Profit: ${formatMoney(result.profit)}</div>
-        `;
-        eventsContainer.appendChild(finalDiv);
-
-        // Move to results after delay
-        setTimeout(() => showResults(result), 2000);
-      }, 500);
-    }
-  }
-
-  requestAnimationFrame(animate);
+  requestAnimationFrame(transitLoop);
 }
 
-// ---- Results Screen ----
+function transitLoop(timestamp) {
+  if (!transitActive) return;
+
+  const elapsed = (timestamp - simStartTime) / 1000; // real seconds elapsed
+  const dt = 1 / 60; // ~16ms frame
+
+  // Game time: 1 real second = TIME_SCALE game seconds
+  simGameTime = elapsed * SIM_CONFIG.TIME_SCALE;
+
+  // Update ship heading (smooth turn)
+  const headingDiff = angleDiff(simState.heading, simState.targetHeading);
+  if (Math.abs(headingDiff) > 0.5) {
+    const turnAmount = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), SIM_CONFIG.TURN_RATE * dt * 60);
+    simState.heading = normalizeAngle(simState.heading + turnAmount);
+  }
+
+  // Move ship
+  const speedDegPerSec = simState.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+  const headingRad = simState.heading * Math.PI / 180;
+  simState.lon += Math.cos(headingRad) * speedDegPerSec * dt;
+  // Latitude correction (cos of latitude for mercator)
+  simState.lat += Math.sin(headingRad) * speedDegPerSec * dt * -1;
+
+  // Clamp to map bounds
+  simState.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, simState.lat));
+  simState.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, simState.lon));
+
+  // Record trail
+  if (simTrail.length === 0 || elapsed - simTrail[simTrail.length - 1].t > 0.5) {
+    simTrail.push({ lat: simState.lat, lon: simState.lon, t: elapsed });
+  }
+
+  // Check events
+  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+    lastEventCheck = elapsed;
+    checkDangerZones(elapsed);
+  }
+
+  // Check if transit complete
+  if (simState.lon >= SIM_CONFIG.END_LON) {
+    finishTransit();
+    return;
+  }
+
+  // Check for ship destruction
+  if (simState.totalDamage >= 0.9 || simState.seized) {
+    finishTransit();
+    return;
+  }
+
+  // Update HUD
+  updateHUD(elapsed);
+
+  // Render
+  const progress = (simState.lon - SIM_CONFIG.START_LON) / (SIM_CONFIG.END_LON - SIM_CONFIG.START_LON);
+  drawMap(mapCanvas, {
+    showZones: true,
+    showStartEnd: true,
+    ship: simState,
+    trail: simTrail,
+    targetPoint: simTargetPoint,
+    riskMultiplier: RISK_LEVELS[gameState.riskLevel]?.eventFrequency || 0.15
+  });
+  drawCompass(compassCanvas, simState.heading);
+
+  requestAnimationFrame(transitLoop);
+}
+
+function updateHUD(elapsed) {
+  const gameHours = Math.floor(simGameTime / 3600);
+  const gameMinutes = Math.floor((simGameTime % 3600) / 60);
+  document.getElementById('hud-time').textContent =
+    `${String(gameHours).padStart(2, '0')}:${String(gameMinutes).padStart(2, '0')}`;
+  document.getElementById('hud-speed').textContent = `${simState.speed} kts`;
+  document.getElementById('hud-heading').innerHTML = `${Math.round(simState.heading)}&deg;`;
+  document.getElementById('hud-health').textContent =
+    `${Math.round((simState.health - simState.totalDamage) * 100)}%`;
+
+  const progress = Math.min(100, Math.round(
+    ((simState.lon - SIM_CONFIG.START_LON) / (SIM_CONFIG.END_LON - SIM_CONFIG.START_LON)) * 100
+  ));
+  document.getElementById('hud-progress').textContent = `${progress}%`;
+
+  // Color health based on level
+  const healthEl = document.getElementById('hud-health');
+  const hp = simState.health - simState.totalDamage;
+  healthEl.style.color = hp > 0.7 ? '#40c070' : hp > 0.4 ? '#f0a030' : '#e04040';
+}
+
+function checkDangerZones(elapsed) {
+  const risk = RISK_LEVELS[gameState.riskLevel];
+  const ais = transitPlan.ais;
+  const time = transitPlan.time;
+
+  for (const zone of DANGER_ZONES) {
+    // Is ship in this zone?
+    if (simState.lat < zone.bounds.south || simState.lat > zone.bounds.north) continue;
+    if (simState.lon < zone.bounds.west || simState.lon > zone.bounds.east) continue;
+
+    // Cooldown check
+    const lastEvent = zoneCooldowns[zone.id] || 0;
+    if (elapsed - lastEvent < SIM_CONFIG.EVENT_COOLDOWN / 1000) continue;
+
+    // Roll for event
+    let prob = zone.baseProbability * risk.eventFrequency;
+    prob *= ais.detectionMultiplier;
+    prob *= time.visibilityMultiplier;
+    prob *= (2 - (simState.health - simState.totalDamage));
+
+    if (Math.random() < prob) {
+      // Pick a random event from this zone's event types
+      const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
+      const eventTemplate = EVENTS.find(e => e.id === eventId);
+      if (!eventTemplate) continue;
+
+      // Pick outcome (weighted)
+      const weights = [0.5, 0.25, 0.25];
+      const roll = Math.random();
+      let outcomeIdx = 0;
+      let cumWeight = 0;
+      for (let w = 0; w < weights.length; w++) {
+        cumWeight += weights[w];
+        if (roll < cumWeight) { outcomeIdx = w; break; }
+      }
+
+      const outcome = eventTemplate.outcomes[outcomeIdx];
+      zoneCooldowns[zone.id] = elapsed;
+
+      // Apply effects
+      simState.totalDamage += outcome.damagePercent;
+      simState.totalDelay += Math.max(0, outcome.delayHours);
+      simState.totalMoneyLoss += outcome.moneyLoss;
+
+      if (outcome.delayHours >= 720) {
+        simState.seized = true;
+      }
+
+      // Slow ship temporarily on damage
+      if (outcome.damagePercent > 0.1) {
+        simState.speed = Math.max(5, transitPlan.ship.speed * (1 - simState.totalDamage * 0.5));
+      }
+
+      const isDanger = outcome.damagePercent > 0 || outcome.moneyLoss > 0;
+      const isGood = outcome.delayHours < 0;
+      let extraInfo = '';
+      if (outcome.damagePercent > 0) extraInfo += ` [Damage: ${Math.round(outcome.damagePercent * 100)}%]`;
+      if (outcome.moneyLoss > 0) extraInfo += ` [Cargo Loss: ${Math.round(outcome.moneyLoss * 100)}%]`;
+
+      addTransitEvent(
+        eventTemplate.name,
+        outcome.text + extraInfo,
+        isDanger ? 'danger' : isGood ? 'success' : ''
+      );
+
+      simEvents.push({
+        event: eventTemplate.name,
+        outcome: outcome.text,
+        damagePercent: outcome.damagePercent,
+        delayHours: outcome.delayHours,
+        moneyLossPercent: outcome.moneyLoss,
+        zone: zone.name
+      });
+    }
+  }
+}
+
+function addTransitEvent(name, text, type) {
+  const container = document.getElementById('hud-events');
+  const div = document.createElement('div');
+  div.className = `event-item ${type || ''}`;
+  div.innerHTML = `
+    <div class="event-name">${name}</div>
+    <div class="event-outcome">${text}</div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+
+  // Remove old events to keep list manageable
+  while (container.children.length > 8) {
+    container.firstChild.style.opacity = '0';
+    setTimeout(() => container.firstChild?.remove(), 300);
+  }
+}
+
+function finishTransit() {
+  transitActive = false;
+  mapCanvas.style.pointerEvents = 'none';
+  mapCanvas.style.cursor = 'default';
+
+  const ship = transitPlan.ship;
+  const ais = transitPlan.ais;
+  const insurance = transitPlan.insurance;
+
+  // Calculate results (same logic as server)
+  const cargoBarrels = ship.capacity * 7.33;
+  const cargoValue = cargoBarrels * gameState.oilPrice;
+  const insuranceCost = cargoValue * insurance.costPercent;
+
+  // Fuel: based on actual transit time
+  const transitHours = simGameTime / 3600;
+  const fuelCost = ship.fuelPerHour * transitHours * FUEL_COST_PER_UNIT / 1000;
+
+  const totalDamage = Math.min(simState.totalDamage, 1.0);
+  const totalMoneyLoss = Math.min(simState.totalMoneyLoss, 1.0);
+  const shipDestroyed = totalDamage >= 0.9;
+  const shipSurvived = !shipDestroyed && !simState.seized;
+
+  let revenue = 0;
+  let totalCost = insuranceCost + fuelCost + ais.legalPenalty;
+  let insurancePayout = 0;
+
+  if (shipSurvived) {
+    revenue = cargoValue * (1 - totalMoneyLoss) * (1 - totalDamage * 0.5);
+  } else {
+    const loss = cargoValue + ship.cost;
+    insurancePayout = loss * insurance.coveragePercent;
+    totalCost += loss - insurancePayout;
+  }
+
+  const profit = revenue - totalCost;
+
+  const result = {
+    success: shipSurvived,
+    seized: simState.seized,
+    shipDestroyed,
+    events: simEvents,
+    cargoValue: Math.round(cargoValue),
+    revenue: Math.round(revenue),
+    insuranceCost: Math.round(insuranceCost),
+    fuelCost: Math.round(fuelCost),
+    legalPenalty: ais.legalPenalty,
+    insurancePayout: Math.round(insurancePayout),
+    totalCost: Math.round(totalCost),
+    profit: Math.round(profit),
+    totalDamage: Math.round(totalDamage * 100),
+    totalDelay: Math.round(simState.totalDelay * 10) / 10,
+    transitHours: Math.round(transitHours * 10) / 10,
+    shipName: ship.name
+  };
+
+  // Send results to server for scoring
+  socket.emit('transit_complete', {
+    shipId: selectedShipId,
+    result: result,
+    shipSurvived,
+    totalDamage,
+    profit
+  }, (res) => {
+    if (res.success) {
+      gameState = res.game;
+    }
+  });
+
+  // Show final event
+  addTransitEvent(
+    shipSurvived ? 'TRANSIT COMPLETE' : simState.seized ? 'VESSEL SEIZED' : 'VESSEL DESTROYED',
+    `Profit: ${formatMoney(profit)}`,
+    shipSurvived ? 'success' : 'danger'
+  );
+
+  // Transition to results after a short delay
+  setTimeout(() => {
+    showResults(result);
+  }, 2500);
+}
+
+// ============================================
+// MAP CLICK HANDLER (steering)
+// ============================================
+mapCanvas.addEventListener('click', (e) => {
+  if (!transitActive) return;
+
+  const rect = mapCanvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  const target = canvasToLatLon(cx, cy, rect.width, rect.height);
+  simTargetPoint = target;
+
+  // Calculate heading from ship to click point
+  const dLon = target.lon - simState.lon;
+  const dLat = target.lat - simState.lat;
+  // Convert to heading (0=north, 90=east)
+  const angle = Math.atan2(dLon, -dLat) * 180 / Math.PI;
+  simState.targetHeading = normalizeAngle(angle);
+});
+
+// ============================================
+// ANGLE UTILITIES
+// ============================================
+function normalizeAngle(a) {
+  a = a % 360;
+  if (a < 0) a += 360;
+  return a;
+}
+
+function angleDiff(from, to) {
+  let diff = to - from;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return diff;
+}
+
+// ============================================
+// RESULTS SCREEN
+// ============================================
 function showResults(myResult) {
   showScreen('results');
   renderResults(myResult);
@@ -427,8 +719,8 @@ function renderResults(myResult) {
     detail.innerHTML = `
       <div class="result-header">${myResult.success ? 'TRANSIT SUCCESSFUL' : myResult.seized ? 'VESSEL SEIZED!' : 'VESSEL DESTROYED!'}</div>
       <div class="result-lines">
-        <div class="result-line"><span>Route:</span><span>${myResult.route}</span></div>
         <div class="result-line"><span>Ship:</span><span>${myResult.shipName}</span></div>
+        <div class="result-line"><span>Transit Time:</span><span>${myResult.transitHours || '?'}h</span></div>
         <div class="result-line"><span>Cargo Value:</span><span>${formatMoney(myResult.cargoValue)}</span></div>
         <div class="result-line"><span>Revenue:</span><span>${formatMoney(myResult.revenue)}</span></div>
         <div class="result-line"><span>Insurance:</span><span>-${formatMoney(myResult.insuranceCost)}</span></div>
@@ -477,7 +769,6 @@ function renderFleetManagement() {
   const me = gameState?.players.find(p => p.id === myId);
   if (!me) return;
 
-  // Current fleet
   const fleetDisplay = document.getElementById('fleet-display');
   fleetDisplay.innerHTML = me.fleet.map(s => {
     const healthClass = s.health > 0.7 ? 'health-good' : s.health > 0.4 ? 'health-warn' : 'health-bad';
@@ -486,7 +777,7 @@ function renderFleetManagement() {
       <div class="fleet-ship">
         <div class="ship-info">
           <div>${s.name}</div>
-          <div class="ship-health">
+          <div>
             HP: ${Math.round(s.health * 100)}%
             <div class="health-bar"><div class="health-fill ${healthClass}" style="width:${s.health * 100}%"></div></div>
           </div>
@@ -496,9 +787,9 @@ function renderFleetManagement() {
     `;
   }).join('') || '<div class="muted">No ships! Buy one below or you\'re out.</div>';
 
-  // Shop
   const shop = document.getElementById('ship-shop');
   if (options) {
+    const me2 = gameState.players.find(p => p.id === myId);
     shop.innerHTML = Object.entries(options.shipTypes).map(([key, s]) => `
       <div class="option-card" onclick="window.buyShip('${key}')">
         <div class="option-name">${s.name}</div>
@@ -506,8 +797,8 @@ function renderFleetManagement() {
         <div class="option-stats">
           <span class="stat">${(s.capacity / 1000).toFixed(0)}K DWT</span>
           <span class="stat">${formatMoney(s.cost)}</span>
-          <span class="stat ${(me?.cash || 0) >= s.cost ? 'stat-good' : 'stat-bad'}">
-            ${(me?.cash || 0) >= s.cost ? 'Can Afford' : 'Too Expensive'}
+          <span class="stat ${(me2?.cash || 0) >= s.cost ? 'stat-good' : 'stat-bad'}">
+            ${(me2?.cash || 0) >= s.cost ? 'Can Afford' : 'Too Expensive'}
           </span>
         </div>
       </div>
@@ -515,7 +806,7 @@ function renderFleetManagement() {
   }
 }
 
-// Global handlers for fleet management buttons
+// Global handlers
 window.buyShip = (typeId) => {
   socket.emit('buy_ship', { shipTypeId: typeId }, (res) => {
     if (res.success) {
@@ -543,7 +834,9 @@ document.getElementById('btn-next-round').addEventListener('click', () => {
   });
 });
 
-// ---- Game Over ----
+// ============================================
+// GAME OVER
+// ============================================
 function renderGameOver(leaderboard) {
   showScreen('gameover');
   const container = document.getElementById('final-leaderboard');
@@ -563,19 +856,19 @@ document.getElementById('btn-new-game').addEventListener('click', () => {
   window.location.reload();
 });
 
-// ---- Socket Events ----
+// ============================================
+// SOCKET EVENTS
+// ============================================
 socket.on('connect', () => {
   myId = socket.id;
 });
 
 socket.on('game_update', (state) => {
   gameState = state;
-  // Check if I'm the host (first player in list)
   if (state.players.length > 0 && state.players[0].id === myId) {
     isHost = true;
   }
 
-  // Re-render current screen
   const activeScreen = document.querySelector('.screen.active');
   if (activeScreen === screens.lobby) renderLobby();
   if (activeScreen === screens.results) {
@@ -588,24 +881,6 @@ socket.on('phase_change', ({ phase, round }) => {
   if (phase === 'planning') {
     showScreen('planning');
     renderPlanning();
-  } else if (phase === 'reinvest') {
-    // Transit results handler will show results screen
-  }
-});
-
-socket.on('transit_results', ({ myResult, allResults, leaderboard }) => {
-  gameState.leaderboard = leaderboard;
-
-  // Get the route waypoints for animation
-  let routeWaypoints = null;
-  if (selectedRouteId && options?.routes[selectedRouteId]) {
-    routeWaypoints = options.routes[selectedRouteId].waypoints;
-  }
-
-  if (myResult && !myResult.skipped && routeWaypoints) {
-    showTransitAnimation(myResult, routeWaypoints);
-  } else {
-    showResults(myResult);
   }
 });
 
@@ -617,17 +892,26 @@ socket.on('disconnect', () => {
   showError('Disconnected from server');
 });
 
-// Utility
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+// ============================================
+// BACKGROUND MAP RENDERING
+// ============================================
+function drawBackgroundMap() {
+  if (transitActive) return; // Transit has its own render loop
+  drawMap(mapCanvas, {
+    showZones: screens.planning.classList.contains('active'),
+    showStartEnd: screens.planning.classList.contains('active')
+  });
 }
 
-// Initial map draw on planning screen visibility
-const observer = new MutationObserver(() => {
-  if (screens.planning.classList.contains('active')) {
-    updateMap();
-  }
+// Redraw on resize
+window.addEventListener('resize', () => {
+  drawBackgroundMap();
 });
-observer.observe(screens.planning, { attributes: true, attributeFilter: ['class'] });
+
+// Initial draw
+drawBackgroundMap();
+
+// Periodic redraw for non-transit screens
+setInterval(() => {
+  if (!transitActive) drawBackgroundMap();
+}, 2000);

@@ -25,15 +25,12 @@ app.get('*', (req, res, next) => {
   res.sendFile(join(__dirname, '..', 'dist', 'index.html'));
 });
 
-// Store active games
 const games = new Map();
-// Map socket IDs to game/player info
 const socketMap = new Map();
 
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  // Create a new game
   socket.on('create_game', ({ playerName }, callback) => {
     const gameId = generateGameId();
     const game = new GameState(gameId, socket.id);
@@ -46,7 +43,6 @@ io.on('connection', (socket) => {
     console.log(`Game ${gameId} created by ${playerName}`);
   });
 
-  // Join an existing game
   socket.on('join_game', ({ gameId, playerName }, callback) => {
     const game = games.get(gameId.toUpperCase());
     if (!game) {
@@ -67,7 +63,6 @@ io.on('connection', (socket) => {
     console.log(`${playerName} joined game ${game.id}`);
   });
 
-  // Start the game
   socket.on('start_game', (_, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -84,7 +79,8 @@ io.on('connection', (socket) => {
     console.log(`Game ${game.id} started, round ${game.round}`);
   });
 
-  // Submit transit plan
+  // Player submits their plan (ship, AIS, insurance, time selections)
+  // In the new flow, the client runs the transit simulation locally
   socket.on('submit_plan', (plan, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -100,37 +96,27 @@ io.on('connection', (socket) => {
       return;
     }
 
+    game.phase = GAME_PHASES.TRANSIT;
     io.to(game.id).emit('game_update', game.serialize());
     callback?.({ success: true });
+  });
 
-    // If all players ready, simulate
-    if (game.allPlayersReady()) {
-      setTimeout(() => {
-        const results = game.simulateTransits();
-        game.phase = GAME_PHASES.REINVEST;
+  // Client sends transit results after completing the live simulation
+  socket.on('transit_complete', (data, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
 
-        // Send personalized results to each player
-        for (const player of Object.values(game.players)) {
-          const playerSocket = io.sockets.sockets.get(player.id);
-          if (playerSocket) {
-            playerSocket.emit('transit_results', {
-              myResult: player.transitResult,
-              allResults: Object.fromEntries(
-                Object.entries(results).map(([pid, r]) => [
-                  game.players[pid]?.name || pid, r
-                ])
-              ),
-              leaderboard: game.getLeaderboard()
-            });
-          }
-        }
-        io.to(game.id).emit('game_update', game.serialize());
-        io.to(game.id).emit('phase_change', { phase: GAME_PHASES.REINVEST, round: game.round });
-      }, 1000);
+    const updatedGame = game.applyTransitResult(socket.id, data);
+    if (updatedGame) {
+      io.to(game.id).emit('game_update', updatedGame);
+      callback?.({ success: true, game: updatedGame });
+    } else {
+      callback?.({ success: false, error: 'Could not apply results' });
     }
   });
 
-  // Buy a ship
   socket.on('buy_ship', ({ shipTypeId }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -147,7 +133,6 @@ io.on('connection', (socket) => {
     callback?.({ success: true, ship });
   });
 
-  // Repair a ship
   socket.on('repair_ship', ({ shipId }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -164,7 +149,6 @@ io.on('connection', (socket) => {
     callback?.({ success: true, ...result });
   });
 
-  // Ready for next round
   socket.on('next_round', (_, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false }); return; }
@@ -184,7 +168,6 @@ io.on('connection', (socket) => {
     callback?.({ success: true, continued });
   });
 
-  // Get game options (routes, ships, etc.)
   socket.on('get_options', (_, callback) => {
     callback?.({
       routes: ROUTES,
@@ -195,7 +178,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Disconnect
   socket.on('disconnect', () => {
     const info = socketMap.get(socket.id);
     if (info) {
@@ -206,7 +188,6 @@ io.on('connection', (socket) => {
           games.delete(info.gameId);
           console.log(`Game ${info.gameId} deleted (empty)`);
         } else {
-          // Transfer host if needed
           if (game.hostId === socket.id) {
             game.hostId = Object.keys(game.players)[0];
           }

@@ -1,11 +1,78 @@
-// Strait of Hormuz map coordinates (simplified for game rendering)
-// Map is roughly 26-27°N, 54-57°E covering the strait
+// Strait of Hormuz map coordinates
 export const MAP_BOUNDS = {
   north: 27.5,
   south: 25.5,
   east: 57.5,
   west: 54.0
 };
+
+// Simulation configuration
+export const SIM_CONFIG = {
+  TIME_SCALE: 60,           // 1 real second = 60 game seconds (1 game minute)
+  START_LON: 54.5,
+  END_LON: 57.2,
+  START_LAT: 26.8,
+  // Ship speed: ~15 knots = 15 nm/hour. 1 nm ≈ 1/60 degree.
+  // So 15 knots ≈ 0.25 deg/hour. With TIME_SCALE=60, per real second = 0.25/60 deg = 0.00417 deg
+  KNOTS_TO_DEG_PER_SEC: 0.25 / 60,  // degrees per real second at TIME_SCALE
+  EVENT_CHECK_INTERVAL: 3000,  // ms between event checks
+  EVENT_COOLDOWN: 30000,       // ms cooldown after an event in same zone
+  TURN_RATE: 2.0,             // degrees per real second the ship can turn
+};
+
+// Danger zones on the map (rectangles for simplicity)
+export const DANGER_ZONES = [
+  {
+    id: 'iranian_waters',
+    name: 'Iranian Territorial Waters',
+    color: 'rgba(200, 50, 50, 0.12)',
+    borderColor: 'rgba(200, 50, 50, 0.3)',
+    bounds: { north: 27.5, south: 26.85, west: 55.0, east: 57.5 },
+    events: ['patrol_boat', 'drone_swarm'],
+    baseProbability: 0.25,
+    label: 'IRANIAN WATERS'
+  },
+  {
+    id: 'mine_field',
+    name: 'Suspected Mine Field',
+    color: 'rgba(200, 200, 50, 0.10)',
+    borderColor: 'rgba(200, 200, 50, 0.3)',
+    bounds: { north: 26.75, south: 26.4, west: 55.8, east: 56.5 },
+    events: ['mine'],
+    baseProbability: 0.20,
+    label: 'MINE RISK'
+  },
+  {
+    id: 'pirate_zone',
+    name: 'Pirate Activity Zone',
+    color: 'rgba(200, 100, 50, 0.10)',
+    borderColor: 'rgba(200, 100, 50, 0.3)',
+    bounds: { north: 26.1, south: 25.5, west: 56.3, east: 57.5 },
+    events: ['pirate_skiff'],
+    baseProbability: 0.20,
+    label: 'PIRATE ZONE'
+  },
+  {
+    id: 'missile_range',
+    name: 'Anti-Ship Missile Range',
+    color: 'rgba(180, 30, 30, 0.08)',
+    borderColor: 'rgba(180, 30, 30, 0.25)',
+    bounds: { north: 27.0, south: 26.3, west: 55.5, east: 56.8 },
+    events: ['missile_alert'],
+    baseProbability: 0.10,
+    label: 'MISSILE RANGE'
+  },
+  {
+    id: 'open_water',
+    name: 'Open Water',
+    color: 'rgba(50, 50, 200, 0.05)',
+    borderColor: 'rgba(50, 50, 200, 0.15)',
+    bounds: { north: 26.6, south: 26.0, west: 55.0, east: 56.5 },
+    events: ['sandstorm', 'submarine', 'navy_escort'],
+    baseProbability: 0.08,
+    label: 'DEEP WATER'
+  }
+];
 
 // Key geographic points
 export const WAYPOINTS = {
@@ -20,53 +87,13 @@ export const WAYPOINTS = {
   STRAIT_CENTER: { lat: 26.5, lon: 56.3, name: 'Strait Center' }
 };
 
-// Predefined routes through the strait
-export const ROUTES = {
-  STANDARD_TSS: {
-    id: 'standard_tss',
-    name: 'Standard TSS (Traffic Separation Scheme)',
-    description: 'Official shipping lane. Safest but most predictable.',
-    waypoints: ['PERSIAN_GULF_ENTRY', 'HORMUZ_SOUTH', 'STRAIT_CENTER', 'GULF_OF_OMAN'],
-    riskMultiplier: 1.0,
-    timeHours: 12,
-    fuelMultiplier: 1.0
-  },
-  NORTHERN_COASTAL: {
-    id: 'northern_coastal',
-    name: 'Northern Coastal (Iran Side)',
-    description: 'Hugs Iranian coast. Faster but enters Iranian waters.',
-    waypoints: ['PERSIAN_GULF_ENTRY', 'IRAN_COAST', 'QESHM_ISLAND', 'HORMUZ_NORTH', 'GULF_OF_OMAN'],
-    riskMultiplier: 2.5,
-    timeHours: 10,
-    fuelMultiplier: 0.9
-  },
-  SOUTHERN_OMAN: {
-    id: 'southern_oman',
-    name: 'Southern Route (Oman Side)',
-    description: 'Stays close to Oman. Longer but avoids Iranian patrols.',
-    waypoints: ['PERSIAN_GULF_ENTRY', 'OMAN_COAST', 'GULF_OF_OMAN'],
-    riskMultiplier: 0.6,
-    timeHours: 16,
-    fuelMultiplier: 1.3
-  },
-  NIGHT_SPRINT: {
-    id: 'night_sprint',
-    name: 'Night Sprint (Center)',
-    description: 'Full speed through the center at night. High risk, high reward.',
-    waypoints: ['PERSIAN_GULF_ENTRY', 'STRAIT_CENTER', 'GULF_OF_OMAN'],
-    riskMultiplier: 1.8,
-    timeHours: 8,
-    fuelMultiplier: 1.5
-  }
-};
-
 // Ship types available for purchase
 export const SHIP_TYPES = {
   SMALL_TANKER: {
     id: 'small_tanker',
     name: 'Handysize Tanker',
-    capacity: 30000, // DWT
-    speed: 14, // knots
+    capacity: 30000,
+    speed: 14,
     cost: 5000000,
     fuelPerHour: 800,
     description: 'Small, nimble tanker. Cheaper but lower capacity.'
@@ -134,7 +161,7 @@ export const INSURANCE_OPTIONS = {
     id: 'full_war_risk',
     name: 'Full War Risk Insurance',
     description: 'Covers everything including military action. Very expensive.',
-    costPercent: 0.08, // 8% of cargo value
+    costPercent: 0.08,
     coveragePercent: 1.0
   },
   STANDARD_MARINE: {
@@ -153,7 +180,7 @@ export const INSURANCE_OPTIONS = {
   }
 };
 
-// Geopolitical risk levels affect oil prices and danger
+// Geopolitical risk levels
 export const RISK_LEVELS = {
   LOW: { name: 'Low Tension', oilPriceMultiplier: 1.0, eventFrequency: 0.05 },
   MODERATE: { name: 'Moderate Tension', oilPriceMultiplier: 1.3, eventFrequency: 0.15 },
@@ -161,10 +188,9 @@ export const RISK_LEVELS = {
   CRITICAL: { name: 'Active Conflict', oilPriceMultiplier: 3.0, eventFrequency: 0.5 }
 };
 
-// Base oil price per barrel (USD)
 export const BASE_OIL_PRICE = 75;
 
-// Random events that can occur during transit
+// Random events
 export const EVENTS = [
   {
     id: 'patrol_boat',
@@ -273,8 +299,5 @@ export const GAME_PHASES = {
   REINVEST: 'reinvest'
 };
 
-// Starting money
-export const STARTING_CASH = 10000000; // $10M
-
-// Fuel cost per unit
-export const FUEL_COST_PER_UNIT = 600; // $/metric ton
+export const STARTING_CASH = 10000000;
+export const FUEL_COST_PER_UNIT = 600;
