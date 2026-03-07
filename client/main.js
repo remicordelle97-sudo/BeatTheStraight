@@ -1386,39 +1386,43 @@ function transitLoop(timestamp) {
 
       // Autopilot avoidance: land look-ahead, stuck detection, and ship separation
       if (apActive && state.speed > 0) {
-        const headRad = state.heading * Math.PI / 180;
-        let landAhead = false;
+        // Reroute cooldown: after a reroute, give the ship time to turn and move
+        if (!state.apRerouteCooldown) state.apRerouteCooldown = 0;
+        state.apRerouteCooldown = Math.max(0, state.apRerouteCooldown - dt);
 
-        // Check ahead for land at extended distances
-        for (const la of [0.08, 0.15, 0.25, 0.4]) {
-          if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
-            landAhead = true;
-            break;
+        let needsReroute = false;
+
+        if (state.apRerouteCooldown <= 0) {
+          // Check ahead along TARGET heading (where ship is turning toward)
+          const targetRad = state.targetHeading * Math.PI / 180;
+          for (const la of [0.08, 0.15, 0.25, 0.4]) {
+            if (isOnLand(state.lat + Math.cos(targetRad) * la, state.lon + Math.sin(targetRad) * la)) {
+              needsReroute = true;
+              break;
+            }
+          }
+
+          // Also detect if current waypoint is on land
+          const curWps = shipWaypoints[ship.id] || [];
+          if (curWps.length > 0 && isOnLand(curWps[0].lat, curWps[0].lon)) {
+            needsReroute = true;
           }
         }
 
-        // Also detect if current waypoint is unreachable (near land / on land)
-        const curWps = shipWaypoints[ship.id] || [];
-        const wpUnreachable = curWps.length > 0 && (
-          isOnLand(curWps[0].lat, curWps[0].lon) ||
-          isNearLand(curWps[0].lat, curWps[0].lon, 0.04)
-        );
-
-        // Stuck detection: if ship hasn't moved much recently
+        // Stuck detection: if ship hasn't moved much recently (always active)
         if (!state.apLastPos) state.apLastPos = { lat: state.lat, lon: state.lon, t: 0 };
         state.apLastPos.t += dt;
-        if (state.apLastPos.t > 5) {
+        if (state.apLastPos.t > 8) {
           const moved = distanceDeg(state.lat, state.lon, state.apLastPos.lat, state.apLastPos.lon);
-          if (moved < 0.01) landAhead = true; // stuck — force reroute
+          if (moved < 0.01) needsReroute = true;
           state.apLastPos = { lat: state.lat, lon: state.lon, t: 0 };
         }
 
-        if ((landAhead || wpUnreachable) && ap.terminal) {
+        if (needsReroute && ap.terminal) {
           // Reroute through sea lanes from nearest safe sea-lane point
           const nearIdx = findNearestSafeSeaLane(state.lat, state.lon);
           const slWp = SEA_LANE[nearIdx];
 
-          // Head toward nearest sea-lane point first
           const cargo = shipCargo[ship.id];
           let dest;
           if (cargo && cargo.loaded) {
@@ -1432,6 +1436,8 @@ function transitLoop(timestamp) {
           const fullRoute = [{ lat: slWp.lat, lon: slWp.lon }, ...routeFromLane];
           shipWaypoints[ship.id] = fullRoute;
           state.targetHeading = headingToTarget(state.lat, state.lon, slWp.lat, slWp.lon);
+          // Cooldown: don't reroute again for 6 seconds to allow turning
+          state.apRerouteCooldown = 6;
         }
 
         // Avoid NPC ships (gentle steering)
