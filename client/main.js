@@ -947,7 +947,16 @@ const NPC_STATE = {
   LOADING: 'loading',
   HEADING_TO_DROPOFF: 'heading_to_dropoff',
   UNLOADING: 'unloading',
+  WAITING_SAFE: 'waiting_safe', // anchored outside danger zone, waiting for conditions to improve
 };
+
+// Safe anchorage zones outside the Strait (UAE coast, Gulf of Oman)
+const SAFE_ANCHORAGES = [
+  { lat: 25.2, lon: 55.3, name: 'Dubai Anchorage' },
+  { lat: 25.0, lon: 56.3, name: 'Fujairah Anchorage' },
+  { lat: 24.5, lon: 57.8, name: 'Gulf of Oman' },
+  { lat: 26.2, lon: 52.5, name: 'Western Gulf' },
+];
 
 const NPC_SHIP_NAMES = [
   'Pacific Voyager', 'Gulf Pioneer', 'Sea Fortune', 'Ocean Grace',
@@ -982,6 +991,10 @@ function createNPCTanker(staggered) {
   const states = [NPC_STATE.HEADING_TO_TERMINAL, NPC_STATE.LOADING, NPC_STATE.HEADING_TO_DROPOFF, NPC_STATE.UNLOADING];
   const state = staggered ? states[Math.floor(Math.random() * states.length)] : NPC_STATE.HEADING_TO_DROPOFF;
 
+  // Caution: 0 = daring (ignores risk), 1 = very cautious
+  // ~20% of NPCs are daring, rest are cautious to varying degrees
+  const caution = Math.random() < 0.2 ? Math.random() * 0.2 : 0.4 + Math.random() * 0.6;
+
   const npc = {
     lat: 0, lon: 0, heading: 0, targetHeading: 0, speed, baseSpeed: speed,
     size: type.size, color: type.color, typeName: type.name, shipName,
@@ -989,6 +1002,9 @@ function createNPCTanker(staggered) {
     cargoType: type.cargoType,
     targetTerminal: terminal,
     state,
+    caution,
+    waitTimer: 0,
+    safeAnchorage: null,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
     coastEscapeTimer: 0, coastEscapeHeading: 0,
     trail: [],
@@ -1057,9 +1073,49 @@ function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
   return [{ lat: toLat, lon: toLon }];
 }
 
+function npcShouldSeekSafety(npc) {
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
+  // Higher risk + higher caution = more likely to seek safety
+  // eventFrequency: LOW=0.05, MODERATE=0.15, HIGH=0.3, CRITICAL=0.5
+  return npc.caution > (1 - risk.eventFrequency * 2);
+}
+
 function updateNPCShips(dt, elapsed) {
   for (let i = 0; i < npcShips.length; i++) {
     const npc = npcShips[i];
+
+    // WAITING_SAFE: heading to or anchored at safe zone
+    if (npc.state === NPC_STATE.WAITING_SAFE) {
+      if (npc.safeAnchorage && npc.speed > 0) {
+        // Still heading to anchorage — steer toward it
+        const adist = distanceDeg(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
+        if (adist < 0.15) {
+          npc.speed = 0;
+          npc.waitTimer = 60 + Math.random() * 120;
+        }
+        // Fall through to movement code below
+      } else {
+        // Anchored — wait and periodically re-evaluate
+        npc.speed = 0;
+        npc.waitTimer -= dt;
+        if (npc.waitTimer <= 0) {
+          if (npcShouldSeekSafety(npc) && Math.random() < 0.7) {
+            npc.waitTimer = 60 + Math.random() * 120;
+          } else {
+            npc.speed = npc.baseSpeed || 13;
+            npc.state = npc.savedState || NPC_STATE.HEADING_TO_TERMINAL;
+            npc._cautionChecked = false;
+            if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+            } else {
+              npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+            }
+          }
+        }
+        continue;
+      }
+    }
 
     // Stationary states
     if (npc.state === NPC_STATE.LOADING || npc.state === NPC_STATE.UNLOADING) {
@@ -1078,8 +1134,35 @@ function updateNPCShips(dt, elapsed) {
           npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
         }
         npc.wanderOffset = 0;
+        npc._cautionChecked = false; // re-evaluate caution on new leg
       }
       continue;
+    }
+
+    // Caution check: should this moving NPC divert to safety?
+    if (npcShouldSeekSafety(npc) && !npc._cautionChecked) {
+      npc._cautionChecked = true; // only check once per leg
+      // Check if route passes through a danger zone
+      const inDanger = DANGER_ZONES.some(z =>
+        npc.lat >= z.bounds.south - 0.3 && npc.lat <= z.bounds.north + 0.3 &&
+        npc.lon >= z.bounds.west - 0.3 && npc.lon <= z.bounds.east + 0.3
+      );
+      if (inDanger) {
+        // Divert to nearest safe anchorage
+        let nearest = SAFE_ANCHORAGES[0], bestDist = Infinity;
+        for (const anch of SAFE_ANCHORAGES) {
+          const d = distanceDeg(npc.lat, npc.lon, anch.lat, anch.lon);
+          if (d < bestDist) { bestDist = d; nearest = anch; }
+        }
+        npc.safeAnchorage = nearest;
+        npc.savedState = npc.state;
+        npc.state = NPC_STATE.WAITING_SAFE;
+        npc.waitTimer = 30 + Math.random() * 90; // wait 30-120s before first re-check
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, nearest.lat, nearest.lon);
+        // Move toward anchorage at reduced speed
+        npc.speed = npc.baseSpeed * 0.6;
+        continue;
+      }
     }
 
     // Moving states — check arrival
@@ -1201,6 +1284,10 @@ function getNPCDestination(npc) {
   if (npc.state === NPC_STATE.LOADING) return `Loading at ${npc.targetTerminal?.name || 'Terminal'}`;
   if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) return DROPOFF_POINT.name;
   if (npc.state === NPC_STATE.UNLOADING) return `Unloading at ${DROPOFF_POINT.name}`;
+  if (npc.state === NPC_STATE.WAITING_SAFE) {
+    if (npc.speed > 0) return `Diverting to ${npc.safeAnchorage?.name || 'safe zone'}`;
+    return `Anchored at ${npc.safeAnchorage?.name || 'safe zone'}`;
+  }
   return 'Unknown';
 }
 
