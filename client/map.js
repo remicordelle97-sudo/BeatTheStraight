@@ -500,7 +500,7 @@ function drawMilitaryBases(ctx, drawW, drawH) {
 // ============================================
 // MISSILE ANIMATION SYSTEM
 // ============================================
-export function spawnMissile(fromLat, fromLon, toLat, toLon) {
+function spawnMissile(fromLat, fromLon, toLat, toLon) {
   activeMissiles.push({
     fromLat, fromLon, toLat, toLon,
     progress: 0,
