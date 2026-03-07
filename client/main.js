@@ -339,12 +339,11 @@ document.getElementById('scp-engine').addEventListener('click', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
   if (!ship) return;
-  const engineLevel = ship.engineUpgrade || 0;
-  if (engineLevel >= 3) {
-    document.getElementById('scp-upgrade-info').textContent = 'Engine fully upgraded (max +6 kts).';
+  if (ship.engineUpgrade) {
+    document.getElementById('scp-upgrade-info').textContent = 'Engine already upgraded.';
     return;
   }
-  const cost = [10000000, 25000000, 50000000][engineLevel];
+  const cost = 25000000;
   const me = gameState?.players.find(p => p.id === myId);
   if (!me || me.cash < cost) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for engine upgrade.`;
@@ -352,39 +351,33 @@ document.getElementById('scp-engine').addEventListener('click', () => {
   }
   socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'engine', cost }, (res) => {
     if (res?.success) {
-      ship.engineUpgrade = engineLevel + 1;
-      ship.speed += 2;
-      addTransitEvent('ENGINE UPGRADE', `${ship.name} engine upgraded! +2 kts (Lv${engineLevel + 1})`, 'success');
+      ship.engineUpgrade = 1;
+      ship.speed += 4;
+      addTransitEvent('ENGINE UPGRADE', `${ship.name}: Engine upgraded! +4 kts`, 'success');
       refreshUpgradeButtons();
     }
   });
 });
 
 // Upgrade: Defense
-const DEFENSE_LEVELS = [
-  { name: 'Armed Guards', cost: 5000000, desc: 'Armed security team onboard' },
-  { name: 'Missile Defense', cost: 20000000, desc: 'Anti-missile countermeasures' },
-  { name: 'Armored Hull', cost: 40000000, desc: 'Reinforced hull plating' },
-];
+const DEFENSE_COST = 20000000;
 document.getElementById('scp-defense').addEventListener('click', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
   if (!ship) return;
-  const defLevel = ship.defenseUpgrade || 0;
-  if (defLevel >= DEFENSE_LEVELS.length) {
-    document.getElementById('scp-upgrade-info').textContent = 'Defenses fully upgraded.';
+  if (ship.defenseUpgrade) {
+    document.getElementById('scp-upgrade-info').textContent = 'Defense already upgraded.';
     return;
   }
-  const upgrade = DEFENSE_LEVELS[defLevel];
   const me = gameState?.players.find(p => p.id === myId);
-  if (!me || me.cash < upgrade.cost) {
-    document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(upgrade.cost)} for ${upgrade.name}.`;
+  if (!me || me.cash < DEFENSE_COST) {
+    document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(DEFENSE_COST)} for defense.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'defense', cost: upgrade.cost }, (res) => {
+  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'defense', cost: DEFENSE_COST }, (res) => {
     if (res?.success) {
-      ship.defenseUpgrade = defLevel + 1;
-      addTransitEvent('DEFENSE UPGRADE', `${ship.name}: ${upgrade.name} installed!`, 'success');
+      ship.defenseUpgrade = 1;
+      addTransitEvent('DEFENSE UPGRADE', `${ship.name}: Armed guards & hull armor installed!`, 'success');
       refreshUpgradeButtons();
     }
   });
@@ -492,27 +485,26 @@ function refreshUpgradeButtons() {
 
   // Engine
   const engineBtn = document.getElementById('scp-engine');
-  const eLvl = ship.engineUpgrade || 0;
-  if (eLvl >= 3) {
-    engineBtn.textContent = 'ENGINE MAX';
+  if (ship.engineUpgrade) {
+    engineBtn.textContent = 'ENGINE UPGRADED';
     engineBtn.classList.add('owned');
     engineBtn.disabled = true;
   } else {
-    const eCost = [10000000, 25000000, 50000000][eLvl];
-    engineBtn.textContent = `ENGINE +2 ${formatMoney(eCost)}`;
-    engineBtn.disabled = cash < eCost;
+    engineBtn.textContent = `ENGINE +4 kts ${formatMoney(25000000)}`;
+    engineBtn.classList.remove('owned');
+    engineBtn.disabled = cash < 25000000;
   }
 
   // Defense
   const defBtn = document.getElementById('scp-defense');
-  const dLvl = ship.defenseUpgrade || 0;
-  if (dLvl >= DEFENSE_LEVELS.length) {
-    defBtn.textContent = 'DEFENSE MAX';
+  if (ship.defenseUpgrade) {
+    defBtn.textContent = 'DEFENSE UPGRADED';
     defBtn.classList.add('owned');
     defBtn.disabled = true;
   } else {
-    defBtn.textContent = `${DEFENSE_LEVELS[dLvl].name.toUpperCase()} ${formatMoney(DEFENSE_LEVELS[dLvl].cost)}`;
-    defBtn.disabled = cash < DEFENSE_LEVELS[dLvl].cost;
+    defBtn.textContent = `DEFENSE ${formatMoney(DEFENSE_COST)}`;
+    defBtn.classList.remove('owned');
+    defBtn.disabled = cash < DEFENSE_COST;
   }
 
   // Autopilot
@@ -721,7 +713,7 @@ function updateFleetPanel() {
           <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
           <span class="stat ${cargoClass}">${cargoText}</span>
           ${s.autopilot ? '<span class="stat stat-good">AP</span>' : ''}
-          ${(s.defenseUpgrade || 0) > 0 ? `<span class="stat">DEF:${s.defenseUpgrade}</span>` : ''}
+          ${s.defenseUpgrade ? '<span class="stat">DEF</span>' : ''}
         </div>
         ${isSelected && !destroyed ? '<button class="btn btn-small btn-manage" data-manage-id="' + s.id + '">MANAGE</button>' : ''}
       </div>`;
