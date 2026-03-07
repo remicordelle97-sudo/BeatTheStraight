@@ -237,12 +237,6 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
       ctx.textAlign = 'left';
       ctx.fillText(terminal.name, x + sz + 4, y - 2);
     }
-    if (lbl.countryNames !== false) {
-      ctx.fillStyle = '#6b7394';
-      ctx.font = '9px Courier New';
-      ctx.textAlign = 'left';
-      ctx.fillText(isLng ? `${terminal.country} (LNG)` : terminal.country, x + sz + 4, y + 9);
-    }
     ctx.textAlign = 'left';
   }
 }
@@ -697,82 +691,67 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const cur = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, t, p.weaveFreq, p.weaveAmp);
       currentLat = cur.lat;
       currentLon = cur.lon;
-      // Heading from finite difference on the weave curve
       const prevT = Math.max(0, t - 0.02);
       const prev = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, prevT, p.weaveFreq, p.weaveAmp);
       canvasAngle = latLonHeadingToCanvas(cur.lat - prev.lat, cur.lon - prev.lon);
 
       if (t >= 1) {
-        p.phase = 'loiter';
+        // Transition to orbit: one continuous circle that spirals in then out
+        p.phase = 'orbit';
         p.phaseStart = now;
-        // Seed loiter start angle from approach direction
-        p.loiterStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
+        // Total orbit time = loiter + returnLoiter duration
+        p.orbitDuration = p.loiterDuration + p.returnLoiterDuration;
+        // Total angle: ~3.5 full turns (2 loiter + 1.5 return)
+        p.orbitTotalAngle = p.loiterDir * Math.PI * 2 * 3.5;
+        // Seed orbit start angle from approach direction
+        p.orbitStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
+        // Strike happens at 40% through the orbit (during the inward spiral)
+        p.orbitStrikeT = 0.4;
+        p.orbitStruck = false;
       }
-    } else if (p.phase === 'loiter') {
-      const t = Math.min(1, phaseElapsed / p.loiterDuration);
-      const angle = (p.loiterStartAngle || 0) + p.loiterDir * t * Math.PI * 2;
-      // Spiral outward: radius grows from 0 to full in first 25%
-      const spiralT = Math.min(1, t * 4);
-      const r = p.loiterRadius * spiralT;
+    } else if (p.phase === 'orbit') {
+      // One continuous orbit: spiral in, circle, drop bomb, spiral out
+      const t = Math.min(1, phaseElapsed / p.orbitDuration);
+      const angle = p.orbitStartAngle + p.orbitTotalAngle * t;
+
+      // Radius envelope: grows from 0 → full in first 15%, holds, shrinks to 0 in last 20%
+      let rFactor;
+      if (t < 0.15) {
+        rFactor = t / 0.15; // spiral in
+      } else if (t > 0.80) {
+        rFactor = (1 - t) / 0.20; // spiral out
+      } else {
+        rFactor = 1.0; // full orbit
+      }
+      const r = p.loiterRadius * rFactor;
+
       currentLat = p.toLat + Math.sin(angle) * r;
       currentLon = p.toLon + Math.cos(angle) * r;
-      // Analytical tangent to circle: d/dt of (sin(angle), cos(angle)) = (cos(angle), -sin(angle)) * loiterDir
+
+      // Analytical tangent for heading
       const tangentLat = Math.cos(angle) * p.loiterDir;
       const tangentLon = -Math.sin(angle) * p.loiterDir;
       canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
 
-      if (t >= 1) {
-        p.phase = 'strike';
-        p.strikeTime = now;
-        p.phaseStart = now;
-        p.strikeLat = currentLat;
-        p.strikeLon = currentLon;
-        p.strikeAngle = canvasAngle;
-        p.strikeRadius = r;
-        p.strikeLoiterAngle = angle; // save for returnLoiter continuity
+      // Trigger strike explosion at the right moment
+      if (!p.orbitStruck && t >= p.orbitStrikeT) {
+        p.orbitStruck = true;
+        p.explosionStart = now;
       }
-    } else if (p.phase === 'strike') {
-      const strikeDuration = 800;
-      const strikeElapsed = now - p.strikeTime;
-      currentLat = p.strikeLat;
-      currentLon = p.strikeLon;
-      // Hold last loiter heading while hovering over target
-      canvasAngle = p.strikeAngle;
-
-      const strikeProgress = strikeElapsed / strikeDuration;
-      const epos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
-      const alpha = (1 - strikeProgress) * 0.6;
-      const radius = 5 + strikeProgress * 20;
-      ctx.beginPath();
-      ctx.arc(epos.x, epos.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 180, 50, ${alpha})`;
-      ctx.fill();
-
-      if (strikeElapsed >= strikeDuration) {
-        p.phase = 'returnLoiter';
-        p.phaseStart = now;
-        // Continue from where loiter left off for seamless transition
-        p.returnLoiterStartAngle = p.strikeLoiterAngle || Math.atan2(p.strikeLon - p.toLon, p.strikeLat - p.toLat);
-        p.returnLoiterRadius = p.strikeRadius || p.loiterRadius;
-      }
-    } else if (p.phase === 'returnLoiter') {
-      const t = Math.min(1, phaseElapsed / p.returnLoiterDuration);
-      const r = p.returnLoiterRadius;
-      const angle = p.returnLoiterStartAngle + p.loiterDir * t * Math.PI * 1.5;
-      // Spiral inward: radius shrinks to 0 in last 40%
-      const spiralT = 1 - Math.max(0, (t - 0.6) / 0.4);
-      const curR = r * spiralT;
-      currentLat = p.toLat + Math.sin(angle) * curR;
-      currentLon = p.toLon + Math.cos(angle) * curR;
-
-      if (spiralT < 0.1) {
-        // Spiral collapsed — point toward home base
-        canvasAngle = latLonHeadingToCanvas(p.fromLat - p.toLat, p.fromLon - p.toLon);
-      } else {
-        // Analytical tangent
-        const tangentLat = Math.cos(angle) * p.loiterDir;
-        const tangentLon = -Math.sin(angle) * p.loiterDir;
-        canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
+      // Draw explosion if active
+      if (p.explosionStart) {
+        const explodeElapsed = now - p.explosionStart;
+        const explodeDuration = 1000;
+        if (explodeElapsed < explodeDuration) {
+          const strikeProgress = explodeElapsed / explodeDuration;
+          const epos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
+          const alpha = (1 - strikeProgress) * 0.6;
+          const radius = 5 + strikeProgress * 20;
+          ctx.beginPath();
+          ctx.arc(epos.x, epos.y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 180, 50, ${alpha})`;
+          ctx.fill();
+        }
       }
 
       if (t >= 1) {

@@ -1832,7 +1832,6 @@ function showTerminalPopup(terminal, screenX, screenY) {
   const unit = isLng ? 'MMBtu' : 'bbl';
   document.getElementById('terminal-popup-name').textContent = terminal.name;
   document.getElementById('terminal-popup-body').innerHTML = `
-    <div class="terminal-popup-row"><span>Country:</span><span>${terminal.country}</span></div>
     <div class="terminal-popup-row"><span>Type:</span><span>${isLng ? 'LNG' : 'Oil'}</span></div>
     <div class="terminal-popup-row"><span>Capacity:</span><span>${terminal.capacity}</span></div>
     <div class="terminal-popup-row"><span>${priceLabel}:</span><span class="${terminal.loadingBonus > 1 ? 'stat-good' : terminal.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">$${ratePerBbl}/${unit} (${Math.round(terminal.loadingBonus * 100)}%)</span></div>
