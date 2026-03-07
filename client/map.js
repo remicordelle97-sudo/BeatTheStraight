@@ -21,7 +21,7 @@ export function getViewport() { return { ...viewport }; }
 // COASTLINE DATA - Full Persian Gulf
 // ============================================
 
-// Iran coast (north side of gulf, west to east)
+// Iran coast (north side of gulf, west to east, including Gulf of Oman)
 const IRAN_COAST = [
   [30.5, 47.0],  // NW corner (Shatt al-Arab)
   [30.3, 48.0],
@@ -47,17 +47,29 @@ const IRAN_COAST = [
   [27.2, 56.8],
   [27.3, 57.0],
   [27.4, 57.3],
+  // Strait of Hormuz → Gulf of Oman (Iran side)
   [27.5, 57.6],
   [27.3, 58.0],
   [27.2, 58.5],
   [27.1, 59.0],
-  [27.0, 59.5],
-  [26.9, 60.0],
-  [30.5, 60.0],
+  [27.0, 59.3],
+  [26.8, 59.5],
+  [26.6, 59.7],
+  [26.3, 59.8],
+  [26.0, 59.9],
+  [25.8, 60.2],
+  [25.5, 60.5],
+  [25.3, 60.8],
+  [25.2, 61.0],
+  [25.1, 61.3],
+  [25.0, 61.5],
+  [25.0, 61.8],
+  [25.2, 62.0],   // Chabahar approach
+  [30.5, 62.0],
   [30.5, 47.0]
 ];
 
-// Arabian peninsula coast (south side, west to east)
+// Arabian peninsula coast (south side, west to east, including Oman Gulf coast)
 const ARAB_COAST = [
   [30.5, 47.0],  // Iraq/Kuwait border area
   [30.2, 47.5],
@@ -100,17 +112,31 @@ const ARAB_COAST = [
   [26.0, 56.5],
   [26.2, 56.8],
   [26.3, 57.0],
+  // Musandam Peninsula (Oman enclave) → Gulf of Oman
   [26.2, 57.3],
+  [26.0, 56.8],   // Musandam tip
+  [25.8, 57.0],
   [25.5, 57.5],
+  [25.2, 57.8],
   [24.8, 57.7],
+  [24.5, 57.8],
   [24.2, 57.9],
+  // Oman Gulf coast
   [23.8, 58.2],
-  [23.5, 58.5],
-  [23.2, 59.0],
+  [23.6, 58.5],
+  [23.5, 58.7],
+  [23.3, 59.0],
+  [23.2, 59.3],
   [23.0, 59.5],
+  [22.9, 59.8],
   [22.8, 60.0],
-  [23.5, 60.0],
-  [23.5, 47.0],
+  [22.5, 60.3],
+  [22.3, 60.5],
+  [22.0, 60.8],
+  [21.8, 61.0],
+  [21.5, 61.5],
+  [21.5, 62.0],
+  [21.5, 47.0],
   [30.5, 47.0]
 ];
 
@@ -1118,13 +1144,14 @@ function drawMap(canvas, options = {}) {
   drawChokepointMarkers(ctx, drawW, drawH);
 
   // Persian Gulf detail coastlines (drawn on top when zoomed in)
+  // Colors match world-level polygons to prevent color shift on zoom
   const gulfVisible = isGulfZoom();
   if (gulfVisible) {
-    drawCoastline(ctx, IRAN_COAST, '#3a2e1e', drawW, drawH);
-    drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);
-    drawCoastline(ctx, QESHM, '#8a7050', drawW, drawH);
-    drawCoastline(ctx, LARAK, '#8a7050', drawW, drawH);
-    drawCoastline(ctx, HORMUZ_ISLAND, '#8a7050', drawW, drawH);
+    drawCoastline(ctx, IRAN_COAST, '#6a7050', drawW, drawH);   // matches ASIA_MAINLAND
+    drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);   // matches ARABIA
+    drawCoastline(ctx, QESHM, '#7a7050', drawW, drawH);
+    drawCoastline(ctx, LARAK, '#7a7050', drawW, drawH);
+    drawCoastline(ctx, HORMUZ_ISLAND, '#7a7050', drawW, drawH);
     drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
     drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
   }
