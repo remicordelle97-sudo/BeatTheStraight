@@ -1,26 +1,103 @@
-// Strait of Hormuz map coordinates
+// Persian Gulf map coordinates (full gulf)
 export const MAP_BOUNDS = {
-  north: 27.5,
-  south: 25.5,
+  north: 30.5,
+  south: 23.5,
+  east: 58.0,
+  west: 47.0
+};
+
+// Viewport for scrollable map (what's visible at once)
+export const DEFAULT_VIEWPORT = {
+  north: 28.0,
+  south: 25.0,
   east: 57.5,
-  west: 54.0
+  west: 53.5
 };
 
 // Simulation configuration
 export const SIM_CONFIG = {
   TIME_SCALE: 60,           // 1 real second = 60 game seconds (1 game minute)
-  START_LON: 54.5,
-  END_LON: 57.2,
-  START_LAT: 26.8,
-  // Ship speed: ~15 knots = 15 nm/hour. 1 nm ≈ 1/60 degree.
-  // So 15 knots ≈ 0.25 deg/hour. With TIME_SCALE=60, per real second = 0.25/60 deg = 0.00417 deg
-  KNOTS_TO_DEG_PER_SEC: 0.25 / 60,  // degrees per real second at TIME_SCALE
-  EVENT_CHECK_INTERVAL: 3000,  // ms between event checks
-  EVENT_COOLDOWN: 30000,       // ms cooldown after an event in same zone
-  TURN_RATE: 2.0,             // degrees per real second the ship can turn
+  END_LON: 57.2,            // Finish line longitude (Gulf of Oman exit)
+  KNOTS_TO_DEG_PER_SEC: 0.25 / 60,
+  EVENT_CHECK_INTERVAL: 3000,
+  EVENT_COOLDOWN: 30000,
+  TURN_RATE: 2.0,
+  COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
+  NPC_COUNT: 8,              // number of NPC traffic ships
+  MILITARY_COUNT: 4,         // number of military ships
 };
 
-// Danger zones on the map (rectangles for simplicity)
+// Oil terminals where players can pick up cargo
+export const OIL_TERMINALS = {
+  RAS_TANURA: {
+    id: 'ras_tanura',
+    name: 'Ras Tanura',
+    country: 'Saudi Arabia',
+    lat: 26.68,
+    lon: 50.16,
+    capacity: 'Large',
+    loadingBonus: 1.0,  // multiplier on cargo value
+    description: 'Largest oil terminal in the world. Fast loading, standard rates.',
+    loadRadius: 0.15
+  },
+  KHARG_ISLAND: {
+    id: 'kharg_island',
+    name: 'Kharg Island',
+    country: 'Iran',
+    lat: 29.23,
+    lon: 50.33,
+    capacity: 'Large',
+    loadingBonus: 1.15,  // Iran sells cheaper
+    description: 'Major Iranian export terminal. Cheaper oil but riskier transit.',
+    loadRadius: 0.15
+  },
+  BASRA_OIL: {
+    id: 'basra_oil',
+    name: 'Al Basrah Oil Terminal',
+    country: 'Iraq',
+    lat: 29.68,
+    lon: 48.80,
+    capacity: 'Large',
+    loadingBonus: 1.10,  // Slightly cheaper
+    description: 'Iraqi offshore terminal near Basra. Good prices, long transit.',
+    loadRadius: 0.15
+  },
+  JEBEL_DHANNA: {
+    id: 'jebel_dhanna',
+    name: 'Jebel Dhanna',
+    country: 'UAE',
+    lat: 24.19,
+    lon: 52.58,
+    capacity: 'Medium',
+    loadingBonus: 0.95,
+    description: 'ADNOC terminal in Abu Dhabi. Premium pricing.',
+    loadRadius: 0.12
+  },
+  DAS_ISLAND: {
+    id: 'das_island',
+    name: 'Das Island',
+    country: 'UAE',
+    lat: 25.06,
+    lon: 52.87,
+    capacity: 'Medium',
+    loadingBonus: 0.95,
+    description: 'Offshore UAE terminal. Close to strait, shorter transit.',
+    loadRadius: 0.12
+  },
+  MINA_AL_AHMADI: {
+    id: 'mina_al_ahmadi',
+    name: 'Mina al-Ahmadi',
+    country: 'Kuwait',
+    lat: 29.07,
+    lon: 48.17,
+    capacity: 'Large',
+    loadingBonus: 1.05,
+    description: 'Kuwait\'s main oil export terminal. Competitive rates.',
+    loadRadius: 0.15
+  }
+};
+
+// Danger zones on the map
 export const DANGER_ZONES = [
   {
     id: 'iranian_waters',
@@ -85,6 +162,59 @@ export const WAYPOINTS = {
   QESHM_ISLAND: { lat: 26.9, lon: 56.2, name: 'Qeshm Island' },
   LARAK_ISLAND: { lat: 26.85, lon: 56.35, name: 'Larak Island' },
   STRAIT_CENTER: { lat: 26.5, lon: 56.3, name: 'Strait Center' }
+};
+
+// NPC ship configurations for traffic in the strait
+export const NPC_SHIP_TYPES = [
+  { name: 'Cargo Vessel', speed: 12, size: 8, color: '#6080a0' },
+  { name: 'Container Ship', speed: 14, size: 10, color: '#5070b0' },
+  { name: 'Tanker', speed: 13, size: 9, color: '#708090' },
+  { name: 'Bulk Carrier', speed: 11, size: 10, color: '#607080' },
+  { name: 'LNG Carrier', speed: 15, size: 9, color: '#5090a0' },
+];
+
+// Military ship types
+export const MILITARY_SHIPS = {
+  US_DESTROYER: {
+    name: 'USS Destroyer',
+    country: 'US',
+    speed: 20,
+    size: 11,
+    color: '#4488cc',
+    patrolBounds: { north: 27.0, south: 25.5, west: 55.0, east: 57.5 },
+    dangerRadius: 0.08,
+    friendlyFireChance: 0.02,  // chance per proximity check to accidentally fire
+  },
+  US_CARRIER: {
+    name: 'USS Carrier Group',
+    country: 'US',
+    speed: 16,
+    size: 14,
+    color: '#3377bb',
+    patrolBounds: { north: 26.5, south: 24.5, west: 55.5, east: 57.5 },
+    dangerRadius: 0.12,
+    friendlyFireChance: 0.01,
+  },
+  IRAN_FRIGATE: {
+    name: 'IRIS Frigate',
+    country: 'Iran',
+    speed: 18,
+    size: 10,
+    color: '#cc4444',
+    patrolBounds: { north: 27.5, south: 26.5, west: 54.5, east: 57.0 },
+    dangerRadius: 0.08,
+    friendlyFireChance: 0.04,
+  },
+  IRAN_PATROL: {
+    name: 'IRGC Fast Attack',
+    country: 'Iran',
+    speed: 25,
+    size: 7,
+    color: '#dd3333',
+    patrolBounds: { north: 27.3, south: 26.2, west: 55.0, east: 57.5 },
+    dangerRadius: 0.06,
+    friendlyFireChance: 0.05,
+  }
 };
 
 // Ship types available for purchase
@@ -278,6 +408,28 @@ export const EVENTS = [
       { text: 'Submarine ignores you', damagePercent: 0, delayHours: 0, moneyLoss: 0 },
       { text: 'Torpedo in the water!', damagePercent: 0.85, delayHours: 120, moneyLoss: 0.7 },
       { text: 'Sub surfaces - it\'s friendly', damagePercent: 0, delayHours: 1, moneyLoss: 0 }
+    ]
+  },
+  {
+    id: 'collision_warning',
+    name: 'Collision Alert',
+    description: 'Another vessel on collision course!',
+    probability: 0.15,
+    outcomes: [
+      { text: 'Evasive maneuver successful', damagePercent: 0, delayHours: 0.5, moneyLoss: 0 },
+      { text: 'Sideswipe! Hull breach!', damagePercent: 0.3, delayHours: 12, moneyLoss: 0.15 },
+      { text: 'Near miss, crew shaken', damagePercent: 0, delayHours: 1, moneyLoss: 0 }
+    ]
+  },
+  {
+    id: 'military_incident',
+    name: 'Military Incident',
+    description: 'A military vessel has locked weapons on your ship!',
+    probability: 0.05,
+    outcomes: [
+      { text: 'Stand down order received, crisis averted', damagePercent: 0, delayHours: 2, moneyLoss: 0 },
+      { text: 'Missile strike! Friendly fire incident!', damagePercent: 0.7, delayHours: 96, moneyLoss: 0.5 },
+      { text: 'Warning shots across bow, forced to stop', damagePercent: 0.05, delayHours: 6, moneyLoss: 0 }
     ]
   }
 ];

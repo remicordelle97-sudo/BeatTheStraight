@@ -1,7 +1,7 @@
 import {
   SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
   RISK_LEVELS, BASE_OIL_PRICE, TIME_OPTIONS,
-  GAME_PHASES, STARTING_CASH
+  GAME_PHASES, STARTING_CASH, OIL_TERMINALS
 } from '../shared/constants.js';
 
 function generateGameId() {
@@ -77,15 +77,20 @@ class GameState {
     const insurance = INSURANCE_OPTIONS[plan.insuranceId];
     const time = TIME_OPTIONS[plan.timeId];
     const ship = player.fleet.find(s => s.id === plan.shipId);
+    // Find terminal by id from any key
+    const terminal = plan.terminalId
+      ? Object.values(OIL_TERMINALS).find(t => t.id === plan.terminalId)
+      : null;
 
     if (!ais || !insurance || !time || !ship) return null;
 
     player.currentPlan = {
-      ais, insurance, time, ship,
+      ais, insurance, time, ship, terminal,
       aisId: plan.aisId,
       insuranceId: plan.insuranceId,
       timeId: plan.timeId,
       shipId: plan.shipId,
+      terminalId: plan.terminalId,
       playerNavigated: plan.routeId === 'PLAYER_NAVIGATED'
     };
     player.ready = true;

@@ -1,8 +1,9 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, canvasToLatLon } from './map.js';
+import { drawMap, drawCompass, canvasToLatLon, setViewport, getViewport } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
-  FUEL_COST_PER_UNIT
+  FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
+  NPC_SHIP_TYPES, MILITARY_SHIPS
 } from '../shared/constants.js';
 
 // Connect to server
@@ -25,18 +26,31 @@ let selectedShipId = null;
 let selectedTimeId = null;
 let selectedAisId = null;
 let selectedInsuranceId = null;
+let selectedTerminalId = null;
 
 // Transit simulation state
 let transitActive = false;
-let simState = null; // { lat, lon, heading, targetHeading, speed, health, ... }
+let simState = null;
 let simTrail = [];
 let simEvents = [];
 let simStartTime = 0;
-let simGameTime = 0; // game seconds elapsed
+let simGameTime = 0;
 let simTargetPoint = null;
-let zoneCooldowns = {}; // zone_id -> last event timestamp
+let zoneCooldowns = {};
 let lastEventCheck = 0;
-let transitPlan = null; // { ship, ais, insurance, time }
+let transitPlan = null;
+let cargoLoaded = false;
+
+// NPC and military ship state
+let npcShips = [];
+let militaryShips = [];
+let lastCollisionCheck = 0;
+
+// Pan/zoom state
+let viewport = { ...DEFAULT_VIEWPORT };
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+let panViewportStart = null;
 
 // ============================================
 // DOM
@@ -77,6 +91,99 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ============================================
+// PAN / ZOOM CONTROLS
+// ============================================
+function initPanZoom() {
+  mapCanvas.addEventListener('wheel', (e) => {
+    if (!transitActive && !screens.planning.classList.contains('active')) return;
+    e.preventDefault();
+    const zoomFactor = e.deltaY > 0 ? 1.15 : 0.87;
+    const vp = getViewport();
+    const rect = mapCanvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) / rect.width;
+    const mouseY = (e.clientY - rect.top) / rect.height;
+
+    const lonRange = vp.east - vp.west;
+    const latRange = vp.north - vp.south;
+    const newLonRange = Math.min(MAP_BOUNDS.east - MAP_BOUNDS.west, Math.max(2, lonRange * zoomFactor));
+    const newLatRange = Math.min(MAP_BOUNDS.north - MAP_BOUNDS.south, Math.max(1.5, latRange * zoomFactor));
+
+    const mouseLon = vp.west + mouseX * lonRange;
+    const mouseLat = vp.north - mouseY * latRange;
+
+    const newWest = mouseLon - mouseX * newLonRange;
+    const newNorth = mouseLat + mouseY * newLatRange;
+
+    viewport = clampViewport({
+      west: newWest,
+      east: newWest + newLonRange,
+      north: newNorth,
+      south: newNorth - newLatRange
+    });
+    setViewport(viewport);
+  }, { passive: false });
+
+  mapCanvas.addEventListener('mousedown', (e) => {
+    if (e.button === 2 || e.button === 1) { // right or middle click
+      isPanning = true;
+      panStart = { x: e.clientX, y: e.clientY };
+      panViewportStart = { ...getViewport() };
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isPanning) return;
+    const rect = mapCanvas.getBoundingClientRect();
+    const vp = panViewportStart;
+    const lonRange = vp.east - vp.west;
+    const latRange = vp.north - vp.south;
+
+    const dx = (e.clientX - panStart.x) / rect.width * lonRange;
+    const dy = (e.clientY - panStart.y) / rect.height * latRange;
+
+    viewport = clampViewport({
+      west: vp.west - dx,
+      east: vp.east - dx,
+      north: vp.north + dy,
+      south: vp.south + dy
+    });
+    setViewport(viewport);
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 2 || e.button === 1) {
+      isPanning = false;
+    }
+  });
+
+  mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+function clampViewport(vp) {
+  const lonRange = vp.east - vp.west;
+  const latRange = vp.north - vp.south;
+  let west = Math.max(MAP_BOUNDS.west, Math.min(MAP_BOUNDS.east - lonRange, vp.west));
+  let south = Math.max(MAP_BOUNDS.south, Math.min(MAP_BOUNDS.north - latRange, vp.south));
+  return { west, east: west + lonRange, south, north: south + latRange };
+}
+
+function centerViewportOn(lat, lon) {
+  const vp = getViewport();
+  const lonRange = vp.east - vp.west;
+  const latRange = vp.north - vp.south;
+  viewport = clampViewport({
+    west: lon - lonRange / 2,
+    east: lon + lonRange / 2,
+    north: lat + latRange / 2,
+    south: lat - latRange / 2
+  });
+  setViewport(viewport);
+}
+
+initPanZoom();
 
 // ============================================
 // TITLE SCREEN
@@ -204,6 +311,34 @@ function renderPlanning() {
   selectedTimeId = null;
   selectedAisId = null;
   selectedInsuranceId = null;
+  selectedTerminalId = null;
+
+  // Terminal selector
+  const terminalSelector = document.getElementById('terminal-selector');
+  terminalSelector.innerHTML = Object.entries(OIL_TERMINALS).map(([key, t]) => `
+    <div class="option-card" data-key="${t.id}">
+      <div class="option-name">${t.name}</div>
+      <div class="option-desc">${t.country} - ${t.description}</div>
+      <div class="option-stats">
+        <span class="stat ${t.loadingBonus > 1 ? 'stat-good' : t.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">
+          Value: ${Math.round(t.loadingBonus * 100)}%
+        </span>
+        <span class="stat">${t.capacity}</span>
+      </div>
+    </div>
+  `).join('');
+
+  terminalSelector.querySelectorAll('.option-card').forEach(card => {
+    card.addEventListener('click', () => {
+      terminalSelector.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedTerminalId = card.dataset.key;
+      // Center map on selected terminal
+      const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
+      if (terminal) centerViewportOn(terminal.lat, terminal.lon);
+      updateCostPreview();
+    });
+  });
 
   // Ship selector
   const shipSelector = document.getElementById('ship-selector');
@@ -276,6 +411,12 @@ function renderPlanning() {
   document.getElementById('btn-submit-plan').classList.remove('hidden');
   document.getElementById('plan-waiting').classList.add('hidden');
   updateCostPreview();
+
+  // Show map with terminals during planning
+  viewport = { ...DEFAULT_VIEWPORT };
+  // Zoom out to show more of the gulf
+  viewport = { north: 30.0, south: 24.0, west: 47.5, east: 57.5 };
+  setViewport(viewport);
 }
 
 function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
@@ -298,7 +439,7 @@ function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
 function updateCostPreview() {
   const preview = document.getElementById('cost-preview');
   const me = gameState?.players.find(p => p.id === myId);
-  if (!me || !selectedShipId || !selectedInsuranceId) {
+  if (!me || !selectedShipId || !selectedInsuranceId || !selectedTerminalId) {
     preview.innerHTML = '<div class="muted">Select all options to see costs</div>';
     return;
   }
@@ -306,17 +447,18 @@ function updateCostPreview() {
   const ship = me.fleet.find(s => s.id === selectedShipId);
   const insurance = options.insuranceOptions[selectedInsuranceId];
   const ais = selectedAisId ? options.aisOptions[selectedAisId] : null;
-  if (!ship || !insurance) return;
+  const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
+  if (!ship || !insurance || !terminal) return;
 
   const cargoBarrels = ship.capacity * 7.33;
-  const cargoValue = cargoBarrels * gameState.oilPrice;
+  const cargoValue = cargoBarrels * gameState.oilPrice * terminal.loadingBonus;
   const insuranceCost = cargoValue * insurance.costPercent;
-  // Estimate ~10 hours transit at average
-  const fuelCost = ship.fuelPerHour * 10 * FUEL_COST_PER_UNIT / 1000;
+  const fuelCost = ship.fuelPerHour * 14 * FUEL_COST_PER_UNIT / 1000; // ~14 hours average
   const legalPenalty = ais ? ais.legalPenalty : 0;
   const totalCost = insuranceCost + fuelCost + legalPenalty;
 
   preview.innerHTML = `
+    <div class="cost-line"><span>Terminal:</span><span>${terminal.name}</span></div>
     <div class="cost-line"><span>Cargo Value:</span><span>${formatMoney(cargoValue)}</span></div>
     <div class="cost-line"><span>Insurance:</span><span>-${formatMoney(insuranceCost)}</span></div>
     <div class="cost-line"><span>Est. Fuel:</span><span>-${formatMoney(fuelCost)}</span></div>
@@ -330,7 +472,7 @@ function updateCostPreview() {
 
 // Submit plan and start transit
 document.getElementById('btn-submit-plan').addEventListener('click', () => {
-  if (!selectedShipId || !selectedTimeId || !selectedAisId || !selectedInsuranceId) {
+  if (!selectedShipId || !selectedTimeId || !selectedAisId || !selectedInsuranceId || !selectedTerminalId) {
     showError('Select all options before launching');
     return;
   }
@@ -340,16 +482,17 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
   const ais = options.aisOptions[selectedAisId];
   const insurance = options.insuranceOptions[selectedInsuranceId];
   const time = options.timeOptions[selectedTimeId];
+  const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
 
-  transitPlan = { ship, ais, insurance, time };
+  transitPlan = { ship, ais, insurance, time, terminal };
 
-  // Tell server we're ready (server won't simulate - client does it)
   socket.emit('submit_plan', {
     shipId: selectedShipId,
-    routeId: 'PLAYER_NAVIGATED', // special: player navigates manually
+    routeId: 'PLAYER_NAVIGATED',
     timeId: selectedTimeId,
     aisId: selectedAisId,
-    insuranceId: selectedInsuranceId
+    insuranceId: selectedInsuranceId,
+    terminalId: selectedTerminalId
   }, (res) => {
     if (res.success) {
       startTransit();
@@ -360,24 +503,247 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
 });
 
 // ============================================
+// NPC & MILITARY SHIP SPAWNING
+// ============================================
+function spawnNPCShips() {
+  npcShips = [];
+  const count = SIM_CONFIG.NPC_COUNT;
+  for (let i = 0; i < count; i++) {
+    const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
+    const goingEast = Math.random() > 0.4; // Most traffic goes east through strait
+    const lon = 54.0 + Math.random() * 3.0; // Spread across strait area
+    const lat = 26.0 + Math.random() * 1.2; // In the strait channel
+
+    npcShips.push({
+      lat, lon,
+      heading: goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20,
+      speed: type.speed + (Math.random() - 0.5) * 3,
+      size: type.size,
+      color: type.color,
+      name: type.name,
+      targetHeading: goingEast ? 90 : 270,
+      wanderTimer: Math.random() * 10
+    });
+  }
+}
+
+function spawnMilitaryShips() {
+  militaryShips = [];
+  const types = Object.values(MILITARY_SHIPS);
+  for (const type of types) {
+    const pb = type.patrolBounds;
+    militaryShips.push({
+      lat: pb.south + Math.random() * (pb.north - pb.south),
+      lon: pb.west + Math.random() * (pb.east - pb.west),
+      heading: Math.random() * 360,
+      speed: type.speed * (0.3 + Math.random() * 0.5), // patrol at lower speed
+      size: type.size,
+      color: type.color,
+      name: type.name,
+      country: type.country,
+      dangerRadius: type.dangerRadius,
+      friendlyFireChance: type.friendlyFireChance,
+      patrolBounds: pb,
+      targetHeading: Math.random() * 360,
+      patrolTimer: Math.random() * 15
+    });
+  }
+}
+
+function updateNPCShips(dt) {
+  for (const npc of npcShips) {
+    // Slight wander
+    npc.wanderTimer -= dt;
+    if (npc.wanderTimer <= 0) {
+      npc.targetHeading = npc.heading + (Math.random() - 0.5) * 30;
+      npc.wanderTimer = 5 + Math.random() * 10;
+    }
+
+    // Turn toward target heading
+    const diff = angleDiff(npc.heading, npc.targetHeading);
+    if (Math.abs(diff) > 0.5) {
+      npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
+    }
+
+    // Move
+    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+    const rad = npc.heading * Math.PI / 180;
+    npc.lon += Math.cos(rad) * speedDeg * dt;
+    npc.lat += Math.sin(rad) * -speedDeg * dt;
+
+    // Remove and respawn if out of bounds
+    if (npc.lon > 58.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
+      const goingEast = Math.random() > 0.4;
+      npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
+      npc.lat = 26.0 + Math.random() * 1.2;
+      npc.heading = goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20;
+      npc.targetHeading = goingEast ? 90 : 270;
+    }
+  }
+}
+
+function updateMilitaryShips(dt) {
+  for (const mil of militaryShips) {
+    mil.patrolTimer -= dt;
+    if (mil.patrolTimer <= 0) {
+      // Pick new patrol waypoint within bounds
+      const pb = mil.patrolBounds;
+      const targetLat = pb.south + Math.random() * (pb.north - pb.south);
+      const targetLon = pb.west + Math.random() * (pb.east - pb.west);
+      const dLon = targetLon - mil.lon;
+      const dLat = targetLat - mil.lat;
+      mil.targetHeading = normalizeAngle(Math.atan2(dLon, -dLat) * 180 / Math.PI);
+      mil.patrolTimer = 8 + Math.random() * 12;
+    }
+
+    // Turn
+    const diff = angleDiff(mil.heading, mil.targetHeading);
+    if (Math.abs(diff) > 0.5) {
+      mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
+    }
+
+    // Move
+    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+    const rad = mil.heading * Math.PI / 180;
+    mil.lon += Math.cos(rad) * speedDeg * dt;
+    mil.lat += Math.sin(rad) * -speedDeg * dt;
+
+    // Clamp to patrol bounds
+    const pb = mil.patrolBounds;
+    mil.lat = Math.max(pb.south, Math.min(pb.north, mil.lat));
+    mil.lon = Math.max(pb.west, Math.min(pb.east, mil.lon));
+  }
+}
+
+// ============================================
+// COLLISION DETECTION
+// ============================================
+function checkCollisions(elapsed) {
+  if (elapsed - lastCollisionCheck < 2) return; // check every 2 seconds
+  lastCollisionCheck = elapsed;
+
+  const shipLat = simState.lat;
+  const shipLon = simState.lon;
+  const collisionR = SIM_CONFIG.COLLISION_RADIUS;
+
+  // Check NPC collisions
+  for (const npc of npcShips) {
+    const dist = Math.sqrt(
+      Math.pow(npc.lat - shipLat, 2) + Math.pow(npc.lon - shipLon, 2)
+    );
+    if (dist < collisionR) {
+      // Collision event
+      const severity = Math.random();
+      if (severity < 0.3) {
+        // Near miss
+        addTransitEvent('NEAR MISS', `Close call with ${npc.name}! Evasive action taken.`, '');
+      } else if (severity < 0.7) {
+        // Glancing blow
+        simState.totalDamage += 0.1;
+        simState.speed = Math.max(5, simState.speed * 0.8);
+        addTransitEvent('COLLISION', `Sideswipe with ${npc.name}! Minor hull damage.`, 'danger');
+        simEvents.push({
+          event: 'Ship Collision',
+          outcome: `Collided with ${npc.name}`,
+          damagePercent: 0.1,
+          delayHours: 2,
+          moneyLossPercent: 0.05,
+          zone: 'Strait Traffic'
+        });
+      } else {
+        // Major collision
+        simState.totalDamage += 0.25;
+        simState.totalMoneyLoss += 0.1;
+        simState.speed = Math.max(5, simState.speed * 0.6);
+        addTransitEvent('MAJOR COLLISION', `Head-on collision with ${npc.name}! Severe damage!`, 'danger');
+        simEvents.push({
+          event: 'Major Collision',
+          outcome: `Major collision with ${npc.name}`,
+          damagePercent: 0.25,
+          delayHours: 8,
+          moneyLossPercent: 0.1,
+          zone: 'Strait Traffic'
+        });
+      }
+
+      // Push NPC away
+      npc.lat += (npc.lat - shipLat) * 2;
+      npc.lon += (npc.lon - shipLon) * 2;
+    }
+  }
+
+  // Check military ship proximity
+  for (const mil of militaryShips) {
+    const dist = Math.sqrt(
+      Math.pow(mil.lat - shipLat, 2) + Math.pow(mil.lon - shipLon, 2)
+    );
+
+    if (dist < mil.dangerRadius) {
+      // In danger zone of military ship
+      const risk = RISK_LEVELS[gameState.riskLevel];
+      const fireChance = mil.friendlyFireChance * risk.eventFrequency * 3;
+
+      if (Math.random() < fireChance) {
+        // Friendly fire incident!
+        const severity = Math.random();
+        if (severity < 0.5) {
+          simState.totalDamage += 0.15;
+          addTransitEvent('MILITARY INCIDENT',
+            `${mil.name} (${mil.country}) fired warning shots! Hull grazed.`, 'danger');
+          simEvents.push({
+            event: 'Military Incident',
+            outcome: `${mil.name} warning shots`,
+            damagePercent: 0.15,
+            delayHours: 4,
+            moneyLossPercent: 0,
+            zone: 'Military Zone'
+          });
+        } else {
+          simState.totalDamage += 0.5;
+          simState.totalMoneyLoss += 0.3;
+          addTransitEvent('FRIENDLY FIRE',
+            `${mil.name} (${mil.country}) mistook your tanker for a threat! Missile strike!`, 'danger');
+          simEvents.push({
+            event: 'Friendly Fire',
+            outcome: `${mil.name} missile strike`,
+            damagePercent: 0.5,
+            delayHours: 48,
+            moneyLossPercent: 0.3,
+            zone: 'Military Zone'
+          });
+        }
+      } else if (dist < mil.dangerRadius * 0.6 && Math.random() < 0.1) {
+        addTransitEvent('MILITARY WARNING',
+          `${mil.name} (${mil.country}) orders you to alter course immediately!`, '');
+      }
+    }
+  }
+}
+
+// ============================================
 // TRANSIT SIMULATION
 // ============================================
 function startTransit() {
   showScreen('transit');
   transitActive = true;
+  cargoLoaded = false;
   simStartTime = performance.now();
   simGameTime = 0;
   simTrail = [];
   simEvents = [];
   zoneCooldowns = {};
   lastEventCheck = 0;
+  lastCollisionCheck = 0;
   simTargetPoint = null;
 
+  const terminal = transitPlan.terminal;
   const ship = transitPlan.ship;
+
+  // Start at the selected terminal
   simState = {
-    lat: SIM_CONFIG.START_LAT,
-    lon: SIM_CONFIG.START_LON,
-    heading: 90, // east
+    lat: terminal.lat,
+    lon: terminal.lon,
+    heading: 90,
     targetHeading: 90,
     speed: ship.speed,
     health: ship.health,
@@ -388,16 +754,42 @@ function startTransit() {
     destroyed: false
   };
 
+  // Center viewport on terminal, then we'll track the ship
+  viewport = {
+    north: terminal.lat + 1.5,
+    south: terminal.lat - 1.5,
+    west: terminal.lon - 2.0,
+    east: terminal.lon + 2.0
+  };
+  setViewport(viewport);
+
+  // Spawn NPC and military ships
+  spawnNPCShips();
+  spawnMilitaryShips();
+
   // HUD setup
   document.getElementById('hud-ship-name').textContent =
-    `${ship.name} - ${transitPlan.time.name}`;
+    `${ship.name} - Loading at ${terminal.name}`;
   document.getElementById('hud-events').innerHTML = '';
+  document.getElementById('hud-cargo-status').textContent = 'LOADING CARGO...';
+  document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
 
-  // Start click-to-steer
   mapCanvas.style.pointerEvents = 'auto';
   mapCanvas.style.cursor = 'crosshair';
 
-  addTransitEvent('DEPARTURE', `${ship.name} departing Persian Gulf`, 'success');
+  addTransitEvent('DEPARTURE', `${ship.name} loading cargo at ${terminal.name}`, 'success');
+
+  // Auto-load cargo after a brief delay (simulating loading)
+  setTimeout(() => {
+    cargoLoaded = true;
+    document.getElementById('hud-cargo-status').textContent = 'CARGO LOADED - HEAD TO FINISH';
+    document.getElementById('hud-cargo-status').className = 'hud-cargo loaded';
+    document.getElementById('hud-ship-name').textContent =
+      `${ship.name} - ${transitPlan.time.name}`;
+    addTransitEvent('CARGO LOADED',
+      `Full load from ${terminal.name}. Navigate east through the Strait of Hormuz to the finish line.`,
+      'success');
+  }, 3000);
 
   requestAnimationFrame(transitLoop);
 }
@@ -405,13 +797,12 @@ function startTransit() {
 function transitLoop(timestamp) {
   if (!transitActive) return;
 
-  const elapsed = (timestamp - simStartTime) / 1000; // real seconds elapsed
-  const dt = 1 / 60; // ~16ms frame
+  const elapsed = (timestamp - simStartTime) / 1000;
+  const dt = 1 / 60;
 
-  // Game time: 1 real second = TIME_SCALE game seconds
   simGameTime = elapsed * SIM_CONFIG.TIME_SCALE;
 
-  // Update ship heading (smooth turn)
+  // Update ship heading
   const headingDiff = angleDiff(simState.heading, simState.targetHeading);
   if (Math.abs(headingDiff) > 0.5) {
     const turnAmount = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), SIM_CONFIG.TURN_RATE * dt * 60);
@@ -422,10 +813,9 @@ function transitLoop(timestamp) {
   const speedDegPerSec = simState.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
   const headingRad = simState.heading * Math.PI / 180;
   simState.lon += Math.cos(headingRad) * speedDegPerSec * dt;
-  // Latitude correction (cos of latitude for mercator)
   simState.lat += Math.sin(headingRad) * speedDegPerSec * dt * -1;
 
-  // Clamp to map bounds
+  // Clamp to full map bounds
   simState.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, simState.lat));
   simState.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, simState.lon));
 
@@ -434,40 +824,86 @@ function transitLoop(timestamp) {
     simTrail.push({ lat: simState.lat, lon: simState.lon, t: elapsed });
   }
 
-  // Check events
-  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+  // Update NPC and military ships
+  updateNPCShips(dt);
+  updateMilitaryShips(dt);
+
+  // Check collisions
+  if (cargoLoaded) {
+    checkCollisions(elapsed);
+  }
+
+  // Check danger zone events
+  if (cargoLoaded && elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
     checkDangerZones(elapsed);
   }
 
-  // Check if transit complete
-  if (simState.lon >= SIM_CONFIG.END_LON) {
+  // Check if transit complete (past finish line with cargo)
+  if (cargoLoaded && simState.lon >= SIM_CONFIG.END_LON) {
     finishTransit();
     return;
   }
 
-  // Check for ship destruction
+  // Check for destruction
   if (simState.totalDamage >= 0.9 || simState.seized) {
     finishTransit();
     return;
   }
 
+  // Auto-follow ship (smooth pan)
+  autoFollowShip();
+
   // Update HUD
   updateHUD(elapsed);
 
   // Render
-  const progress = (simState.lon - SIM_CONFIG.START_LON) / (SIM_CONFIG.END_LON - SIM_CONFIG.START_LON);
   drawMap(mapCanvas, {
     showZones: true,
-    showStartEnd: true,
+    showFinish: cargoLoaded,
+    showTerminals: true,
+    selectedTerminalId: transitPlan.terminal.id,
     ship: simState,
     trail: simTrail,
     targetPoint: simTargetPoint,
+    npcShips: npcShips,
+    militaryShips: militaryShips,
+    showMinimap: true,
     riskMultiplier: RISK_LEVELS[gameState.riskLevel]?.eventFrequency || 0.15
   });
   drawCompass(compassCanvas, simState.heading);
 
   requestAnimationFrame(transitLoop);
+}
+
+function autoFollowShip() {
+  if (isPanning) return; // Don't auto-follow while user is panning
+
+  const vp = getViewport();
+  const lonRange = vp.east - vp.west;
+  const latRange = vp.north - vp.south;
+  const margin = 0.25; // How close to edge before panning
+
+  const shipLonFrac = (simState.lon - vp.west) / lonRange;
+  const shipLatFrac = (vp.north - simState.lat) / latRange;
+
+  // If ship is near edge, smoothly re-center
+  if (shipLonFrac < margin || shipLonFrac > (1 - margin) ||
+      shipLatFrac < margin || shipLatFrac > (1 - margin)) {
+    const targetVp = clampViewport({
+      west: simState.lon - lonRange / 2,
+      east: simState.lon + lonRange / 2,
+      north: simState.lat + latRange / 2,
+      south: simState.lat - latRange / 2
+    });
+
+    // Smooth lerp
+    viewport.west += (targetVp.west - viewport.west) * 0.05;
+    viewport.east += (targetVp.east - viewport.east) * 0.05;
+    viewport.north += (targetVp.north - viewport.north) * 0.05;
+    viewport.south += (targetVp.south - viewport.south) * 0.05;
+    setViewport(viewport);
+  }
 }
 
 function updateHUD(elapsed) {
@@ -480,12 +916,13 @@ function updateHUD(elapsed) {
   document.getElementById('hud-health').textContent =
     `${Math.round((simState.health - simState.totalDamage) * 100)}%`;
 
-  const progress = Math.min(100, Math.round(
-    ((simState.lon - SIM_CONFIG.START_LON) / (SIM_CONFIG.END_LON - SIM_CONFIG.START_LON)) * 100
-  ));
-  document.getElementById('hud-progress').textContent = `${progress}%`;
+  // Progress: how far east through the strait
+  const startLon = transitPlan.terminal.lon;
+  const progress = cargoLoaded
+    ? Math.min(100, Math.round(((simState.lon - startLon) / (SIM_CONFIG.END_LON - startLon)) * 100))
+    : 0;
+  document.getElementById('hud-progress').textContent = `${Math.max(0, progress)}%`;
 
-  // Color health based on level
   const healthEl = document.getElementById('hud-health');
   const hp = simState.health - simState.totalDamage;
   healthEl.style.color = hp > 0.7 ? '#40c070' : hp > 0.4 ? '#f0a030' : '#e04040';
@@ -497,27 +934,22 @@ function checkDangerZones(elapsed) {
   const time = transitPlan.time;
 
   for (const zone of DANGER_ZONES) {
-    // Is ship in this zone?
     if (simState.lat < zone.bounds.south || simState.lat > zone.bounds.north) continue;
     if (simState.lon < zone.bounds.west || simState.lon > zone.bounds.east) continue;
 
-    // Cooldown check
     const lastEvent = zoneCooldowns[zone.id] || 0;
     if (elapsed - lastEvent < SIM_CONFIG.EVENT_COOLDOWN / 1000) continue;
 
-    // Roll for event
     let prob = zone.baseProbability * risk.eventFrequency;
     prob *= ais.detectionMultiplier;
     prob *= time.visibilityMultiplier;
     prob *= (2 - (simState.health - simState.totalDamage));
 
     if (Math.random() < prob) {
-      // Pick a random event from this zone's event types
       const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
       const eventTemplate = EVENTS.find(e => e.id === eventId);
       if (!eventTemplate) continue;
 
-      // Pick outcome (weighted)
       const weights = [0.5, 0.25, 0.25];
       const roll = Math.random();
       let outcomeIdx = 0;
@@ -530,7 +962,6 @@ function checkDangerZones(elapsed) {
       const outcome = eventTemplate.outcomes[outcomeIdx];
       zoneCooldowns[zone.id] = elapsed;
 
-      // Apply effects
       simState.totalDamage += outcome.damagePercent;
       simState.totalDelay += Math.max(0, outcome.delayHours);
       simState.totalMoneyLoss += outcome.moneyLoss;
@@ -539,7 +970,6 @@ function checkDangerZones(elapsed) {
         simState.seized = true;
       }
 
-      // Slow ship temporarily on damage
       if (outcome.damagePercent > 0.1) {
         simState.speed = Math.max(5, transitPlan.ship.speed * (1 - simState.totalDamage * 0.5));
       }
@@ -579,7 +1009,6 @@ function addTransitEvent(name, text, type) {
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
 
-  // Remove old events to keep list manageable
   while (container.children.length > 8) {
     container.firstChild.style.opacity = '0';
     setTimeout(() => container.firstChild?.remove(), 300);
@@ -594,13 +1023,12 @@ function finishTransit() {
   const ship = transitPlan.ship;
   const ais = transitPlan.ais;
   const insurance = transitPlan.insurance;
+  const terminal = transitPlan.terminal;
 
-  // Calculate results (same logic as server)
   const cargoBarrels = ship.capacity * 7.33;
-  const cargoValue = cargoBarrels * gameState.oilPrice;
+  const cargoValue = cargoBarrels * gameState.oilPrice * terminal.loadingBonus;
   const insuranceCost = cargoValue * insurance.costPercent;
 
-  // Fuel: based on actual transit time
   const transitHours = simGameTime / 3600;
   const fuelCost = ship.fuelPerHour * transitHours * FUEL_COST_PER_UNIT / 1000;
 
@@ -639,10 +1067,10 @@ function finishTransit() {
     totalDamage: Math.round(totalDamage * 100),
     totalDelay: Math.round(simState.totalDelay * 10) / 10,
     transitHours: Math.round(transitHours * 10) / 10,
-    shipName: ship.name
+    shipName: ship.name,
+    terminalName: terminal.name
   };
 
-  // Send results to server for scoring
   socket.emit('transit_complete', {
     shipId: selectedShipId,
     result: result,
@@ -655,14 +1083,12 @@ function finishTransit() {
     }
   });
 
-  // Show final event
   addTransitEvent(
     shipSurvived ? 'TRANSIT COMPLETE' : simState.seized ? 'VESSEL SEIZED' : 'VESSEL DESTROYED',
     `Profit: ${formatMoney(profit)}`,
     shipSurvived ? 'success' : 'danger'
   );
 
-  // Transition to results after a short delay
   setTimeout(() => {
     showResults(result);
   }, 2500);
@@ -673,6 +1099,7 @@ function finishTransit() {
 // ============================================
 mapCanvas.addEventListener('click', (e) => {
   if (!transitActive) return;
+  if (isPanning) return;
 
   const rect = mapCanvas.getBoundingClientRect();
   const cx = e.clientX - rect.left;
@@ -681,10 +1108,8 @@ mapCanvas.addEventListener('click', (e) => {
   const target = canvasToLatLon(cx, cy, rect.width, rect.height);
   simTargetPoint = target;
 
-  // Calculate heading from ship to click point
   const dLon = target.lon - simState.lon;
   const dLat = target.lat - simState.lat;
-  // Convert to heading (0=north, 90=east)
   const angle = Math.atan2(dLon, -dLat) * 180 / Math.PI;
   simState.targetHeading = normalizeAngle(angle);
 });
@@ -725,6 +1150,7 @@ function renderResults(myResult) {
       <div class="result-header">${myResult.success ? 'TRANSIT SUCCESSFUL' : myResult.seized ? 'VESSEL SEIZED!' : 'VESSEL DESTROYED!'}</div>
       <div class="result-lines">
         <div class="result-line"><span>Ship:</span><span>${myResult.shipName}</span></div>
+        <div class="result-line"><span>Terminal:</span><span>${myResult.terminalName || 'N/A'}</span></div>
         <div class="result-line"><span>Transit Time:</span><span>${myResult.transitHours || '?'}h</span></div>
         <div class="result-line"><span>Cargo Value:</span><span>${formatMoney(myResult.cargoValue)}</span></div>
         <div class="result-line"><span>Revenue:</span><span>${formatMoney(myResult.revenue)}</span></div>
@@ -901,26 +1327,26 @@ socket.on('disconnect', () => {
 // BACKGROUND MAP RENDERING
 // ============================================
 function drawBackgroundMap() {
-  if (transitActive) return; // Transit has its own render loop
+  if (transitActive) return;
   try {
+    const isPlanning = screens.planning.classList.contains('active');
     drawMap(mapCanvas, {
-      showZones: screens.planning.classList.contains('active'),
-      showStartEnd: screens.planning.classList.contains('active')
+      showZones: isPlanning,
+      showFinish: isPlanning,
+      showTerminals: isPlanning,
+      selectedTerminalId: selectedTerminalId
     });
   } catch (e) {
     console.error('Map draw error:', e);
   }
 }
 
-// Redraw on resize
 window.addEventListener('resize', () => {
   drawBackgroundMap();
 });
 
-// Initial draw
 drawBackgroundMap();
 
-// Periodic redraw for non-transit screens
 setInterval(() => {
   if (!transitActive) drawBackgroundMap();
 }, 2000);

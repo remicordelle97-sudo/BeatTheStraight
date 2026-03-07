@@ -6,7 +6,7 @@ import { dirname, join } from 'path';
 import { GameState, generateGameId } from './game.js';
 import {
   SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
-  TIME_OPTIONS, GAME_PHASES
+  TIME_OPTIONS, GAME_PHASES, OIL_TERMINALS
 } from '../shared/constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -173,7 +173,8 @@ io.on('connection', (socket) => {
       shipTypes: SHIP_TYPES,
       aisOptions: AIS_OPTIONS,
       insuranceOptions: INSURANCE_OPTIONS,
-      timeOptions: TIME_OPTIONS
+      timeOptions: TIME_OPTIONS,
+      oilTerminals: OIL_TERMINALS
     });
   });
 
