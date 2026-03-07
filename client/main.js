@@ -426,8 +426,11 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
 
   const ap = shipAutopilot[ship.id];
   if (ap && ap.active) {
-    // Toggle off
+    // Toggle off — stop ship and clear waypoints
     ap.active = false;
+    shipWaypoints[ship.id] = [];
+    const state = shipStates[ship.id];
+    if (state) { state.speed = 0; state.apEscapeTimer = 0; }
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
     refreshUpgradeButtons();
     return;
@@ -461,9 +464,22 @@ document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
   if (!terminal) return;
   ap.terminal = terminal;
-  shipWaypoints[ship.id] = [];
   const state = shipStates[ship.id];
-  if (state) { state.apEscapeTimer = 0; }
+  if (state) {
+    state.apEscapeTimer = 0;
+    // Immediately compute new route to updated destination
+    const cargo = shipCargo[ship.id];
+    let dest;
+    if (cargo && cargo.loaded) {
+      dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
+    } else {
+      dest = { lat: terminal.lat, lon: terminal.lon };
+    }
+    const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+    shipWaypoints[ship.id] = route;
+    if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
+    state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+  }
   addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: New route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
 });
 
@@ -1306,13 +1322,14 @@ function transitLoop(timestamp) {
     for (const ship of me.fleet) {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
-      const wps = shipWaypoints[ship.id] || [];
 
       // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
       const ap = shipAutopilot[ship.id];
-      if (ap && ap.active && ap.terminal) {
+      const apActive = ap && ap.active;
+      if (apActive && ap.terminal) {
         const cargo = shipCargo[ship.id];
-        if (wps.length === 0 && state.speed === 0) {
+        const curWps = shipWaypoints[ship.id] || [];
+        if (curWps.length === 0 && state.speed === 0) {
           // Need new destination — compute routed waypoints
           let dest;
           if (cargo && cargo.loaded) {
@@ -1327,8 +1344,10 @@ function transitLoop(timestamp) {
         }
       }
 
+      // Read waypoints fresh (autopilot block above may have replaced them)
+      const wps = shipWaypoints[ship.id] || [];
+
       // Waypoint navigation (skip if autopilot is in escape mode)
-      const apActive = ap && ap.active;
       const apEscaping = apActive && state.apEscapeTimer > 0;
       if (wps.length > 0 && !apEscaping) {
         const wp = wps[0];
@@ -1353,6 +1372,19 @@ function transitLoop(timestamp) {
         if (state.apEscapeTimer > 0) {
           state.apEscapeTimer -= dt;
           state.targetHeading = state.apEscapeHeading;
+          // When escape ends, recalculate route from current position
+          if (state.apEscapeTimer <= 0 && ap.terminal) {
+            const cargo = shipCargo[ship.id];
+            let dest;
+            if (cargo && cargo.loaded) {
+              dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
+            } else {
+              dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
+            }
+            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+            shipWaypoints[ship.id] = route;
+            state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+          }
         } else {
           const headRad = state.heading * Math.PI / 180;
           // Check ahead for land at multiple distances
