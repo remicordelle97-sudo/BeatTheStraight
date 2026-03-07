@@ -464,8 +464,11 @@ function drawMap(canvas, options = {}) {
     });
   }
 
-  // Target heading indicator
-  if (options.targetPoint) {
+  // Waypoints
+  if (options.waypoints && options.waypoints.length > 0 && options.ship) {
+    drawWaypoints(ctx, options.waypoints, options.ship, drawW, drawH);
+  } else if (options.targetPoint) {
+    // Fallback: single target indicator when no waypoints
     const { x, y } = latLonToCanvas(options.targetPoint.lat, options.targetPoint.lon, drawW, drawH);
     ctx.beginPath();
     ctx.arc(x, y, 6, 0, Math.PI * 2);
@@ -631,4 +634,71 @@ function drawCompass(canvas, heading) {
   ctx.fillText(Math.round(heading) + '\u00B0', cx, cy + r + 14);
 }
 
-export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon };
+// ============================================
+// COASTLINE COLLISION (point-in-polygon)
+// ============================================
+const LAND_POLYGONS = [IRAN_COAST, ARAB_COAST, QESHM, LARAK, HORMUZ_ISLAND, BAHRAIN, QATAR];
+
+function pointInPolygon(lat, lon, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const yi = polygon[i][0], xi = polygon[i][1];
+    const yj = polygon[j][0], xj = polygon[j][1];
+    if (((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function isOnLand(lat, lon) {
+  for (const poly of LAND_POLYGONS) {
+    if (pointInPolygon(lat, lon, poly)) return true;
+  }
+  return false;
+}
+
+// ============================================
+// WAYPOINT DRAWING
+// ============================================
+function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
+  if (!waypoints || waypoints.length === 0) return;
+
+  // Draw lines connecting ship → wp1 → wp2 → ...
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(240, 160, 48, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  const shipPos = latLonToCanvas(ship.lat, ship.lon, drawW, drawH);
+  ctx.moveTo(shipPos.x, shipPos.y);
+  for (const wp of waypoints) {
+    const p = latLonToCanvas(wp.lat, wp.lon, drawW, drawH);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw waypoint markers
+  waypoints.forEach((wp, i) => {
+    const { x, y } = latLonToCanvas(wp.lat, wp.lon, drawW, drawH);
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.strokeStyle = i === 0 ? 'rgba(240, 160, 48, 0.7)' : 'rgba(240, 160, 48, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Number
+    ctx.fillStyle = 'rgba(240, 160, 48, 0.8)';
+    ctx.font = '9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), x, y);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  });
+}
+
+export { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, isOnLand, drawWaypoints };

@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { drawMap, drawCompass, canvasToLatLon, setViewport, getViewport } from './map.js';
+import { drawMap, drawCompass, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints } from './map.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
@@ -36,6 +36,7 @@ let simEvents = [];
 let simStartTime = 0;
 let simGameTime = 0;
 let simTargetPoint = null;
+let simWaypoints = [];
 let zoneCooldowns = {};
 let lastEventCheck = 0;
 let transitPlan = null;
@@ -565,11 +566,11 @@ function updateNPCShips(dt) {
       npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
     }
 
-    // Move
+    // Move (nautical: 0°=North, 90°=East)
     const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
-    npc.lon += Math.cos(rad) * speedDeg * dt;
-    npc.lat += Math.sin(rad) * -speedDeg * dt;
+    npc.lon += Math.sin(rad) * speedDeg * dt;
+    npc.lat += Math.cos(rad) * speedDeg * dt;
 
     // Remove and respawn if out of bounds
     if (npc.lon > 58.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
@@ -592,7 +593,7 @@ function updateMilitaryShips(dt) {
       const targetLon = pb.west + Math.random() * (pb.east - pb.west);
       const dLon = targetLon - mil.lon;
       const dLat = targetLat - mil.lat;
-      mil.targetHeading = normalizeAngle(Math.atan2(dLon, -dLat) * 180 / Math.PI);
+      mil.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
       mil.patrolTimer = 8 + Math.random() * 12;
     }
 
@@ -602,11 +603,11 @@ function updateMilitaryShips(dt) {
       mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
     }
 
-    // Move
+    // Move (nautical: 0°=North, 90°=East)
     const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = mil.heading * Math.PI / 180;
-    mil.lon += Math.cos(rad) * speedDeg * dt;
-    mil.lat += Math.sin(rad) * -speedDeg * dt;
+    mil.lon += Math.sin(rad) * speedDeg * dt;
+    mil.lat += Math.cos(rad) * speedDeg * dt;
 
     // Clamp to patrol bounds
     const pb = mil.patrolBounds;
@@ -735,6 +736,7 @@ function startTransit() {
   lastEventCheck = 0;
   lastCollisionCheck = 0;
   simTargetPoint = null;
+  simWaypoints = [];
 
   const terminal = transitPlan.terminal;
   const ship = transitPlan.ship;
@@ -809,11 +811,40 @@ function transitLoop(timestamp) {
     simState.heading = normalizeAngle(simState.heading + turnAmount);
   }
 
-  // Move ship
+  // Advance to next waypoint when close enough
+  if (simWaypoints.length > 0) {
+    const wp = simWaypoints[0];
+    const dLon = wp.lon - simState.lon;
+    const dLat = wp.lat - simState.lat;
+    const distToWP = Math.sqrt(dLon * dLon + dLat * dLat);
+    if (distToWP < 0.03) {
+      simWaypoints.shift();
+      if (simWaypoints.length > 0) {
+        const next = simWaypoints[0];
+        const nLon = next.lon - simState.lon;
+        const nLat = next.lat - simState.lat;
+        simState.targetHeading = normalizeAngle(Math.atan2(nLon, nLat) * 180 / Math.PI);
+      }
+      simTargetPoint = simWaypoints.length > 0 ? simWaypoints[0] : null;
+    }
+  }
+
+  // Move ship (nautical: 0°=North, 90°=East)
   const speedDegPerSec = simState.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
   const headingRad = simState.heading * Math.PI / 180;
-  simState.lon += Math.cos(headingRad) * speedDegPerSec * dt;
-  simState.lat += Math.sin(headingRad) * speedDegPerSec * dt * -1;
+  const newLon = simState.lon + Math.sin(headingRad) * speedDegPerSec * dt;
+  const newLat = simState.lat + Math.cos(headingRad) * speedDegPerSec * dt;
+
+  // Coastline collision: only move if new position is not on land
+  if (!isOnLand(newLat, newLon)) {
+    simState.lon = newLon;
+    simState.lat = newLat;
+  } else {
+    // Blocked by land — stop and clear waypoints
+    simState.speed = Math.max(3, simState.speed * 0.5);
+    simWaypoints = [];
+    simTargetPoint = null;
+  }
 
   // Clamp to full map bounds
   simState.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, simState.lat));
@@ -865,7 +896,8 @@ function transitLoop(timestamp) {
     selectedTerminalId: transitPlan.terminal.id,
     ship: simState,
     trail: simTrail,
-    targetPoint: simTargetPoint,
+    targetPoint: simWaypoints.length > 0 ? simWaypoints[0] : simTargetPoint,
+    waypoints: simWaypoints,
     npcShips: npcShips,
     militaryShips: militaryShips,
     showMinimap: true,
@@ -1095,7 +1127,7 @@ function finishTransit() {
 }
 
 // ============================================
-// MAP CLICK HANDLER (steering)
+// MAP CLICK HANDLER (waypoint navigation)
 // ============================================
 mapCanvas.addEventListener('click', (e) => {
   if (!transitActive) return;
@@ -1106,12 +1138,30 @@ mapCanvas.addEventListener('click', (e) => {
   const cy = e.clientY - rect.top;
 
   const target = canvasToLatLon(cx, cy, rect.width, rect.height);
-  simTargetPoint = target;
 
-  const dLon = target.lon - simState.lon;
-  const dLat = target.lat - simState.lat;
-  const angle = Math.atan2(dLon, -dLat) * 180 / Math.PI;
-  simState.targetHeading = normalizeAngle(angle);
+  // Don't allow waypoints on land
+  if (isOnLand(target.lat, target.lon)) return;
+
+  // Add waypoint to queue (max 10)
+  if (simWaypoints.length < 10) {
+    simWaypoints.push(target);
+  }
+
+  // Set bearing toward first waypoint if this is the only one
+  if (simWaypoints.length === 1) {
+    const dLon = target.lon - simState.lon;
+    const dLat = target.lat - simState.lat;
+    simState.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
+    simTargetPoint = target;
+  }
+});
+
+// Right-click clears all waypoints
+mapCanvas.addEventListener('contextmenu', (e) => {
+  if (transitActive && simWaypoints.length > 0) {
+    simWaypoints = [];
+    simTargetPoint = null;
+  }
 });
 
 // ============================================
