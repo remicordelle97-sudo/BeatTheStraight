@@ -1471,6 +1471,8 @@ function transitLoop(timestamp) {
     checkDangerZonesAllShips(elapsed);
   }
 
+  updateAmbientWar(elapsed);
+
   updateHUD();
 
   // Render
@@ -1542,6 +1544,47 @@ function updateHUD() {
     document.getElementById('hud-cargo-status').textContent = 'BUY OR SELECT A SHIP';
     document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
     document.getElementById('hud-progress').textContent = '--';
+  }
+}
+
+// ============================================
+// AMBIENT WAR - missiles and planes fly between bases independent of ships
+// ============================================
+let lastAmbientCheck = 0;
+const AMBIENT_INTERVAL = 3; // check every 3 seconds
+
+function updateAmbientWar(elapsed) {
+  if (elapsed - lastAmbientCheck < AMBIENT_INTERVAL) return;
+  lastAmbientCheck = elapsed;
+
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
+  // Scale ambient activity by risk level
+  // LOW: ~5% chance per check, CRITICAL: ~50%
+  const ambientChance = risk.eventFrequency;
+  if (Math.random() > ambientChance) return;
+
+  const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
+  const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
+  const iranMissileBases = MILITARY_BASES.filter(b => b.country === 'Iran' && (b.type === 'missile' || b.type === 'naval'));
+  const alliedBases = MILITARY_BASES.filter(b =>
+    ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
+  );
+
+  if (alliedBases.length === 0) return;
+
+  const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
+
+  // Launch a missile
+  if (iranMissileBases.length > 0 && Math.random() < 0.6) {
+    const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
+    spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+  }
+
+  // Launch a plane sortie
+  if (iranAirBases.length > 0 && Math.random() < 0.4) {
+    const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
+    const planeTarget = alliedBases[Math.floor(Math.random() * alliedBases.length)];
+    spawnPlane(airBase.id, airBase.lat, airBase.lon, planeTarget.lat, planeTarget.lon);
   }
 }
 
