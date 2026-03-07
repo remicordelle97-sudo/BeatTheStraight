@@ -268,13 +268,7 @@ h1 {
   font-size: 12px;
 }
 
-/* Planning Screen - Dashboard */
-#screen-planning {
-  justify-content: flex-start;
-  align-items: flex-start;
-  pointer-events: none;
-}
-
+/* Fleet Dashboard (top-left during transit) */
 .planning-dashboard {
   position: absolute;
   top: 12px;

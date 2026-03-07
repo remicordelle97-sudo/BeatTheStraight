@@ -8,7 +8,6 @@
 </head>
 <body>
   <div id="app">
-    <!-- Fullscreen map canvas (always rendered behind everything) -->
     <canvas id="game-map"></canvas>
 
     <!-- Title Screen -->
@@ -45,11 +44,10 @@
       </div>
     </div>
 
-    <!-- Planning Screen (dashboard overlay on map) -->
-    <div id="screen-planning" class="screen">
-      <!-- Top-left dashboard -->
+    <!-- Transit Screen (main game screen) -->
+    <div id="screen-transit" class="screen">
+      <!-- Fleet panel (top-left, always visible) -->
       <div class="planning-dashboard">
-        <!-- Header row: risk, oil price, money -->
         <div class="dash-header">
           <div class="dash-header-left">
             <span class="risk-badge" id="plan-risk">MODERATE</span>
@@ -59,73 +57,49 @@
             <span class="dash-cash">$<span id="plan-cash">0</span></span>
           </div>
         </div>
-
-        <!-- Fleet section -->
         <div class="dash-section">
-          <div class="dash-section-title" data-toggle="fleet">
-            YOUR FLEET <span class="dash-toggle-icon">&#9660;</span>
-          </div>
+          <div class="dash-section-title">YOUR FLEET</div>
           <div class="dash-section-body" id="dash-fleet">
             <div id="ship-selector" class="option-grid"></div>
             <button id="btn-buy-ship" class="btn btn-small btn-secondary dash-buy-btn">+ BUY SHIP</button>
           </div>
         </div>
-
-        <!-- Selected terminal display -->
-        <div class="dash-section">
-          <div class="dash-section-title">TERMINAL</div>
-          <div class="dash-section-body">
-            <div id="selected-terminal-display" class="muted">Click a terminal on the map to select</div>
-          </div>
-        </div>
-
-        <button id="btn-submit-plan" class="btn btn-primary dash-launch-btn">LAUNCH TRANSIT</button>
-        <div id="plan-waiting" class="hidden muted">Waiting for other captains...</div>
       </div>
 
-      <!-- Terminal Info Popup (shown when clicking a terminal on map) -->
+      <!-- Terminal Info Popup -->
       <div id="terminal-info-popup" class="terminal-popup hidden">
         <div class="terminal-popup-header">
           <span id="terminal-popup-name"></span>
           <button id="terminal-popup-close" class="btn btn-small btn-ghost">&times;</button>
         </div>
         <div id="terminal-popup-body"></div>
-        <button id="terminal-popup-select" class="btn btn-small btn-primary" style="width:100%;margin-top:6px;">SELECT TERMINAL</button>
+        <button id="terminal-popup-select" class="btn btn-small btn-primary" style="width:100%;margin-top:6px;">OK</button>
       </div>
 
       <!-- Ship Purchase Modal -->
       <div id="ship-purchase-modal" class="modal-overlay hidden">
         <div class="modal-panel">
           <div class="modal-header">PURCHASE SHIP</div>
-
           <div class="modal-step" id="modal-step-ship">
             <div class="modal-step-title">1. SELECT SHIP TYPE</div>
             <div id="modal-ship-list" class="option-grid"></div>
           </div>
-
           <div class="modal-step hidden" id="modal-step-config">
             <div class="modal-step-title">2. CONFIGURE <span id="modal-ship-name"></span></div>
-
             <div class="modal-sub-section">
               <div class="modal-sub-title">AIS TRANSPONDER</div>
               <div id="modal-ais-list" class="option-grid"></div>
             </div>
-
             <div class="modal-sub-section">
               <div class="modal-sub-title">INSURANCE</div>
               <div id="modal-insurance-list" class="option-grid"></div>
             </div>
-
             <button id="modal-confirm-buy" class="btn btn-primary dash-launch-btn">CONFIRM PURCHASE</button>
           </div>
-
           <button id="modal-cancel" class="btn btn-small btn-ghost" style="width:100%;margin-top:8px;">CANCEL</button>
         </div>
       </div>
-    </div>
 
-    <!-- Transit Screen (HUD overlay on fullscreen map) -->
-    <div id="screen-transit" class="screen">
       <!-- Top HUD bar -->
       <div id="hud-top">
         <div class="hud-group">
@@ -145,24 +119,16 @@
           <div class="hud-value" id="hud-health">100%</div>
         </div>
         <div class="hud-group">
-          <div class="hud-label">PROGRESS</div>
-          <div class="hud-value" id="hud-progress">0%</div>
+          <div class="hud-label">CARGO</div>
+          <div class="hud-value" id="hud-progress">--</div>
         </div>
       </div>
 
-      <!-- Ship status bar -->
       <div id="hud-ship-name"></div>
-
-      <!-- Event notifications -->
       <div id="hud-events"></div>
+      <div id="hud-cargo-status" class="hud-cargo loading">BUY OR SELECT A SHIP</div>
+      <div id="hud-steer-hint">Click ship to select | Left-click: waypoints | Right-drag: pan | Scroll: zoom</div>
 
-      <!-- Cargo status -->
-      <div id="hud-cargo-status" class="hud-cargo loading">NAVIGATE TO TERMINAL</div>
-
-      <!-- Steering instruction -->
-      <div id="hud-steer-hint">Left-click: set waypoints | Right-drag: pan | Scroll: zoom</div>
-
-      <!-- Game Speed Toggle -->
       <div id="hud-speed-toggle">
         <div class="speed-label">SPEED</div>
         <div class="speed-buttons">
@@ -172,10 +138,8 @@
         </div>
       </div>
 
-      <!-- Clear Waypoints Button -->
       <button id="btn-clear-waypoints" class="btn-clear-wp hidden">CLEAR WAYPOINTS</button>
 
-      <!-- Ship Control Panel (shown when clicking own ship) -->
       <div id="ship-control-panel" class="hidden">
         <div class="scp-header">SHIP CONTROLS</div>
         <div class="scp-section">
@@ -197,7 +161,6 @@
         <button id="scp-close" class="btn btn-small btn-ghost">CLOSE</button>
       </div>
 
-      <!-- Compass -->
       <div id="hud-compass">
         <canvas id="compass-canvas" width="100" height="100"></canvas>
       </div>
@@ -206,17 +169,9 @@
     <!-- Results Screen -->
     <div id="screen-results" class="screen">
       <div class="panel-center panel-wide">
-        <div class="screen-header">
-          <h2>TRANSIT REPORT</h2>
-        </div>
+        <div class="screen-header"><h2>TRANSIT REPORT</h2></div>
         <div id="result-detail" class="result-detail"></div>
         <div id="leaderboard" class="leaderboard"></div>
-        <div id="reinvest-section" class="reinvest-section">
-          <h3>FLEET MANAGEMENT</h3>
-          <div id="fleet-display" class="fleet-display"></div>
-          <h4>BUY NEW SHIPS</h4>
-          <div id="ship-shop" class="option-grid"></div>
-        </div>
         <button id="btn-continue" class="btn btn-primary btn-large">CONTINUE</button>
       </div>
     </div>

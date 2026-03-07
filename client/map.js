@@ -460,42 +460,12 @@ function drawMap(canvas, options = {}) {
     ctx.fillText('P E R S I A N   G U L F', gulfLabel.x, gulfLabel.y);
   }
 
-  // Oil terminals
+  // Oil terminals (always shown)
   if (options.showTerminals) {
     drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId);
   }
 
-  // Spawn point
-  if (options.showSpawn) {
-    const sp = latLonToCanvas(SIM_CONFIG.SPAWN_LAT, SIM_CONFIG.SPAWN_LON, drawW, drawH);
-    if (sp.x > -20 && sp.x < drawW + 20 && sp.y > -20 && sp.y < drawH + 20) {
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(64, 144, 224, 0.2)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(64, 144, 224, 0.6)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#4090e0';
-      ctx.font = '10px Courier New';
-      ctx.textAlign = 'left';
-      ctx.fillText('SPAWN', sp.x + 12, sp.y + 4);
-    }
-  }
-
-  // Danger zones
-  if (options.showZones) {
-    drawDangerZones(ctx, drawW, drawH);
-  }
-
-  // Finish line
-  if (options.showFinish) {
-    drawFinishLine(ctx, drawW, drawH);
-  }
-
-  // Ship trail
+  // Ship trail (for selected ship)
   if (options.trail) {
     drawTrail(ctx, options.trail, drawW, drawH);
   }
@@ -504,9 +474,7 @@ function drawMap(canvas, options = {}) {
   if (options.npcShips) {
     for (const npc of options.npcShips) {
       drawShip(ctx, npc.lat, npc.lon, npc.heading, drawW, drawH, {
-        size: npc.size || 8,
-        color: npc.color || '#6080a0',
-        strokeColor: '#8aa0b8',
+        size: npc.size || 8, color: npc.color || '#6080a0', strokeColor: '#8aa0b8',
       });
     }
   }
@@ -515,59 +483,44 @@ function drawMap(canvas, options = {}) {
   if (options.militaryShips) {
     for (const mil of options.militaryShips) {
       drawShip(ctx, mil.lat, mil.lon, mil.heading, drawW, drawH, {
-        size: mil.size || 10,
-        color: mil.color || '#4488cc',
-        strokeColor: '#fff',
-        isMilitary: true,
-        label: mil.name,
+        size: mil.size || 10, color: mil.color || '#4488cc', strokeColor: '#fff',
+        isMilitary: true, label: mil.name,
       });
     }
   }
 
-  // Player ship
-  if (options.ship) {
+  // Player ships (multiple)
+  if (options.playerShips) {
+    for (const ps of options.playerShips) {
+      drawShip(ctx, ps.lat, ps.lon, ps.heading, drawW, drawH, {
+        isPlayer: true,
+        size: ps.isSelected ? 12 : 10,
+        color: ps.isSelected ? '#f0a030' : '#c08020',
+        strokeColor: ps.isSelected ? '#fff' : '#ddd',
+      });
+    }
+  } else if (options.ship) {
+    // Fallback: single selected ship
     drawShip(ctx, options.ship.lat, options.ship.lon, options.ship.heading, drawW, drawH, {
       isPlayer: true
     });
   }
 
-  // Waypoints
+  // Waypoints for selected ship
   if (options.waypoints && options.waypoints.length > 0 && options.ship) {
     drawWaypoints(ctx, options.waypoints, options.ship, drawW, drawH);
-  } else if (options.targetPoint) {
-    // Fallback: single target indicator when no waypoints
-    const { x, y } = latLonToCanvas(options.targetPoint.lat, options.targetPoint.lon, drawW, drawH);
-    ctx.beginPath();
-    ctx.arc(x, y, 6, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(240, 160, 48, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([3, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    if (options.ship) {
-      const shipPos = latLonToCanvas(options.ship.lat, options.ship.lon, drawW, drawH);
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(240, 160, 48, 0.2)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.moveTo(shipPos.x, shipPos.y);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
   }
 
-  // Minimap (during transit)
+  // Minimap
   if (options.showMinimap && options.ship) {
-    drawMinimap(ctx, drawW, drawH, options.ship, options.npcShips, options.militaryShips);
+    drawMinimap(ctx, drawW, drawH, options.ship, options.npcShips, options.militaryShips, options.playerShips);
   }
 }
 
 // ============================================
 // MINIMAP - shows full gulf overview
 // ============================================
-function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips) {
+function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShips) {
   const mmW = 180;
   const mmH = 100;
   const mmX = drawW - mmW - 10;
@@ -611,20 +564,22 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips) {
   ctx.lineWidth = 1;
   ctx.strokeRect(vpTL.x, vpTL.y, vpBR.x - vpTL.x, vpBR.y - vpTL.y);
 
-  // Player ship dot
-  const sp = mmPos(ship.lat, ship.lon);
-  ctx.beginPath();
-  ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#f0a030';
-  ctx.fill();
-
-  // Finish line
-  const fl = mmPos(27, SIM_CONFIG.END_LON);
-  ctx.beginPath();
-  ctx.strokeStyle = 'rgba(240, 160, 48, 0.3)';
-  ctx.moveTo(fl.x, mmY);
-  ctx.lineTo(fl.x, mmY + mmH);
-  ctx.stroke();
+  // Player ship dots
+  if (playerShips) {
+    for (const ps of playerShips) {
+      const pp = mmPos(ps.lat, ps.lon);
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, ps.isSelected ? 3 : 2, 0, Math.PI * 2);
+      ctx.fillStyle = ps.isSelected ? '#f0a030' : '#c08020';
+      ctx.fill();
+    }
+  } else {
+    const sp = mmPos(ship.lat, ship.lon);
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0a030';
+    ctx.fill();
+  }
 
   // NPC dots
   if (npcShips) {
