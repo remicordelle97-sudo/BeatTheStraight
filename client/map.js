@@ -772,8 +772,10 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const rFromLon = p.returnFromLon || p.toLon;
       // Longer return flight to account for deceleration
       const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.3));
-      // Ease-out: fast at start, decelerates toward base
-      const t = 1 - Math.pow(1 - tRaw, 2);
+      // Ease-in-out: gradual acceleration from target, cruise, then decelerate near base
+      const t = tRaw < 0.5
+        ? 2 * tRaw * tRaw                      // ease-in first half
+        : 1 - Math.pow(-2 * tRaw + 2, 2) / 2; // ease-out second half
       const cur = planeWeavePos(rFromLat, rFromLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
       currentLat = cur.lat;
       currentLon = cur.lon;
