@@ -1023,6 +1023,7 @@ h1 {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  pointer-events: auto;
 }
 #settings-btn:hover {
   color: var(--primary);
@@ -1040,6 +1041,7 @@ h1 {
   border-radius: 8px;
   padding: 12px 16px;
   min-width: 200px;
+  pointer-events: auto;
 }
 #settings-panel.hidden { display: none; }
 
