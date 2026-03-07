@@ -332,15 +332,18 @@ function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
 
 function drawTrail(ctx, trail, drawW, drawH) {
   if (trail.length < 2) return;
-  ctx.beginPath();
-  ctx.strokeStyle = 'rgba(240, 160, 48, 0.3)';
+  const len = trail.length;
   ctx.lineWidth = 1.5;
-  trail.forEach((p, i) => {
-    const { x, y } = latLonToCanvas(p.lat, p.lon, drawW, drawH);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+  for (let i = 1; i < len; i++) {
+    const alpha = (i / len) * 0.45;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(240, 160, 48, ${alpha.toFixed(3)})`;
+    const p0 = latLonToCanvas(trail[i - 1].lat, trail[i - 1].lon, drawW, drawH);
+    const p1 = latLonToCanvas(trail[i].lat, trail[i].lon, drawW, drawH);
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
 }
 
 function drawFinishLine(ctx, drawW, drawH) {
