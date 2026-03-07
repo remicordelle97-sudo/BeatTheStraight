@@ -723,8 +723,8 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       currentLat = baseLat + p.perpLat * weave;
       currentLon = baseLon + p.perpLon * weave;
 
-      // Heading accounts for weave derivative
-      const dWeave = p.weaveAmp * Math.PI * (
+      // Heading: gentle nose tilt toward weave direction (damped)
+      const dWeave = 0.25 * p.weaveAmp * Math.PI * (
         p.weaveFreq * 2 * Math.cos(t * Math.PI * p.weaveFreq * 2) * Math.sin(t * Math.PI) +
         Math.sin(t * Math.PI * p.weaveFreq * 2) * Math.cos(t * Math.PI)
       );
@@ -895,10 +895,10 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       currentLat = baseLat + retPerpLat * weave;
       currentLon = baseLon + retPerpLon * weave;
 
-      // Heading accounts for weave derivative
+      // Heading: gentle nose tilt toward weave direction (damped)
       const retFwdLat = retDLat / retLen;
       const retFwdLon = retDLon / retLen;
-      const dWeave = p.weaveAmp * Math.PI * (
+      const dWeave = 0.25 * p.weaveAmp * Math.PI * (
         p.weaveFreq * 2 * Math.cos(t * Math.PI * p.weaveFreq * 2) * Math.sin(t * Math.PI) +
         Math.sin(t * Math.PI * p.weaveFreq * 2) * Math.cos(t * Math.PI)
       );
