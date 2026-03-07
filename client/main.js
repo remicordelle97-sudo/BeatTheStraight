@@ -303,9 +303,18 @@ document.querySelectorAll('.scp-ins-btn').forEach(btn => {
       if (ship) { ship.insuranceId = insKey; ship.insuranceName = insOpt.name; }
       document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name}`, '');
+      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name} (weekly)`, '');
     }
   });
+});
+
+// Auto-renew toggle
+document.getElementById('scp-autorenew-cb').addEventListener('change', (e) => {
+  const ship = getSelectedShipData();
+  if (ship) {
+    ship.autoRenewInsurance = e.target.checked;
+    addTransitEvent('INSURANCE', `Auto-renew ${e.target.checked ? 'enabled' : 'disabled'}`, '');
+  }
 });
 
 // Upgrade: Repair
@@ -550,6 +559,7 @@ function refreshUpgradeButtons() {
   document.querySelectorAll('.scp-ins-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.ins === currentIns);
   });
+  document.getElementById('scp-autorenew-cb').checked = ship.autoRenewInsurance !== false;
 
   document.getElementById('scp-upgrade-info').textContent = '';
 }
@@ -857,7 +867,7 @@ function showModalConfigStep(shipType) {
       <div class="option-name">${opt.name}</div>
       <div class="option-desc">${opt.description}</div>
       <div class="option-stats">
-        <span class="stat">${(opt.costPercent * 100).toFixed(0)}% premium</span>
+        <span class="stat">${(opt.weeklyPremiumPercent * 100).toFixed(1)}%/week</span>
         <span class="stat ${opt.coveragePercent >= 0.8 ? 'stat-good' : opt.coveragePercent > 0 ? 'stat-warn' : 'stat-bad'}">
           ${Math.round(opt.coveragePercent * 100)}% coverage
         </span>
@@ -1425,6 +1435,29 @@ function transitLoop(timestamp) {
       if (state.totalDamage >= 0.9 && !state.destroyed) {
         state.destroyed = true;
         addTransitEvent('VESSEL DESTROYED', `${ship.name} has been destroyed!`, 'danger');
+        // Report destruction to server for insurance payout and fleet removal
+        socket.emit('ship_destroyed', { shipId: ship.id }, (res) => {
+          if (res?.success) {
+            if (res.insurancePayout > 0) {
+              addTransitEvent('INSURANCE PAYOUT',
+                `Received ${formatMoney(res.insurancePayout)} insurance payout for ${ship.name}.`, 'success');
+            }
+            // Remove from local fleet
+            const me = gameState?.players.find(p => p.id === myId);
+            if (me) {
+              me.fleet = me.fleet.filter(s => s.id !== ship.id);
+            }
+            // Clean up local state
+            delete shipStates[ship.id];
+            delete shipWaypoints[ship.id];
+            delete shipTrails[ship.id];
+            delete shipCargo[ship.id];
+            if (selectedShipId === ship.id) {
+              selectedShipId = me?.fleet[0]?.id || null;
+            }
+            updateFleetPanel();
+          }
+        });
         updateFleetPanel();
       }
     }
@@ -1554,16 +1587,28 @@ function checkDangerZonesAllShips(elapsed) {
         if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
         // Spawn missile animation for missile events
         if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
-          const missileBases = MILITARY_BASES.filter(b => b.type === 'missile');
-          if (missileBases.length > 0) {
-            // Pick closest missile base
-            let closest = missileBases[0];
-            let minDist = Infinity;
-            for (const b of missileBases) {
-              const d = Math.hypot(b.lat - state.lat, b.lon - state.lon);
-              if (d < minDist) { minDist = d; closest = b; }
+          const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
+          const alliedBases = MILITARY_BASES.filter(b =>
+            ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
+          );
+          if (iranBases.length > 0) {
+            // Pick a random Iranian launch site
+            const launcher = iranBases[Math.floor(Math.random() * iranBases.length)];
+            const roll = Math.random();
+            if (roll < 0.25) {
+              // 25% chance: missile aimed directly at this ship
+              spawnMissile(launcher.lat, launcher.lon, state.lat, state.lon);
+            } else if (alliedBases.length > 0) {
+              // 75% chance: missile aimed at an allied base
+              const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
+              if (Math.random() < 0.05) {
+                // 5% of base-targeted missiles malfunction and hit the ship instead
+                spawnMissile(launcher.lat, launcher.lon, state.lat, state.lon);
+                addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
+              } else {
+                spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+              }
             }
-            spawnMissile(closest.lat, closest.lon, state.lat, state.lon);
           }
         }
         let extra = '';

@@ -354,27 +354,27 @@ export const AIS_OPTIONS = {
   }
 };
 
-// Insurance options
+// Insurance options (purchased on a weekly basis)
 export const INSURANCE_OPTIONS = {
   FULL_WAR_RISK: {
     id: 'full_war_risk',
     name: 'Full War Risk Insurance',
-    description: 'Covers everything including military action. Very expensive.',
-    costPercent: 0.08,
+    description: 'Covers everything including military action. Billed weekly.',
+    weeklyPremiumPercent: 0.02,
     coveragePercent: 1.0
   },
   STANDARD_MARINE: {
     id: 'standard_marine',
     name: 'Standard Marine Insurance',
-    description: 'Covers accidents and piracy. Does NOT cover war acts.',
-    costPercent: 0.02,
+    description: 'Covers accidents and piracy. Does NOT cover war acts. Billed weekly.',
+    weeklyPremiumPercent: 0.005,
     coveragePercent: 0.3
   },
   NONE: {
     id: 'none',
     name: 'No Insurance (Self-Insured)',
     description: 'Keep all profits. Lose everything if something goes wrong.',
-    costPercent: 0,
+    weeklyPremiumPercent: 0,
     coveragePercent: 0
   }
 };

@@ -66,6 +66,33 @@ class GameState {
     const risk = RISK_LEVELS[this.riskLevel];
     const volatility = 0.9 + Math.random() * 0.2;
     this.oilPrice = Math.round(BASE_OIL_PRICE * risk.oilPriceMultiplier * volatility * 100) / 100;
+
+    // Weekly insurance billing
+    for (const player of Object.values(this.players)) {
+      for (const ship of player.fleet) {
+        if (ship.insuranceWeeksRemaining !== undefined) {
+          ship.insuranceWeeksRemaining--;
+        }
+        if (ship.insuranceWeeksRemaining <= 0 && ship.autoRenewInsurance) {
+          const ins = INSURANCE_OPTIONS[ship.insuranceId];
+          if (ins && ins.weeklyPremiumPercent > 0) {
+            const premium = Math.round(ship.cost * ins.weeklyPremiumPercent);
+            if (player.cash >= premium) {
+              player.cash -= premium;
+              ship.insuranceWeeksRemaining = 1;
+              ship.insurancePremium = premium;
+            } else {
+              // Can't afford — insurance lapses
+              ship.insuranceId = 'NONE';
+              ship.insuranceName = 'No Insurance (Self-Insured)';
+              ship.autoRenewInsurance = false;
+              ship.insuranceWeeksRemaining = 0;
+              ship.insurancePremium = 0;
+            }
+          }
+        }
+      }
+    }
   }
 
   submitPlan(playerId, plan) {
@@ -121,7 +148,16 @@ class GameState {
       }
     } else {
       player.failedTransits++;
-      // Remove destroyed/seized ship
+      // Insurance payout on ship destruction
+      if (ship) {
+        const ins = INSURANCE_OPTIONS[ship.insuranceId];
+        if (ins && ins.coveragePercent > 0 && ship.insuranceWeeksRemaining > 0) {
+          const payout = Math.round(ship.cost * ins.coveragePercent);
+          player.cash += payout;
+          clientResult.insurancePayout = payout;
+        }
+      }
+      // Remove destroyed/seized ship from fleet
       player.fleet = player.fleet.filter(s => s.id !== player.currentPlan.shipId);
     }
 
@@ -139,6 +175,11 @@ class GameState {
     if (!player || !shipType || !ais || !insurance) return null;
     if (player.cash < shipType.cost) return null;
 
+    // Charge first week's premium upfront
+    const weeklyPremium = Math.round(shipType.cost * (insurance.weeklyPremiumPercent || 0));
+    const totalCost = shipType.cost + weeklyPremium;
+    if (player.cash < totalCost) return null;
+
     const newShip = {
       ...shipType,
       health: 1.0,
@@ -146,9 +187,12 @@ class GameState {
       aisId: aisId,
       aisName: ais.name,
       insuranceId: insuranceId,
-      insuranceName: insurance.name
+      insuranceName: insurance.name,
+      autoRenewInsurance: true,
+      insuranceWeeksRemaining: 1,
+      insurancePremium: weeklyPremium
     };
-    player.cash -= shipType.cost;
+    player.cash -= totalCost;
     player.fleet.push(newShip);
     return newShip;
   }

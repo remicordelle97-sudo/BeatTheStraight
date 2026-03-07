@@ -210,18 +210,6 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
     const isLng = terminal.cargoType === 'lng';
     const baseColor = isLng ? '#4090e0' : '#40c070';
 
-    // Loading radius circle
-    const radiusPx = (terminal.loadRadius / (viewport.east - viewport.west)) * drawW;
-    ctx.beginPath();
-    ctx.arc(x, y, radiusPx, 0, Math.PI * 2);
-    ctx.fillStyle = isSelected ? 'rgba(240, 160, 48, 0.15)' : isLng ? 'rgba(64, 144, 224, 0.08)' : 'rgba(64, 192, 112, 0.08)';
-    ctx.fill();
-    ctx.strokeStyle = isSelected ? 'rgba(240, 160, 48, 0.5)' : isLng ? 'rgba(64, 144, 224, 0.3)' : 'rgba(64, 192, 112, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
     // Terminal icon (diamond)
     const sz = isSelected ? 8 : 6;
     ctx.beginPath();
@@ -412,15 +400,6 @@ function drawMilitaryBases(ctx, drawW, drawH) {
     if (x < -30 || x > drawW + 30 || y < -30 || y > drawH + 30) continue;
 
     const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 800 + base.lat * 10);
-
-    // Range ring
-    ctx.beginPath();
-    ctx.arc(x, y, 18, 0, Math.PI * 2);
-    ctx.strokeStyle = base.color.replace(')', `, ${0.15 * pulse})`).replace('rgb', 'rgba');
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
 
     // Base icon
     ctx.save();

@@ -951,6 +951,17 @@ h1 {
   background: rgba(240, 160, 48, 0.1);
 }
 
+.scp-autorenew {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  cursor: pointer;
+}
+.scp-autorenew input { cursor: pointer; }
+
 .scp-divider {
   border-top: 1px solid var(--border);
   margin: 6px 0;

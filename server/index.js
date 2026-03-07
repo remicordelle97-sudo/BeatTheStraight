@@ -161,6 +161,28 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
+  socket.on('ship_destroyed', ({ shipId }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+    const player = game.players[socket.id];
+    if (!player) { callback?.({ success: false }); return; }
+    const ship = player.fleet.find(s => s.id === shipId);
+    let insurancePayout = 0;
+    if (ship) {
+      const ins = INSURANCE_OPTIONS[ship.insuranceId];
+      if (ins && ins.coveragePercent > 0 && ship.insuranceWeeksRemaining > 0) {
+        insurancePayout = Math.round(ship.cost * ins.coveragePercent);
+        player.cash += insurancePayout;
+      }
+      player.fleet = player.fleet.filter(s => s.id !== shipId);
+    }
+    player.failedTransits = (player.failedTransits || 0) + 1;
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true, insurancePayout });
+  });
+
   socket.on('upgrade_ship', ({ shipId, type }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false }); return; }
