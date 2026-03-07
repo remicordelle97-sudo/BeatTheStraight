@@ -233,7 +233,6 @@ const labelToggleMap = {
   'toggle-base-names': 'baseNames',
   'toggle-terminal-names': 'terminalNames',
   'toggle-water-labels': 'waterLabels',
-  'toggle-zone-labels': 'zoneLabels',
 };
 for (const [elId, key] of Object.entries(labelToggleMap)) {
   document.getElementById(elId).addEventListener('change', (e) => {
