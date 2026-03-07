@@ -1627,6 +1627,28 @@ function updateAmbientWar(elapsed) {
     const target = pickMissileTarget(iranMissileBases, iranCities);
     if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
   }
+
+  // --- Missiles targeting NPC ships (small chance) ---
+  if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
+    // Pick a moving NPC (not loading/unloading)
+    const movingNpcs = npcShips.filter(n => n.speed > 0);
+    if (movingNpcs.length > 0) {
+      const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
+      const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
+      const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
+      spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon);
+      // Mark NPC for destruction after missile flight time
+      const dist = Math.hypot(targetNpc.lat - launcher.lat, targetNpc.lon - launcher.lon);
+      const missileFlightMs = 5000; // matches missile duration
+      setTimeout(() => {
+        const idx = npcShips.indexOf(targetNpc);
+        if (idx !== -1) {
+          addTransitEvent('NPC SHIP HIT', `${targetNpc.name} struck by missile!`, 'danger');
+          npcShips[idx] = createNPCTanker(false);
+        }
+      }, missileFlightMs);
+    }
+  }
 }
 
 // ============================================
