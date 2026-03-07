@@ -345,19 +345,88 @@ export const ARABIA = [
   [30.0, 45.0], [30.0, 40.0], [30.5, 35.5], [30.0, 35.0]
 ];
 
-// Iran
-export const IRAN = [
-  [25.5, 57.5], [25.7, 58.0], [25.5, 60.0], [26.0, 61.5],
-  [27.0, 62.0], [28.5, 61.0], [29.5, 60.5], [31.0, 61.5],
-  [33.0, 60.0], [34.5, 61.0], [36.0, 61.0], [37.5, 60.0],
-  [37.5, 57.5], [38.0, 56.0], [37.5, 54.5], [37.5, 53.5],
-  [37.0, 51.0], [38.5, 49.0], [39.0, 48.0], [38.5, 46.0],
-  [37.5, 45.0], [36.5, 45.0], [35.5, 46.0], [35.0, 46.0],
-  [34.0, 46.0], [33.0, 47.0], [31.5, 47.5], [30.5, 47.5],
-  [30.5, 48.0], [30.0, 48.5], [29.0, 49.5], [28.5, 50.5],
-  [27.8, 51.5], [27.4, 53.0], [27.0, 55.0], [26.9, 55.8],
-  [27.1, 56.5], [27.4, 57.3], [27.1, 58.5], [26.9, 60.0],
-  [26.0, 61.5], [25.5, 57.5]
+// ============================================
+// ASIA MAINLAND — one continent-level polygon
+// Traces coastline from Iran → India → SE Asia → China → Korea,
+// closes inland with generous overlap into Russia territory
+// ============================================
+export const ASIA_MAINLAND = [
+  // === COASTLINE (clockwise from Iran/Iraq border) ===
+  // Iran Persian Gulf coast
+  [30.5, 48.0],   // Shatt al-Arab
+  [30.0, 48.5],   [29.0, 49.5],   [28.5, 50.5],
+  [27.8, 51.5],   [27.4, 53.0],   [27.0, 55.0],   [26.9, 55.8],
+  [27.1, 56.5],   [27.4, 57.3],   // Hormuz N
+  // Iran south coast / Gulf of Oman
+  [26.5, 57.0],   [26.0, 57.5],   [25.3, 58.8],
+  [25.2, 60.0],   [25.3, 61.5],
+  // Pakistan Makran coast → Indus delta
+  [25.0, 62.0],   [24.8, 63.5],   [24.5, 65.0],
+  [24.0, 67.0],   [24.5, 68.5],
+  // India west coast
+  [23.5, 68.0],   [22.5, 69.5],   [21.5, 72.0],
+  [20.5, 72.5],   [19.0, 73.0],   [17.0, 73.0],
+  [15.0, 74.0],   [12.0, 75.0],   [10.0, 76.0],
+  [8.5, 76.5],    [8.0, 77.0],    // Cape Comorin
+  // India east coast
+  [8.5, 78.0],    [10.5, 80.0],   [13.0, 80.5],
+  [16.0, 81.0],   [18.0, 84.0],   [20.0, 86.5],
+  [21.0, 87.5],   [22.0, 90.0],   // Bangladesh
+  // Myanmar coast
+  [21.0, 92.0],   [20.0, 93.0],   [18.0, 94.5],
+  [16.0, 95.5],   [15.0, 97.5],   [14.0, 98.0],
+  [12.0, 99.5],   [10.5, 99.0],   [8.0, 98.5],
+  [7.0, 100.5],   [5.0, 100.5],   [3.0, 101.0],
+  [1.5, 103.5],   [1.3, 103.5],   // Singapore
+  // Malay Peninsula east coast
+  [2.0, 104.0],   [5.0, 103.0],   [7.0, 101.5],
+  [9.5, 100.0],   [10.5, 99.5],
+  // Thailand Gulf → Cambodia → Vietnam
+  [13.0, 100.5],  [12.5, 101.5],  [11.5, 103.0],
+  [10.5, 104.0],  [8.5, 106.5],   [10.5, 107.0],
+  [11.5, 109.0],  [14.0, 109.0],  [16.5, 108.0],
+  [18.5, 106.0],  [20.5, 107.0],  [21.5, 107.5],
+  // China coast
+  [21.5, 108.0],  [21.5, 110.0],  [22.5, 113.5],
+  [23.5, 117.0],  [24.5, 118.5],  [26.0, 119.5],
+  [27.0, 121.0],  [29.0, 122.0],  [30.5, 122.0],
+  [32.0, 122.0],  [33.5, 120.5],  [35.0, 119.5],
+  [36.0, 120.5],
+  // Shandong Peninsula
+  [37.0, 122.5],  [37.5, 122.0],  [38.0, 121.0],
+  // Bohai Sea → Dandong
+  [39.0, 122.0],  [39.5, 121.5],  [40.5, 122.5],
+  [41.0, 123.0],
+  // Korea west coast (south)
+  [39.5, 124.5],  [37.5, 126.0],  [36.5, 126.0],
+  [35.0, 126.0],  [34.5, 126.5],
+  // Korea south & east coast (north)
+  [35.0, 129.0],  [36.0, 129.5],  [37.5, 129.5],
+  [38.5, 128.5],  [39.5, 128.0],  [41.0, 128.5],
+  [42.5, 130.5],  // China/Russia/Korea triple border
+  // === INLAND CLOSURE (far north, overlapping Russia) ===
+  [45.0, 133.0],  // Amur
+  [48.0, 135.0],  // NE Manchuria
+  [50.0, 128.0],  // Amur bend
+  [50.0, 117.0],  // E Mongolia
+  [50.0, 108.0],  // Baikal
+  [52.0, 100.0],  // Irkutsk
+  [50.5, 87.0],   // Altai
+  [51.0, 80.0],   // Kazakhstan NE
+  [54.0, 70.0],   // W Siberia
+  [52.0, 60.0],   // Urals S
+  [50.0, 55.0],   // S Urals
+  [47.0, 52.0],   // Kazakhstan NW
+  [45.0, 50.0],   // Caspian N
+  [42.0, 52.0],   // Caspian
+  [39.0, 53.0],   // Caspian E
+  // Iran/Caucasus western border back to start
+  [39.0, 48.0],   // Azerbaijan
+  [38.5, 46.0],   // NW Iran
+  [37.5, 45.0],   // Iran/Turkey border
+  [36.5, 45.0],   [35.5, 46.0],   [34.0, 46.0],
+  [33.0, 47.0],   [31.5, 47.5],   [30.5, 47.5],
+  [30.5, 48.0],   // back to start
 ];
 
 // ============================================
@@ -444,234 +513,35 @@ export const RUSSIA = [
   [69.0, 33.0]    // back
 ];
 
-// Central Asia fill (Kazakhstan, Turkmenistan, etc.)
-export const CENTRAL_ASIA = [
-  [47.0, 52.0],   // Kazakhstan NW
-  [50.0, 55.0],   // Kazakhstan N
-  [52.0, 60.0],
-  [54.0, 70.0],
-  [51.0, 80.0],   // NE Kazakhstan
-  [50.5, 87.0],   // Altai
-  [48.0, 90.0],   // W Mongolia
-  [46.0, 95.0],   // NW China overlap
-  [44.0, 98.0],   // Gansu overlap
-  [42.0, 96.0],   // Xinjiang E
-  [42.0, 90.0],   // Tarim Basin N
-  [40.0, 80.0],   // Tarim Basin W
-  [38.0, 75.0],   // Karakorum
-  [39.0, 68.0],   // Tajikistan
-  [37.5, 62.0],   // Turkmenistan E
-  [37.5, 54.5],   // Turkmenistan W / Iran border
-  [39.0, 53.0],   // Caspian E
-  [42.0, 52.0],   // Caspian N
-  [45.0, 50.0],   // Volga delta
-  [47.0, 52.0]
-];
-
-// Mongolia (fills gap between Russia and China)
-export const MONGOLIA = [
-  [50.0, 87.5],   // Altai NW
-  [50.5, 92.0],   // NW Mongolia
-  [52.0, 100.0],  // N Mongolia (Russia overlap)
-  [50.0, 108.0],  // NE Mongolia
-  [50.0, 117.0],  // Far NE (Russia overlap)
-  [48.0, 115.0],  // E Mongolia
-  [46.0, 115.0],  // SE Mongolia
-  [43.0, 112.0],  // Gobi
-  [42.0, 105.0],  // S Mongolia / China overlap
-  [42.5, 97.0],   // SW Mongolia
-  [44.0, 90.0],   // Altai S
-  [46.0, 88.0],   // Altai
-  [50.0, 87.5]    // back
-];
+// (Central Asia and Mongolia merged into ASIA_MAINLAND)
 
 // ============================================
 // SOUTH ASIA
 // ============================================
 
-// India (more detailed coast)
-export const INDIA = [
-  // Southern tip going clockwise
-  [8.0, 77.0],    // Cape Comorin
-  // East coast
-  [8.5, 78.0],    // Tamil Nadu SE
-  [10.5, 80.0],   // Palk Strait
-  [13.0, 80.5],   // Chennai
-  [16.0, 81.0],   // Vizag
-  [18.0, 84.0],   // Andhra
-  [20.0, 86.5],   // Odisha
-  [21.0, 87.5],   // Kolkata
-  [22.0, 90.0],   // Bangladesh
-  // Northern border (west)
-  [26.0, 89.5],   // Bhutan
-  [27.0, 88.5],   // Sikkim
-  [28.5, 84.0],   // Nepal
-  [30.0, 81.0],   // Uttarakhand
-  [33.0, 76.0],   // Kashmir
-  [35.5, 77.0],   // Ladakh
-  [33.0, 75.0],   // Jammu
-  [30.0, 73.0],   // Punjab
-  [27.0, 70.0],   // Rajasthan
-  [24.5, 68.5],   // Indus delta
-  // West coast
-  [23.5, 68.0],   // Kutch
-  [22.5, 69.5],   // Kathiawar
-  [21.5, 72.0],   // Gulf of Khambhat
-  [20.5, 72.5],   // Gujarat
-  [19.0, 73.0],   // Mumbai
-  [17.0, 73.0],   // Maharashtra
-  [15.0, 74.0],   // Goa
-  [12.0, 75.0],   // Mangalore
-  [10.0, 76.0],   // Cochin
-  [8.5, 76.5],    // Kerala
-  [8.0, 77.0]     // Cape Comorin
-];
+// (India merged into ASIA_MAINLAND)
 
 export const SRI_LANKA = [
   [9.8, 80.0], [8.5, 81.5], [6.5, 81.0], [6.0, 80.5],
   [6.5, 80.0], [7.5, 79.8], [9.8, 80.0]
 ];
 
-// Pakistan / Afghanistan fill (between India, Iran, Central Asia)
-export const PAKISTAN = [
-  [24.5, 68.5],   // Indus delta
-  [24.0, 67.0],   // Makran W
-  [25.0, 62.0],   // Pakistan/Iran coast
-  [25.5, 58.0],   // Iran border coast
-  // Inland
-  [27.0, 62.0],   // Balochistan
-  [30.0, 64.0],   // Afghanistan
-  [33.0, 67.0],
-  [35.0, 69.0],   // Khyber
-  [37.0, 68.0],   // Tajik border
-  [37.5, 75.0],   // Karakorum
-  [35.5, 77.0],   // Ladakh
-  [33.0, 75.0],   // Kashmir
-  [30.0, 73.0],   // Punjab
-  [27.0, 70.0],   // Rajasthan
-  [24.5, 68.5]
-];
+// (Pakistan merged into ASIA_MAINLAND)
 
 // ============================================
 // EAST ASIA
 // ============================================
 
-// Myanmar / Thailand / Malay Peninsula (west of SE Asian islands)
-export const INDOCHINA = [
-  // Myanmar coast
-  [21.0, 92.0],   // Bangladesh border
-  [20.0, 93.0],   // Arakan
-  [18.0, 94.5],   // Irrawaddy
-  [16.0, 95.5],   // Rangoon
-  [15.0, 97.5],   // Moulmein
-  [14.0, 98.0],   // Tanintharyi
-  [12.0, 99.5],   // Thailand W
-  [10.5, 99.0],   // Prachuap
-  [8.0, 98.5],    // Phuket
-  [7.0, 100.5],   // Thai/Malaysia border
-  [5.0, 100.5],   // Penang
-  [3.0, 101.0],   // Malacca
-  [1.5, 103.5],   // Singapore
-  [1.3, 103.5],   // Singapore S
-  // Up eastern coast of peninsula
-  [2.0, 104.0],   // Johor
-  [5.0, 103.0],   // E Malaysia
-  [7.0, 101.5],   // Kota Bharu
-  [9.5, 100.0],   // S Thailand E
-  [10.5, 99.5],   // Surat Thani
-  // Thailand Gulf coast
-  [13.0, 100.5],  // Bangkok
-  [12.5, 101.5],  // E Thailand
-  [11.5, 103.0],  // Cambodia coast
-  [10.5, 104.0],  // Mekong delta approach
-  // Vietnam coast
-  [8.5, 106.5],   // Mekong delta
-  [10.5, 107.0],  // Ho Chi Minh
-  [11.5, 109.0],  // Nha Trang
-  [14.0, 109.0],  // Da Nang
-  [16.5, 108.0],  // Hue
-  [18.5, 106.0],  // Vinh
-  [20.5, 107.0],  // Haiphong
-  [21.5, 107.5],  // China border
-  // Close inland
-  [23.0, 105.0],  // Yunnan
-  [22.0, 100.0],  // Golden Triangle
-  [20.0, 96.0],   // Myanmar inland
-  [21.0, 92.0]
-];
+// (Indochina merged into ASIA_MAINLAND)
 
-// China (better coastal detail)
-export const CHINA = [
-  // Coast south to north
-  [21.5, 108.0],  // Vietnam border
-  [21.5, 110.0],  // Hainan Strait
-  [22.5, 113.5],  // Pearl River delta / Hong Kong
-  [23.5, 117.0],  // Shantou
-  [24.5, 118.5],  // Xiamen
-  [26.0, 119.5],  // Fuzhou
-  [27.0, 121.0],  // Wenzhou
-  [29.0, 122.0],  // Ningbo
-  [30.5, 122.0],  // Shanghai
-  [32.0, 122.0],  // Jiangsu
-  [33.5, 120.5],  // Yancheng
-  [35.0, 119.5],  // Qingdao S
-  [36.0, 120.5],  // Qingdao
-  // Shandong Peninsula
-  [37.0, 122.5],  // Weihai
-  [37.5, 122.0],  // Yantai
-  [38.0, 121.0],  // Penglai
-  // Bohai Sea
-  [39.0, 122.0],  // Dalian
-  [39.5, 121.5],  // Liaodong S
-  [40.5, 122.5],  // Liaodong E
-  [41.0, 123.0],  // Dandong
-  // Inland closure (generous overlap into Russia/Mongolia/C.Asia)
-  [42.5, 130.5],  // China/Russia/Korea border
-  [45.0, 133.0],  // Ussuri River
-  [48.0, 135.0],  // Amur
-  [50.0, 120.0],  // Mongolia NE
-  [48.0, 115.0],  // Mongolia E
-  [47.0, 110.0],  // Mongolia central
-  [46.0, 105.0],  // Mongolia W
-  [45.0, 98.0],   // NW Mongolia
-  [44.0, 93.0],   // Xinjiang NE / Altai
-  [43.0, 88.0],   // Junggar Basin
-  [42.0, 82.0],   // Xinjiang W / Tien Shan
-  [40.0, 76.0],   // Kashgar
-  [37.0, 75.0],   // Karakorum / Pamir
-  [36.0, 80.0],   // W Tibet
-  [33.0, 80.0],   // Aksai Chin
-  [32.0, 85.0],   // Tibet
-  [28.5, 86.0],   // Nepal border
-  [27.0, 88.5],   // Sikkim
-  [26.0, 89.5],   // Bhutan
-  [22.0, 100.0],  // Yunnan
-  [22.5, 101.0],  // Laos border
-  [21.5, 108.0]   // back
-];
+// (China merged into ASIA_MAINLAND)
 
 export const HAINAN = [
   [20.0, 110.0], [19.0, 110.5], [18.2, 109.5],
   [18.5, 108.5], [19.5, 109.0], [20.0, 110.0]
 ];
 
-// Korean Peninsula
-export const KOREA = [
-  [34.5, 126.5],  // Mokpo
-  [35.0, 129.0],  // Busan
-  [36.0, 129.5],  // Ulsan
-  [37.5, 129.5],  // E coast
-  [38.5, 128.5],  // DMZ E
-  [39.5, 128.0],  // N Korea E
-  [41.0, 128.5],  // NE
-  [42.5, 130.5],  // China/Russia border
-  [41.0, 127.0],  // Yalu River
-  [39.5, 124.5],  // Pyongyang
-  [37.5, 126.0],  // Seoul
-  [36.5, 126.0],  // W coast
-  [35.0, 126.0],  // Gwangju
-  [34.5, 126.5]
-];
+// (Korea merged into ASIA_MAINLAND)
 
 // Japan
 export const JAPAN_HONSHU = [
@@ -915,9 +785,7 @@ export const ICELAND = [
 export const WORLD_POLYGONS = [
   // Large landmasses first (background)
   { poly: RUSSIA, color: '#5a6050' },
-  { poly: CENTRAL_ASIA, color: '#7a7050' },
-  { poly: MONGOLIA, color: '#8a7a50' },
-  { poly: CHINA, color: '#6a7050' },
+  { poly: ASIA_MAINLAND, color: '#6a7050' },
   { poly: AFRICA, color: '#8a7a50' },
   { poly: NORTH_AMERICA, color: '#5a6a3a' },
   { poly: SOUTH_AMERICA, color: '#5a7a30' },
@@ -936,14 +804,9 @@ export const WORLD_POLYGONS = [
   { poly: TURKEY, color: '#7a6a4a' },
   { poly: LEVANT, color: '#8a7a50' },
   { poly: ARABIA, color: '#c4a86a' },
-  { poly: IRAN, color: '#3a2e1e' },
-  { poly: PAKISTAN, color: '#7a6a40' },
-  // Asia
-  { poly: INDIA, color: '#8a7a50' },
+  // Asia (islands)
   { poly: SRI_LANKA, color: '#7a8a5a' },
-  { poly: INDOCHINA, color: '#5a7a40' },
   { poly: HAINAN, color: '#5a7a40' },
-  { poly: KOREA, color: '#6a7a5a' },
   // Japan
   { poly: JAPAN_HONSHU, color: '#6a7a5a' },
   { poly: JAPAN_HOKKAIDO, color: '#5a6a4a' },
