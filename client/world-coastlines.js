@@ -452,9 +452,13 @@ export const CENTRAL_ASIA = [
   [54.0, 70.0],
   [51.0, 80.0],   // NE Kazakhstan
   [50.5, 87.0],   // Altai
-  // South border (real-ish)
-  [44.0, 80.0],   // Tien Shan
-  [42.0, 75.0],   // Kyrgyzstan
+  [48.0, 90.0],   // W Mongolia
+  [46.0, 95.0],   // NW China overlap
+  [44.0, 98.0],   // Gansu overlap
+  [42.0, 96.0],   // Xinjiang E
+  [42.0, 90.0],   // Tarim Basin N
+  [40.0, 80.0],   // Tarim Basin W
+  [38.0, 75.0],   // Karakorum
   [39.0, 68.0],   // Tajikistan
   [37.5, 62.0],   // Turkmenistan E
   [37.5, 54.5],   // Turkmenistan W / Iran border
@@ -462,6 +466,23 @@ export const CENTRAL_ASIA = [
   [42.0, 52.0],   // Caspian N
   [45.0, 50.0],   // Volga delta
   [47.0, 52.0]
+];
+
+// Mongolia (fills gap between Russia and China)
+export const MONGOLIA = [
+  [50.0, 87.5],   // Altai NW
+  [50.5, 92.0],   // NW Mongolia
+  [52.0, 100.0],  // N Mongolia (Russia overlap)
+  [50.0, 108.0],  // NE Mongolia
+  [50.0, 117.0],  // Far NE (Russia overlap)
+  [48.0, 115.0],  // E Mongolia
+  [46.0, 115.0],  // SE Mongolia
+  [43.0, 112.0],  // Gobi
+  [42.0, 105.0],  // S Mongolia / China overlap
+  [42.5, 97.0],   // SW Mongolia
+  [44.0, 90.0],   // Altai S
+  [46.0, 88.0],   // Altai
+  [50.0, 87.5]    // back
 ];
 
 // ============================================
@@ -608,13 +629,20 @@ export const CHINA = [
   [42.5, 130.5],  // China/Russia/Korea border
   [45.0, 133.0],  // Ussuri River
   [48.0, 135.0],  // Amur
-  [50.0, 117.0],  // Mongolia E
-  [48.0, 110.0],  // Mongolia S
-  [42.5, 105.0],  // Gobi
-  [40.0, 97.0],   // Gansu corridor
-  [36.0, 96.0],   // Qinghai
-  [32.0, 92.0],   // Tibet
-  [28.0, 87.0],   // Nepal border
+  [50.0, 120.0],  // Mongolia NE
+  [48.0, 115.0],  // Mongolia E
+  [47.0, 110.0],  // Mongolia central
+  [46.0, 105.0],  // Mongolia W
+  [45.0, 98.0],   // NW Mongolia
+  [44.0, 93.0],   // Xinjiang NE / Altai
+  [43.0, 88.0],   // Junggar Basin
+  [42.0, 82.0],   // Xinjiang W / Tien Shan
+  [40.0, 76.0],   // Kashgar
+  [37.0, 75.0],   // Karakorum / Pamir
+  [36.0, 80.0],   // W Tibet
+  [33.0, 80.0],   // Aksai Chin
+  [32.0, 85.0],   // Tibet
+  [28.5, 86.0],   // Nepal border
   [27.0, 88.5],   // Sikkim
   [26.0, 89.5],   // Bhutan
   [22.0, 100.0],  // Yunnan
@@ -888,6 +916,7 @@ export const WORLD_POLYGONS = [
   // Large landmasses first (background)
   { poly: RUSSIA, color: '#5a6050' },
   { poly: CENTRAL_ASIA, color: '#7a7050' },
+  { poly: MONGOLIA, color: '#8a7a50' },
   { poly: CHINA, color: '#6a7050' },
   { poly: AFRICA, color: '#8a7a50' },
   { poly: NORTH_AMERICA, color: '#5a6a3a' },
