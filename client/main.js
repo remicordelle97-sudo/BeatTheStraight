@@ -39,6 +39,7 @@ let shipStates = {};
 let shipWaypoints = {};
 let shipTrails = {};
 let shipCargo = {};
+let shipAutopilot = {}; // { [shipId]: { active: bool, terminal: obj } }
 let selectedShipId = null;
 
 let npcShips = [];
@@ -396,7 +397,8 @@ function populateApTerminalSelect(ship) {
     sel.appendChild(opt);
   });
   // Pre-select current terminal if set
-  if (ship.autopilotTerminal) sel.value = ship.autopilotTerminal.id;
+  const ap = shipAutopilot[ship.id];
+  if (ap && ap.terminal) sel.value = ap.terminal.id;
 }
 
 function getTerminalById(id) {
@@ -407,8 +409,7 @@ function engageAutopilot(ship) {
   const sel = document.getElementById('scp-ap-terminal');
   const terminal = getTerminalById(sel.value);
   if (!terminal) return;
-  ship.autopilot = true;
-  ship.autopilotTerminal = terminal;
+  shipAutopilot[ship.id] = { active: true, terminal };
   // Reset escape state and clear old waypoints so it re-routes
   const state = shipStates[ship.id];
   if (state) { state.apEscapeTimer = 0; state.apEscapeHeading = 0; }
@@ -423,9 +424,10 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   const state = shipStates[selectedShipId];
   if (!ship || !state) return;
 
-  if (ship.autopilot) {
+  const ap = shipAutopilot[ship.id];
+  if (ap && ap.active) {
     // Toggle off
-    ship.autopilot = false;
+    ap.active = false;
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
     refreshUpgradeButtons();
     return;
@@ -454,10 +456,11 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
 document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
-  if (!ship || !ship.autopilot) return;
+  const ap = shipAutopilot[ship.id];
+  if (!ship || !ap || !ap.active) return;
   const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
   if (!terminal) return;
-  ship.autopilotTerminal = terminal;
+  ap.terminal = terminal;
   shipWaypoints[ship.id] = [];
   const state = shipStates[ship.id];
   if (state) { state.apEscapeTimer = 0; }
@@ -510,7 +513,8 @@ function refreshUpgradeButtons() {
   // Autopilot
   const apBtn = document.getElementById('scp-autopilot');
   const apDest = document.getElementById('scp-ap-dest');
-  if (ship.autopilot) {
+  const apState = shipAutopilot[ship.id];
+  if (apState && apState.active) {
     apBtn.textContent = 'AUTOPILOT ON';
     apBtn.classList.add('owned');
     populateApTerminalSelect(ship);
@@ -712,7 +716,7 @@ function updateFleetPanel() {
           <span class="stat">${(s.capacity / 1000).toFixed(0)}K</span>
           <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
           <span class="stat ${cargoClass}">${cargoText}</span>
-          ${s.autopilot ? '<span class="stat stat-good">AP</span>' : ''}
+          ${shipAutopilot[s.id]?.active ? '<span class="stat stat-good">AP</span>' : ''}
           ${s.defenseUpgrade ? '<span class="stat">DEF</span>' : ''}
         </div>
         ${isSelected && !destroyed ? '<button class="btn btn-small btn-manage" data-manage-id="' + s.id + '">MANAGE</button>' : ''}
@@ -763,7 +767,7 @@ function addWaypointForSelectedShip(target) {
   shipWaypoints[selectedShipId] = wps;
   updateClearWpButton();
   const state = shipStates[selectedShipId];
-  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = ship?.speed || 14; }
+  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); }
   if (wps.length === 1) {
     state.targetHeading = normalizeAngle(Math.atan2(target.lon - state.lon, target.lat - state.lat) * 180 / Math.PI);
   }
@@ -1305,7 +1309,8 @@ function transitLoop(timestamp) {
       const wps = shipWaypoints[ship.id] || [];
 
       // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
-      if (ship.autopilot && ship.autopilotTerminal) {
+      const ap = shipAutopilot[ship.id];
+      if (ap && ap.active && ap.terminal) {
         const cargo = shipCargo[ship.id];
         if (wps.length === 0 && state.speed === 0) {
           // Need new destination — compute routed waypoints
@@ -1313,18 +1318,18 @@ function transitLoop(timestamp) {
           if (cargo && cargo.loaded) {
             dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
           } else {
-            const t = ship.autopilotTerminal;
-            dest = { lat: t.lat, lon: t.lon };
+            dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
           }
           const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
           shipWaypoints[ship.id] = route;
-          state.speed = ship.speed || 14;
+          state.speed = Math.round(ship.speed || 14);
           state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
         }
       }
 
       // Waypoint navigation (skip if autopilot is in escape mode)
-      const apEscaping = ship.autopilot && state.apEscapeTimer > 0;
+      const apActive = ap && ap.active;
+      const apEscaping = apActive && state.apEscapeTimer > 0;
       if (wps.length > 0 && !apEscaping) {
         const wp = wps[0];
         const dLon = wp.lon - state.lon;
@@ -1343,7 +1348,7 @@ function transitLoop(timestamp) {
       }
 
       // Autopilot avoidance: land look-ahead and ship separation
-      if (ship.autopilot && state.speed > 0) {
+      if (apActive && state.speed > 0) {
         // Coast escape mode for autopilot
         if (state.apEscapeTimer > 0) {
           state.apEscapeTimer -= dt;
@@ -1398,7 +1403,7 @@ function transitLoop(timestamp) {
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
       if (!isOnLand(newLat, newLon)) { state.lon = newLon; state.lat = newLat; }
-      else if (ship.autopilot) {
+      else if (apActive) {
         // Autopilot: don't stop, find escape direction
         const probeDist = 0.08;
         for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
@@ -1414,7 +1419,7 @@ function transitLoop(timestamp) {
           }
         }
       }
-      else { state.speed = Math.max(0, state.speed * 0.5); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
+      else { state.speed = Math.max(0, Math.round(state.speed * 0.5)); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
       state.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, state.lat));
       state.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, state.lon));
@@ -1435,7 +1440,7 @@ function transitLoop(timestamp) {
             // Mechanical damage
             const dmg = 0.03 + overRatio * 0.07;
             state.totalDamage = Math.min(0.89, state.totalDamage + dmg);
-            state.speed = Math.min(state.speed, ratedSpeed);
+            state.speed = Math.round(Math.min(state.speed, ratedSpeed));
             addTransitEvent('MECHANICAL FAILURE', `${ship.name}: Hull stress damage (${Math.round(dmg * 100)}%) from overspeed!`, 'danger');
           } else {
             // Fuel system failure — dead stop
@@ -1622,7 +1627,7 @@ function checkDangerZonesAllShips(elapsed) {
         state.totalDelay += Math.max(0, outcome.delayHours);
         state.totalMoneyLoss += outcome.moneyLoss;
         if (outcome.delayHours >= 720) state.seized = true;
-        if (outcome.damagePercent > 0.1) state.speed = Math.max(5, ship.speed * (1 - state.totalDamage * 0.5));
+        if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
         let extra = '';
         if (outcome.damagePercent > 0) extra += ` [Dmg: ${Math.round(outcome.damagePercent * 100)}%]`;
         if (outcome.moneyLoss > 0) extra += ` [Loss: ${Math.round(outcome.moneyLoss * 100)}%]`;
