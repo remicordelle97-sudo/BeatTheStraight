@@ -197,11 +197,11 @@ export const WAYPOINTS = {
 
 // NPC ship configurations for traffic in the strait
 export const NPC_SHIP_TYPES = [
-  { name: 'Cargo Vessel', speed: 12, size: 8, color: '#6080a0' },
-  { name: 'Container Ship', speed: 14, size: 10, color: '#5070b0' },
-  { name: 'Tanker', speed: 13, size: 9, color: '#708090' },
-  { name: 'Bulk Carrier', speed: 11, size: 10, color: '#607080' },
-  { name: 'LNG Carrier', speed: 15, size: 9, color: '#5090a0' },
+  { name: 'Handysize Tanker', speed: 12, size: 7, color: '#6080a0', cargoType: 'oil' },
+  { name: 'Aframax Tanker', speed: 13, size: 9, color: '#708090', cargoType: 'oil' },
+  { name: 'Suezmax Tanker', speed: 14, size: 10, color: '#5070b0', cargoType: 'oil' },
+  { name: 'VLCC', speed: 13, size: 12, color: '#607080', cargoType: 'oil' },
+  { name: 'LNG Carrier', speed: 16, size: 9, color: '#5090a0', cargoType: 'lng' },
 ];
 
 // Military ship types

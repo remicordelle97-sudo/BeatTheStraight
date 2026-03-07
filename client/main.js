@@ -158,6 +158,28 @@ document.getElementById('fleet-toggle').addEventListener('click', () => {
   icon.textContent = hidden ? '▾' : '▸';
 });
 
+// NPC hover detection
+mapCanvas.addEventListener('mousemove', (e) => {
+  const rect = mapCanvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const hoverPanel = document.getElementById('npc-hover-info');
+  let found = false;
+  for (const npc of npcShips) {
+    const pos = latLonToCanvas(npc.lat, npc.lon, rect.width, rect.height);
+    if (Math.sqrt(Math.pow(cx - pos.x, 2) + Math.pow(cy - pos.y, 2)) < 15) {
+      hoverPanel.innerHTML = `
+        <div class="npc-name">${npc.shipName}</div>
+        <div class="npc-detail">Type: ${npc.typeName} (${(npc.cargoType || 'oil').toUpperCase()})</div>
+        <div class="npc-detail">Speed: ${Math.round(npc.speed)} kts</div>
+        <div class="npc-detail">Dest: ${getNPCDestination(npc)}</div>`;
+      hoverPanel.classList.remove('hidden');
+      found = true; break;
+    }
+  }
+  if (!found) hoverPanel.classList.add('hidden');
+});
+
 function clampViewport(vp) {
   const lonRange = vp.east - vp.west;
   const latRange = vp.north - vp.south;
@@ -605,11 +627,21 @@ document.getElementById('btn-buy-ship').onclick = () => openShipPurchaseModal();
 // NPC & MILITARY SHIPS
 // ============================================
 const NPC_STATE = {
-  ENTERING: 'entering',
   HEADING_TO_TERMINAL: 'heading_to_terminal',
   LOADING: 'loading',
-  DEPARTING: 'departing',
+  HEADING_TO_DROPOFF: 'heading_to_dropoff',
+  UNLOADING: 'unloading',
 };
+
+const NPC_SHIP_NAMES = [
+  'Pacific Voyager', 'Gulf Pioneer', 'Sea Fortune', 'Ocean Grace',
+  'Star Horizon', 'Desert Wind', 'Al Jazeera', 'Eastern Promise',
+  'Coral Spirit', 'Golden Eagle', 'Silver Dawn', 'Arctic Breeze',
+  'Pearl Venture', 'Crimson Tide', 'Blue Marlin', 'Iron Duke',
+  'Swift Arrow', 'Amber Sun', 'Jade Empress', 'Ruby Crown',
+  'Sapphire Wave', 'Diamond Crest', 'Emerald Bay', 'Crystal Sea',
+];
+let npcNameIndex = 0;
 
 function randomWaterPos(latMin, latMax, lonMin, lonMax, maxTries) {
   for (let i = 0; i < (maxTries || 30); i++) {
@@ -623,38 +655,48 @@ function randomWaterPos(latMin, latMax, lonMin, lonMax, maxTries) {
 
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
-  const terminals = Object.values(OIL_TERMINALS);
-  const terminal = terminals[Math.floor(Math.random() * terminals.length)];
-  const spawn = randomWaterPos(24.5, 26.5, 59.5, 60.5);
-  const heading = 250 + Math.random() * 30;
+  // Pick a terminal matching the ship's cargo type
+  const allTerminals = Object.values(OIL_TERMINALS);
+  const matchingTerminals = allTerminals.filter(t => (t.cargoType || 'oil') === type.cargoType);
+  const terminal = matchingTerminals[Math.floor(Math.random() * matchingTerminals.length)];
   const speed = type.speed + (Math.random() - 0.5) * 2;
+  const shipName = NPC_SHIP_NAMES[npcNameIndex % NPC_SHIP_NAMES.length];
+  npcNameIndex++;
+
+  const states = [NPC_STATE.HEADING_TO_TERMINAL, NPC_STATE.LOADING, NPC_STATE.HEADING_TO_DROPOFF, NPC_STATE.UNLOADING];
+  const state = staggered ? states[Math.floor(Math.random() * states.length)] : NPC_STATE.HEADING_TO_DROPOFF;
 
   const npc = {
-    lat: spawn.lat, lon: spawn.lon, heading, targetHeading: heading, speed, baseSpeed: speed,
-    size: type.size, color: type.color, name: type.name,
+    lat: 0, lon: 0, heading: 0, targetHeading: 0, speed, baseSpeed: speed,
+    size: type.size, color: type.color, typeName: type.name, shipName,
+    name: `${shipName} (${type.name})`,
+    cargoType: type.cargoType,
     targetTerminal: terminal,
-    state: staggered ? (['entering','heading_to_terminal','loading','departing'])[Math.floor(Math.random()*4)] : NPC_STATE.ENTERING,
+    state,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
     trail: [],
   };
 
-  if (staggered && npc.state === NPC_STATE.LOADING) {
-    const lp = randomWaterPos(terminal.lat - 0.05, terminal.lat + 0.05, terminal.lon - 0.05, terminal.lon + 0.05);
-    npc.lat = lp.lat; npc.lon = lp.lon;
-    npc.speed = 0;
+  // Place based on state
+  if (npc.state === NPC_STATE.LOADING) {
+    const lp = randomWaterPos(terminal.lat - 0.1, terminal.lat + 0.1, terminal.lon - 0.1, terminal.lon + 0.1);
+    npc.lat = lp.lat; npc.lon = lp.lon; npc.speed = 0;
     npc.loadTimer = 10 + Math.random() * 20;
-  } else if (staggered && npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-    // Place between spawn area and terminal, in water
-    const midLat = (spawn.lat + terminal.lat) / 2;
-    const midLon = (spawn.lon + terminal.lon) / 2;
-    const hp = randomWaterPos(midLat - 1, midLat + 1, midLon - 1, midLon + 1);
-    npc.lat = hp.lat; npc.lon = hp.lon;
+  } else if (npc.state === NPC_STATE.UNLOADING) {
+    const dp = randomWaterPos(DROPOFF_POINT.lat - 0.2, DROPOFF_POINT.lat + 0.2, DROPOFF_POINT.lon - 0.2, DROPOFF_POINT.lon + 0.2);
+    npc.lat = dp.lat; npc.lon = dp.lon; npc.speed = 0;
+    npc.loadTimer = 8 + Math.random() * 12;
+  } else if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+    // Place somewhere in the gulf heading toward terminal
+    const mp = randomWaterPos(25.0, 27.0, 53.0, 58.0);
+    npc.lat = mp.lat; npc.lon = mp.lon;
     npc.heading = headingToTarget(npc.lat, npc.lon, terminal.lat, terminal.lon);
     npc.targetHeading = npc.heading;
-  } else if (staggered && npc.state === NPC_STATE.DEPARTING) {
-    const dp = randomWaterPos(25.0, 27.0, terminal.lon, 58.5);
-    npc.lat = dp.lat; npc.lon = dp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, 25.3, 59.5);
+  } else {
+    // HEADING_TO_DROPOFF — place somewhere between terminal and dropoff
+    const mp = randomWaterPos(25.0, 27.0, 53.0, 58.0);
+    npc.lat = mp.lat; npc.lon = mp.lon;
+    npc.heading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
     npc.targetHeading = npc.heading;
   }
   return npc;
@@ -691,87 +733,97 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
 function updateNPCShips(dt, elapsed) {
   for (let i = 0; i < npcShips.length; i++) {
     const npc = npcShips[i];
-    if (npc.state === NPC_STATE.LOADING) {
+
+    // Stationary states
+    if (npc.state === NPC_STATE.LOADING || npc.state === NPC_STATE.UNLOADING) {
       npc.loadTimer -= dt; npc.speed = 0;
       if (npc.loadTimer <= 0) {
-        npc.state = NPC_STATE.DEPARTING; npc.speed = npc.baseSpeed || 13;
-        npc.targetHeading = headingToTarget(npc.lat, npc.lon, 25.5, 58.5);
+        npc.speed = npc.baseSpeed || 13;
+        if (npc.state === NPC_STATE.LOADING) {
+          npc.state = NPC_STATE.HEADING_TO_DROPOFF;
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+        } else {
+          // Pick new terminal matching cargo type
+          const allT = Object.values(OIL_TERMINALS);
+          const matching = allT.filter(t => (t.cargoType || 'oil') === npc.cargoType);
+          npc.targetTerminal = matching[Math.floor(Math.random() * matching.length)];
+          npc.state = NPC_STATE.HEADING_TO_TERMINAL;
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+        }
+        npc.wanderOffset = 0;
       }
       continue;
     }
-    if (npc.state === NPC_STATE.ENTERING || npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+
+    // Moving states — check arrival
+    if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
       const t = npc.targetTerminal;
       if (distanceDeg(npc.lat, npc.lon, t.lat, t.lon) < (t.loadRadius || 0.15)) {
-        npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 20; npc.speed = 0; continue;
+        npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 25; npc.speed = 0; continue;
       }
       npc.targetHeading = headingToTarget(npc.lat, npc.lon, t.lat, t.lon);
-      if (npc.state === NPC_STATE.ENTERING && npc.lon < 57.0) npc.state = NPC_STATE.HEADING_TO_TERMINAL;
-    } else if (npc.state === NPC_STATE.DEPARTING) {
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, 25.3, 59.5);
+    } else if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
+      if (distanceDeg(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon) < DROPOFF_POINT.radius) {
+        npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12; npc.speed = 0; continue;
+      }
+      npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
     }
 
+    // Steering
     npc.wanderTimer -= dt;
-    if (npc.wanderTimer <= 0) { npc.wanderOffset = (Math.random() - 0.5) * 8; npc.wanderTimer = 5 + Math.random() * 10; }
+    if (npc.wanderTimer <= 0) { npc.wanderOffset = (Math.random() - 0.5) * 5; npc.wanderTimer = 8 + Math.random() * 12; }
     const adjustedTarget = normalizeAngle(npc.targetHeading + (npc.wanderOffset || 0));
     const diff = angleDiff(npc.heading, adjustedTarget);
     if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
 
-    // NPC-NPC separation: steer away from nearby ships
-    const separationDist = 0.15; // degrees (~15km)
+    // NPC-NPC separation: push positions apart (no steering = no orbits)
     for (let j = 0; j < npcShips.length; j++) {
       if (j === i) continue;
       const other = npcShips[j];
-      if (other.state === NPC_STATE.LOADING) continue;
+      if (other.speed === 0) continue;
       const d = distanceDeg(npc.lat, npc.lon, other.lat, other.lon);
-      if (d < separationDist && d > 0.001) {
-        // Steer away from the other ship
-        const awayHeading = headingToTarget(other.lat, other.lon, npc.lat, npc.lon);
-        const steerDiff = angleDiff(npc.heading, awayHeading);
-        const strength = (1 - d / separationDist) * 3.0;
-        npc.heading = normalizeAngle(npc.heading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), strength * dt * 60));
-        npc.wanderOffset = 0;
+      if (d < 0.1 && d > 0.001) {
+        const pushStr = (0.1 - d) * 0.02;
+        const dlat = (npc.lat - other.lat) / d;
+        const dlon = (npc.lon - other.lon) / d;
+        npc.lat += dlat * pushStr;
+        npc.lon += dlon * pushStr;
       }
     }
 
+    // Movement
     const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
 
-    const lookAhead = speedDeg * 3;
-    const aheadLon = npc.lon + Math.sin(rad) * lookAhead;
-    const aheadLat = npc.lat + Math.cos(rad) * lookAhead;
-
+    // Land avoidance
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
-      if (isOnLand(aheadLat, aheadLon)) {
-        for (const angle of [45, -45, 90, -90]) {
+      const lookAhead = 0.08;
+      if (isOnLand(npc.lat + Math.cos(rad) * lookAhead, npc.lon + Math.sin(rad) * lookAhead)) {
+        for (const angle of [30, -30, 60, -60, 90, -90]) {
           const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
           if (!isOnLand(npc.lat + Math.cos(tryRad) * lookAhead, npc.lon + Math.sin(tryRad) * lookAhead)) {
-            npc.targetHeading = normalizeAngle(npc.heading + angle); npc.wanderOffset = 0; break;
+            npc.heading = normalizeAngle(npc.heading + angle); npc.wanderOffset = 0; break;
           }
         }
       }
     } else {
       npc.stuckCount = (npc.stuckCount || 0) + 1;
-      // Use a fixed probe distance so escape works regardless of speed/dt
-      const probeDist = 0.05;
+      const probeDist = 0.06;
       let escaped = false;
       for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
         const th = normalizeAngle(npc.heading + angle);
         const tr = th * Math.PI / 180;
-        const tLon = npc.lon + Math.sin(tr) * probeDist;
-        const tLat = npc.lat + Math.cos(tr) * probeDist;
-        if (!isOnLand(tLat, tLon)) {
+        if (!isOnLand(npc.lat + Math.cos(tr) * probeDist, npc.lon + Math.sin(tr) * probeDist)) {
           npc.heading = th; npc.targetHeading = th; npc.wanderOffset = 0;
-          // Push out of land with a meaningful step
           npc.lon += Math.sin(tr) * probeDist * 0.5;
           npc.lat += Math.cos(tr) * probeDist * 0.5;
           escaped = true; break;
         }
       }
       if (!escaped) {
-        // Reverse and push back
         npc.heading = normalizeAngle(npc.heading + 180);
         npc.targetHeading = npc.heading;
         const rr = npc.heading * Math.PI / 180;
@@ -780,7 +832,12 @@ function updateNPCShips(dt, elapsed) {
       }
       if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
-    // NPC trail
+
+    // Clamp to map
+    npc.lat = Math.max(MAP_BOUNDS.south + 0.1, Math.min(MAP_BOUNDS.north - 0.1, npc.lat));
+    npc.lon = Math.max(MAP_BOUNDS.west + 0.1, Math.min(MAP_BOUNDS.east - 0.1, npc.lon));
+
+    // Trail
     if (npc.speed > 0) {
       const t = npc.trail;
       if (t.length === 0 || elapsed - t[t.length - 1].t > 0.5) {
@@ -788,9 +845,15 @@ function updateNPCShips(dt, elapsed) {
       }
       while (t.length > 0 && elapsed - t[0].t > 4) t.shift();
     }
-
-    if (npc.lon > 60.5 || npc.lon < 46.5 || npc.lat > 31.0 || npc.lat < 23.0) npcShips[i] = createNPCTanker(false);
   }
+}
+
+function getNPCDestination(npc) {
+  if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) return npc.targetTerminal?.name || 'Terminal';
+  if (npc.state === NPC_STATE.LOADING) return `Loading at ${npc.targetTerminal?.name || 'Terminal'}`;
+  if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) return DROPOFF_POINT.name;
+  if (npc.state === NPC_STATE.UNLOADING) return `Unloading at ${DROPOFF_POINT.name}`;
+  return 'Unknown';
 }
 
 function updateMilitaryShips(dt) {

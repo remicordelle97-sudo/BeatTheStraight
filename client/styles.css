@@ -269,6 +269,32 @@ h1 {
 }
 
 /* Fleet Dashboard (top-left during transit) */
+.npc-hover-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(10, 14, 26, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--text);
+  z-index: 50;
+  min-width: 200px;
+}
+
+.npc-hover-panel .npc-name {
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.npc-hover-panel .npc-detail {
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
 .planning-dashboard {
   position: absolute;
   top: 12px;
