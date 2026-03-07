@@ -9,7 +9,7 @@
 // AFRICA
 // ============================================
 export const AFRICA = [
-  [35.8, -5.6], [37.0, -1.0], [37.5, 1.0], [37.1, 5.0], [37.3, 8.5],
+  [35.7, -5.5], [37.0, -1.0], [37.5, 1.0], [37.1, 5.0], [37.3, 8.5],
   [36.8, 11.0], [33.0, 11.5], [32.0, 12.0], [31.5, 15.0], [31.0, 17.0],
   [31.5, 25.0], [31.2, 27.0], [31.3, 30.0], [31.5, 32.0],
   // Suez → Red Sea
@@ -46,7 +46,7 @@ export const AFRICA = [
   [16.0, -16.5], [18.0, -16.0], [21.0, -17.0],
   [24.0, -16.0], [26.0, -14.5], [28.0, -13.0],
   [30.0, -10.0], [32.0, -8.0], [33.5, -7.5],
-  [34.5, -6.0], [35.8, -5.6]
+  [34.5, -6.0], [35.7, -5.5]
 ];
 
 // ============================================
@@ -57,7 +57,7 @@ export const AFRICA = [
 // One big polygon tracing the outer Atlantic/Med coast, closing via eastern inland border
 export const EUROPE_MAIN = [
   // Start at Gibraltar, go north along Atlantic
-  [36.0, -5.5],   // Gibraltar
+  [36.2, -5.3],   // Gibraltar (N side of strait)
   [37.0, -7.5],   // S Portugal
   [38.0, -9.0],   // SW Portugal
   [39.5, -9.5],   // Lisbon
@@ -145,11 +145,27 @@ export const EUROPE_MAIN = [
   [43.5, 16.0],   // Split
   [44.5, 14.5],   // Croatia
   [45.5, 14.0],   // Slovenia / Trieste
-  [46.5, 14.0],   // Austria
-  [46.5, 11.0],   // Brenner
+  [45.5, 13.5],   // Trieste
+  // Italy — Adriatic coast (south)
+  [44.5, 12.5],   // Rimini
+  [43.5, 13.5],   // Ancona
+  [42.5, 14.5],   // Pescara
+  [41.5, 16.5],   // Gargano
+  [41.0, 17.0],   // Bari
+  [40.0, 18.5],   // Puglia (heel)
+  [38.5, 16.5],   // S Calabria
+  [38.0, 16.0],   // Toe
+  [39.0, 16.5],   // Calabria W
+  [40.0, 15.5],   // Salerno
+  [40.5, 14.5],   // Naples
+  [41.0, 13.5],   // Gaeta
+  [41.5, 12.5],   // Rome
+  [42.0, 11.5],   // Lazio
+  [43.0, 11.5],   // Siena
+  [44.0, 10.5],   // Tuscany
+  [44.5, 9.5],    // La Spezia
+  [44.0, 8.0],    // Genoa
   // Alps → Riviera
-  [46.0, 9.0],    // Como
-  [46.0, 7.0],    // Geneva
   [43.7, 7.3],    // Nice
   [43.5, 6.5],    // Cannes
   [43.2, 5.0],    // Marseille
@@ -161,7 +177,7 @@ export const EUROPE_MAIN = [
   [38.5, -0.2],   // Valencia
   [37.5, -1.0],   // Cartagena
   [36.5, -2.0],   // Almeria
-  [36.0, -5.5]    // Gibraltar
+  [36.2, -5.3]    // Gibraltar (N side of strait)
 ];
 
 // Scandinavia (Norway + Sweden + Finland peninsula)
@@ -197,34 +213,7 @@ export const SCANDINAVIA = [
   [58.0, 8.0]     // Kristiansand
 ];
 
-// Italy (boot shape)
-export const ITALY = [
-  [44.0, 8.0],    // Genoa
-  [44.5, 9.5],    // La Spezia
-  [44.0, 10.5],   // Tuscany
-  [43.0, 11.5],   // Siena
-  [42.0, 11.5],   // Lazio
-  [41.5, 12.5],   // Rome
-  [41.0, 13.5],   // Gaeta
-  [40.5, 14.5],   // Naples
-  [40.0, 15.5],   // Salerno
-  [39.0, 16.5],   // Calabria W
-  [38.0, 16.0],   // Toe
-  [38.5, 16.5],   // S Calabria
-  [40.0, 18.5],   // Puglia (heel)
-  [41.0, 17.0],   // Bari
-  [41.5, 16.5],   // Gargano
-  [42.5, 14.5],   // Pescara
-  [43.5, 13.5],   // Ancona
-  [44.5, 12.5],   // Rimini
-  [45.0, 12.5],   // Venice
-  [45.5, 13.5],   // Trieste
-  [46.0, 13.0],   // Udine
-  [46.5, 11.0],   // Brenner
-  [46.0, 9.0],    // Como
-  [45.5, 7.5],    // Turin
-  [44.0, 8.0]     // Genoa
-];
+// (Italy merged into EUROPE_MAIN)
 
 export const SARDINIA = [
   [41.2, 9.5], [40.5, 9.8], [39.5, 9.5], [39.0, 8.5],
@@ -543,41 +532,99 @@ export const HAINAN = [
 
 // (Korea merged into ASIA_MAINLAND)
 
-// Japan
+// Japan — improved shapes with more coastal detail
 export const JAPAN_HONSHU = [
-  [33.5, 131.5],  // Shimonoseki
-  [34.0, 133.0],  // Shikoku strait
-  [34.5, 135.0],  // Osaka
-  [35.0, 137.0],  // Nagoya
-  [35.5, 139.5],  // Tokyo
+  // South coast (Pacific side) — west to east
+  [33.9, 131.0],  // Shimonoseki
+  [33.5, 132.0],  // Tokuyama
+  [34.0, 132.5],  // Hiroshima bay
+  [34.2, 133.5],  // Inland Sea
+  [34.5, 135.0],  // Osaka/Kobe
+  [34.0, 135.5],  // Kii Peninsula W
+  [33.5, 136.0],  // Kii Peninsula S tip
+  [34.0, 137.0],  // Nagoya bay W
+  [34.8, 137.5],  // Nagoya
+  [35.0, 138.5],  // Suruga Bay
+  [35.3, 139.5],  // Tokyo Bay W
+  [35.6, 140.0],  // Tokyo Bay E / Chiba
+  [36.0, 140.5],  // Kashima
   [36.5, 141.0],  // Ibaraki
-  [38.0, 141.0],  // Sendai
-  [39.5, 140.0],  // Akita approach
-  [41.0, 141.0],  // Aomori
-  [41.5, 140.5],  // N tip
-  [40.0, 139.5],  // Akita
-  [39.0, 138.5],  // Niigata
-  [37.0, 137.0],  // Noto
+  [37.5, 141.0],  // Fukushima
+  [38.3, 141.5],  // Sendai
+  [39.5, 142.0],  // Miyako
+  [40.5, 141.5],  // Hachinohe
+  [41.0, 141.0],  // Shimokita Peninsula
+  [41.5, 141.0],  // Oma (N tip)
+  // Sea of Japan side — north to south
+  [41.0, 140.0],  // Aomori
+  [40.5, 139.8],  // Noshiro
+  [39.8, 140.0],  // Akita
+  [39.0, 139.8],  // Sakata
+  [38.0, 139.0],  // Niigata
+  [37.5, 138.5],  // Sado strait
+  [37.0, 137.0],  // Noto Peninsula
+  [36.5, 136.5],  // Noto base
   [36.0, 136.0],  // Kanazawa
-  [35.5, 135.5],  // Kyoto
+  [35.5, 135.5],  // Kyoto/Maizuru
+  [35.5, 134.0],  // Tottori
+  [35.0, 133.0],  // Matsue
+  [34.5, 132.0],  // Hamada
   [34.5, 131.5],  // Yamaguchi
-  [33.5, 131.5]
+  [33.9, 131.0],  // back to Shimonoseki
 ];
 
 export const JAPAN_HOKKAIDO = [
-  [42.0, 140.5], [42.5, 145.0], [44.0, 145.5],
-  [45.5, 142.0], [43.5, 140.5], [42.0, 140.5]
+  // Pacific side (south to east to north)
+  [41.8, 140.5],  // Hakodate
+  [42.0, 141.5],  // Tomakomai
+  [42.3, 143.0],  // Tokachi
+  [43.0, 144.5],  // Kushiro
+  [43.3, 145.5],  // Nemuro
+  [44.0, 145.0],  // Shiretoko base
+  [44.4, 145.5],  // Shiretoko Peninsula
+  // Sea of Okhotsk side
+  [44.8, 143.5],  // Abashiri
+  [45.3, 142.0],  // Wakkanai approach
+  [45.5, 141.5],  // Cape Soya (N tip)
+  // Sea of Japan side (south)
+  [43.5, 141.0],  // Rumoi
+  [43.0, 140.5],  // Otaru
+  [42.5, 140.0],  // Shakotan
+  [42.0, 140.0],  // Oshima
+  [41.8, 140.5],  // back to Hakodate
 ];
 
 export const JAPAN_KYUSHU = [
-  [33.5, 131.5], [33.0, 132.0], [32.0, 131.5],
-  [31.0, 131.0], [31.5, 130.5], [32.5, 130.0],
-  [33.5, 130.5], [33.5, 131.5]
+  // East coast going clockwise
+  [33.9, 131.0],  // Kitakyushu
+  [33.5, 131.5],  // Oita
+  [33.0, 132.0],  // Saeki
+  [32.5, 132.0],  // Nobeoka
+  [32.0, 131.5],  // Miyazaki
+  [31.2, 131.0],  // Shibushi
+  [30.7, 131.0],  // Osumi Peninsula
+  [31.0, 130.5],  // Kagoshima Bay E
+  [31.5, 130.5],  // Kagoshima
+  [32.0, 130.0],  // Amakusa
+  [32.8, 129.8],  // Nagasaki
+  [33.2, 129.5],  // Sasebo
+  [33.5, 130.0],  // Fukuoka W
+  [33.8, 130.5],  // Fukuoka
+  [33.9, 131.0],  // back to Kitakyushu
 ];
 
 export const JAPAN_SHIKOKU = [
-  [34.5, 134.5], [33.5, 134.0], [33.0, 133.0],
-  [33.5, 132.5], [34.0, 133.5], [34.5, 134.5]
+  // Clockwise from NE
+  [34.2, 134.5],  // NE Shikoku (Naruto)
+  [34.0, 134.8],  // Tokushima
+  [33.5, 134.0],  // Muroto
+  [33.0, 133.0],  // Ashizuri (SW cape)
+  [33.0, 132.5],  // Uwajima
+  [33.5, 132.0],  // Matsuyama S
+  [34.0, 132.5],  // Matsuyama
+  [34.3, 133.0],  // Imabari
+  [34.3, 133.5],  // Takamatsu
+  [34.2, 134.5],  // back
 ];
 
 export const TAIWAN = [
@@ -793,7 +840,6 @@ export const WORLD_POLYGONS = [
   // Europe
   { poly: EUROPE_MAIN, color: '#6a7a5a' },
   { poly: SCANDINAVIA, color: '#5a6a4a' },
-  { poly: ITALY, color: '#6a7a5a' },
   { poly: SARDINIA, color: '#6a7a5a' },
   { poly: CORSICA, color: '#6a7a5a' },
   { poly: SICILY, color: '#6a7a5a' },

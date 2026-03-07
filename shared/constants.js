@@ -31,7 +31,7 @@ export const SIM_CONFIG = {
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
-  NPC_COUNT: 8,              // number of NPC traffic ships
+  NPC_COUNT: 20,             // number of NPC traffic ships (global routes)
   MILITARY_COUNT: 4,         // number of military ships
   SPAWN_LAT: 25.3,          // Gulf of Oman spawn point (open water)
   SPAWN_LON: 58.8,
@@ -126,15 +126,75 @@ export const OIL_TERMINALS = {
   }
 };
 
-// Dropoff point - east side of map in Gulf of Oman
-export const DROPOFF_POINT = {
-  id: 'dropoff',
-  name: 'Gulf of Oman Anchorage',
-  lat: 25.3,
-  lon: 59.2,
-  radius: 0.3,
-  description: 'International shipping anchorage. Deliver cargo here to complete transit.'
+// Dropoff points — global delivery destinations
+export const DROPOFF_POINTS = {
+  GULF_OF_OMAN: {
+    id: 'gulf_oman',
+    name: 'Gulf of Oman Anchorage',
+    lat: 25.3,
+    lon: 59.2,
+    radius: 0.3,
+    region: 'gulf',
+    description: 'International shipping anchorage near Strait of Hormuz.'
+  },
+  SHANGHAI: {
+    id: 'shanghai',
+    name: 'Shanghai Terminal',
+    lat: 30.6,
+    lon: 122.3,
+    radius: 0.4,
+    region: 'china',
+    description: 'China\'s largest port. Major crude oil import hub.'
+  },
+  YOKOHAMA: {
+    id: 'yokohama',
+    name: 'Yokohama Terminal',
+    lat: 35.4,
+    lon: 139.7,
+    radius: 0.4,
+    region: 'japan',
+    description: 'Japan\'s main oil import terminal in Tokyo Bay.'
+  },
+  BUSAN: {
+    id: 'busan',
+    name: 'Busan Terminal',
+    lat: 35.1,
+    lon: 129.1,
+    radius: 0.4,
+    region: 'korea',
+    description: 'South Korea\'s largest port and oil import hub.'
+  },
+  MUMBAI: {
+    id: 'mumbai',
+    name: 'Mumbai Terminal',
+    lat: 18.9,
+    lon: 72.8,
+    radius: 0.4,
+    region: 'india',
+    description: 'India\'s busiest port for crude oil imports.'
+  },
+  ROTTERDAM: {
+    id: 'rotterdam',
+    name: 'Rotterdam Terminal',
+    lat: 51.9,
+    lon: 4.0,
+    radius: 0.4,
+    region: 'europe',
+    description: 'Europe\'s largest port. Key oil refining hub.'
+  },
+  SINGAPORE: {
+    id: 'singapore',
+    name: 'Singapore Terminal',
+    lat: 1.3,
+    lon: 103.8,
+    radius: 0.3,
+    region: 'singapore',
+    description: 'World\'s busiest transshipment port and oil trading hub.'
+  },
 };
+
+// Legacy single dropoff for backward compatibility
+export const DROPOFF_POINT = DROPOFF_POINTS.GULF_OF_OMAN;
 
 // Danger zones on the map
 export const DANGER_ZONES = [

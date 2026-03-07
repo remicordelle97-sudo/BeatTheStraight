@@ -4,7 +4,7 @@ import { CHOKEPOINTS } from './world-coastlines.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
-  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, MILITARY_BASES, CITIES
+  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES, CITIES
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -1071,6 +1071,23 @@ function randomWaterPos(latMin, latMax, lonMin, lonMax, maxTries) {
   return { lat: 25.3, lon: 59.0 };
 }
 
+// Pick a random global dropoff point
+function randomDropoff() {
+  const all = Object.values(DROPOFF_POINTS);
+  return all[Math.floor(Math.random() * all.length)];
+}
+
+// Global NPC spawn zones — spread NPCs across major shipping lanes
+const NPC_SPAWN_ZONES = [
+  { latMin: 24.0, latMax: 27.0, lonMin: 53.0, lonMax: 58.0 },   // Persian Gulf
+  { latMin: 0.0, latMax: 5.0, lonMin: 98.0, lonMax: 105.0 },     // Malacca Strait
+  { latMin: 8.0, latMax: 15.0, lonMin: 68.0, lonMax: 78.0 },     // Arabian Sea
+  { latMin: 28.0, latMax: 33.0, lonMin: 120.0, lonMax: 124.0 },   // East China Sea
+  { latMin: 12.0, latMax: 16.0, lonMin: 42.0, lonMax: 46.0 },     // Bab el-Mandeb
+  { latMin: 34.0, latMax: 38.0, lonMin: 10.0, lonMax: 20.0 },     // Mediterranean
+  { latMin: -2.0, latMax: 5.0, lonMin: 40.0, lonMax: 50.0 },      // East Africa
+];
+
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
   // Pick a terminal matching the ship's cargo type
@@ -1085,8 +1102,10 @@ function createNPCTanker(staggered) {
   const state = staggered ? states[Math.floor(Math.random() * states.length)] : NPC_STATE.HEADING_TO_DROPOFF;
 
   // Caution: 0 = daring (ignores risk), 1 = very cautious
-  // ~20% of NPCs are daring, rest are cautious to varying degrees
   const caution = Math.random() < 0.2 ? Math.random() * 0.2 : 0.4 + Math.random() * 0.6;
+
+  // Each NPC gets a random dropoff destination
+  const dropoff = randomDropoff();
 
   const npc = {
     lat: 0, lon: 0, heading: 0, targetHeading: 0, speed, baseSpeed: speed,
@@ -1094,6 +1113,7 @@ function createNPCTanker(staggered) {
     name: `${shipName} (${type.name})`,
     cargoType: type.cargoType,
     targetTerminal: terminal,
+    dropoff,
     state,
     caution,
     waitTimer: 0,
@@ -1109,20 +1129,22 @@ function createNPCTanker(staggered) {
     npc.lat = lp.lat; npc.lon = lp.lon; npc.speed = 0;
     npc.loadTimer = 10 + Math.random() * 20;
   } else if (npc.state === NPC_STATE.UNLOADING) {
-    const dp = randomWaterPos(DROPOFF_POINT.lat - 0.2, DROPOFF_POINT.lat + 0.2, DROPOFF_POINT.lon - 0.2, DROPOFF_POINT.lon + 0.2);
+    const dp = randomWaterPos(dropoff.lat - 0.2, dropoff.lat + 0.2, dropoff.lon - 0.2, dropoff.lon + 0.2);
     npc.lat = dp.lat; npc.lon = dp.lon; npc.speed = 0;
     npc.loadTimer = 8 + Math.random() * 12;
   } else if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-    // Place somewhere in the gulf heading toward terminal
-    const mp = randomWaterPos(25.0, 27.0, 53.0, 58.0);
+    // Place somewhere along a shipping lane
+    const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
+    const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
     npc.heading = headingToTarget(npc.lat, npc.lon, terminal.lat, terminal.lon);
     npc.targetHeading = npc.heading;
   } else {
-    // HEADING_TO_DROPOFF — place somewhere between terminal and dropoff
-    const mp = randomWaterPos(25.0, 27.0, 53.0, 58.0);
+    // HEADING_TO_DROPOFF — place somewhere along route to dropoff
+    const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
+    const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+    npc.heading = headingToTarget(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
     npc.targetHeading = npc.heading;
   }
   return npc;
@@ -1212,7 +1234,7 @@ function updateNPCShips(dt, elapsed) {
             if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
               npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
             } else {
-              npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
             }
           }
         }
@@ -1227,12 +1249,13 @@ function updateNPCShips(dt, elapsed) {
         npc.speed = npc.baseSpeed || 13;
         if (npc.state === NPC_STATE.LOADING) {
           npc.state = NPC_STATE.HEADING_TO_DROPOFF;
-          npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
         } else {
-          // Pick new terminal matching cargo type
+          // Pick new terminal and new dropoff for return trip
           const allT = Object.values(OIL_TERMINALS);
           const matching = allT.filter(t => (t.cargoType || 'oil') === npc.cargoType);
           npc.targetTerminal = matching[Math.floor(Math.random() * matching.length)];
+          npc.dropoff = randomDropoff();
           npc.state = NPC_STATE.HEADING_TO_TERMINAL;
           npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
         }
@@ -1276,10 +1299,11 @@ function updateNPCShips(dt, elapsed) {
       }
       npc.targetHeading = headingToTarget(npc.lat, npc.lon, t.lat, t.lon);
     } else if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
-      if (distanceDeg(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon) < DROPOFF_POINT.radius) {
+      const dp = npc.dropoff;
+      if (distanceDeg(npc.lat, npc.lon, dp.lat, dp.lon) < (dp.radius || 0.3)) {
         npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12; npc.speed = 0; continue;
       }
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+      npc.targetHeading = headingToTarget(npc.lat, npc.lon, dp.lat, dp.lon);
     }
 
     // Coast escape mode: after hitting land, commit to escape heading
@@ -1367,9 +1391,9 @@ function updateNPCShips(dt, elapsed) {
       if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
 
-    // Clamp to map
-    npc.lat = Math.max(GULF_BOUNDS.south + 0.1, Math.min(GULF_BOUNDS.north - 0.1, npc.lat));
-    npc.lon = Math.max(GULF_BOUNDS.west + 0.1, Math.min(GULF_BOUNDS.east - 0.1, npc.lon));
+    // Clamp to world map
+    npc.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, npc.lat));
+    npc.lon = Math.max(MAP_BOUNDS.west + 0.5, Math.min(MAP_BOUNDS.east - 0.5, npc.lon));
 
   }
 }
@@ -1377,8 +1401,8 @@ function updateNPCShips(dt, elapsed) {
 function getNPCDestination(npc) {
   if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) return npc.targetTerminal?.name || 'Terminal';
   if (npc.state === NPC_STATE.LOADING) return `Loading at ${npc.targetTerminal?.name || 'Terminal'}`;
-  if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) return DROPOFF_POINT.name;
-  if (npc.state === NPC_STATE.UNLOADING) return `Unloading at ${DROPOFF_POINT.name}`;
+  if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) return npc.dropoff?.name || 'Destination';
+  if (npc.state === NPC_STATE.UNLOADING) return `Unloading at ${npc.dropoff?.name || 'Destination'}`;
   if (npc.state === NPC_STATE.WAITING_SAFE) {
     if (npc.speed > 0) return `Diverting to ${npc.safeAnchorage?.name || 'safe zone'}`;
     return `Anchored at ${npc.safeAnchorage?.name || 'safe zone'}`;
@@ -1591,8 +1615,8 @@ function transitLoop(timestamp) {
       }
       else { state.speed = Math.max(0, Math.round(state.speed * 0.5)); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
-      state.lat = Math.max(GULF_BOUNDS.south + 0.05, Math.min(GULF_BOUNDS.north - 0.05, state.lat));
-      state.lon = Math.max(GULF_BOUNDS.west + 0.05, Math.min(GULF_BOUNDS.east - 0.05, state.lon));
+      state.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, state.lat));
+      state.lon = Math.max(MAP_BOUNDS.west + 0.5, Math.min(MAP_BOUNDS.east - 0.5, state.lon));
 
       // Overspeed reliability check — pushing beyond rated speed risks malfunction
       const ratedSpeed = ship.speed || 16;
@@ -1647,22 +1671,27 @@ function transitLoop(timestamp) {
         }
       }
 
-      // Dropoff delivery check
+      // Dropoff delivery check — any global dropoff point
       if (cargo && cargo.loaded && !cargo.delivered) {
-        const dropDist = distanceDeg(state.lat, state.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
-        if (dropDist < DROPOFF_POINT.radius) {
-          const oilPrice = gameState.oilPrice || 80;
-          const bonus = cargo.terminal?.loadingBonus || 1.0;
-          const revenue = Math.round(ship.capacity * oilPrice * bonus * (1 - state.totalDamage));
-          socket.emit('deliver_cargo', { shipId: ship.id, revenue }, (res) => {
-            if (res?.success) {
-              addTransitEvent('CARGO DELIVERED', `${ship.name}: Delivered for ${formatMoney(revenue)}!`, 'success');
-            }
-          });
-          // Reset cargo so ship can pick up another load
-          shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
-          addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${DROPOFF_POINT.name}. Revenue: ${formatMoney(revenue)}`, 'success');
-          updateFleetPanel();
+        for (const dp of Object.values(DROPOFF_POINTS)) {
+          const dropDist = distanceDeg(state.lat, state.lon, dp.lat, dp.lon);
+          if (dropDist < (dp.radius || 0.3)) {
+            // Longer routes pay more (distance bonus)
+            const routeDist = distanceDeg(cargo.terminal?.lat || 26.68, cargo.terminal?.lon || 50.16, dp.lat, dp.lon);
+            const distBonus = Math.max(1.0, routeDist / 10); // baseline is Gulf of Oman distance (~10°)
+            const oilPrice = gameState.oilPrice || 80;
+            const bonus = (cargo.terminal?.loadingBonus || 1.0) * distBonus;
+            const revenue = Math.round(ship.capacity * oilPrice * bonus * (1 - state.totalDamage));
+            socket.emit('deliver_cargo', { shipId: ship.id, revenue }, (res) => {
+              if (res?.success) {
+                addTransitEvent('CARGO DELIVERED', `${ship.name}: Delivered for ${formatMoney(revenue)}!`, 'success');
+              }
+            });
+            shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
+            addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Revenue: ${formatMoney(revenue)}`, 'success');
+            updateFleetPanel();
+            break;
+          }
         }
       }
 
