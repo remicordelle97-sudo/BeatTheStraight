@@ -634,11 +634,11 @@ function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
 
   const dist = Math.hypot(toLat - fromLat, toLon - fromLon);
   const flightMs = (dist / PLANE_SPEED_DEG_PER_SEC) * 1000 * 0.7; // faster approach
-  const loiterDuration = 4000 + Math.random() * 4000; // 4-8s circling near target
+  const loiterDuration = 2000 + Math.random() * 2000; // 2-4s circling near target
 
   // Random weave parameters (unique per sortie)
   const weaveFreq = 1.5 + Math.random() * 1.5; // oscillations during flight
-  const weaveAmp = 0.08 + Math.random() * 0.1;  // lateral deviation in degrees
+  const weaveAmp = 0.03 + Math.random() * 0.04; // lateral deviation in degrees
   const loiterRadius = 0.15 + Math.random() * 0.1; // circling radius near target
   const loiterDir = Math.random() < 0.5 ? 1 : -1; // CW or CCW
 
