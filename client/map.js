@@ -1,7 +1,8 @@
-// Persian Gulf fullscreen map renderer with pan/zoom
+// World map renderer with pan/zoom (detailed Persian Gulf region)
 import {
-  MAP_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT, MILITARY_BASES
+  MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT, MILITARY_BASES
 } from '../shared/constants.js';
+import { WORLD_POLYGONS, CHOKEPOINTS, SHIPPING_ROUTES } from './world-coastlines.js';
 
 // Active missile animations
 const activeMissiles = [];
@@ -166,6 +167,28 @@ function canvasToLatLon(cx, cy, drawW, drawH) {
 // ============================================
 // DRAWING HELPERS
 // ============================================
+
+// Check if a polygon's bounding box intersects the current viewport
+function polyVisible(points) {
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  for (const p of points) {
+    if (p[0] < minLat) minLat = p[0];
+    if (p[0] > maxLat) maxLat = p[0];
+    if (p[1] < minLon) minLon = p[1];
+    if (p[1] > maxLon) maxLon = p[1];
+  }
+  return !(maxLat < viewport.south || minLat > viewport.north ||
+           maxLon < viewport.west || minLon > viewport.east);
+}
+
+// Check if viewport is zoomed into the Persian Gulf detail region
+function isGulfZoom() {
+  const lonRange = viewport.east - viewport.west;
+  return lonRange < 20 &&
+    viewport.south < GULF_BOUNDS.north && viewport.north > GULF_BOUNDS.south &&
+    viewport.west < GULF_BOUNDS.east && viewport.east > GULF_BOUNDS.west;
+}
+
 function drawCoastline(ctx, points, fillColor, drawW, drawH) {
   ctx.beginPath();
   points.forEach((p, i) => {
@@ -179,6 +202,68 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH) {
   ctx.strokeStyle = '#2a3a2a';
   ctx.lineWidth = 1.5;
   ctx.stroke();
+}
+
+// Draw all world coastline polygons (skip off-screen ones)
+function drawWorldCoastlines(ctx, drawW, drawH) {
+  for (const { poly, color } of WORLD_POLYGONS) {
+    if (!polyVisible(poly)) continue;
+    drawCoastline(ctx, poly, color, drawW, drawH);
+  }
+}
+
+// Draw shipping route lines
+function drawShippingRoutes(ctx, drawW, drawH) {
+  for (const route of SHIPPING_ROUTES) {
+    if (!polyVisible(route.points)) continue;
+    ctx.beginPath();
+    ctx.setLineDash([6, 4]);
+    for (let i = 0; i < route.points.length; i++) {
+      const pos = latLonToCanvas(route.points[i][0], route.points[i][1], drawW, drawH);
+      if (i === 0) ctx.moveTo(pos.x, pos.y);
+      else ctx.lineTo(pos.x, pos.y);
+    }
+    ctx.strokeStyle = route.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// Draw chokepoint markers
+function drawChokepointMarkers(ctx, drawW, drawH) {
+  const lonRange = viewport.east - viewport.west;
+  for (const cp of CHOKEPOINTS) {
+    const pos = latLonToCanvas(cp.lat, cp.lon, drawW, drawH);
+    if (pos.x < -50 || pos.x > drawW + 50 || pos.y < -50 || pos.y > drawH + 50) continue;
+
+    // Pulsing ring
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 800 + cp.lat);
+    const ringR = lonRange > 30 ? 6 : 10;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, ringR + pulse * 3, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 140, 0, ${0.3 + pulse * 0.3})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0a030';
+    ctx.fill();
+
+    // Label (hide when very zoomed in to avoid overlap with detail)
+    if (lonRange > 5) {
+      ctx.fillStyle = '#d0a040';
+      ctx.font = lonRange > 60 ? '9px Courier New' : '11px Courier New';
+      ctx.fillText(cp.shortName, pos.x + ringR + 5, pos.y + 3);
+      if (lonRange < 60) {
+        ctx.fillStyle = '#8a7a50';
+        ctx.font = '8px Courier New';
+        ctx.fillText(cp.description, pos.x + ringR + 5, pos.y + 14);
+      }
+    }
+  }
 }
 
 function drawDangerZones(ctx, drawW, drawH, lbl = {}) {
@@ -993,7 +1078,8 @@ function drawMap(canvas, options = {}) {
   // Grid lines
   ctx.strokeStyle = '#101e2e';
   ctx.lineWidth = 0.5;
-  const gridStep = (viewport.east - viewport.west) > 6 ? 1.0 : 0.5;
+  const lonRange = viewport.east - viewport.west;
+  const gridStep = lonRange > 60 ? 10.0 : lonRange > 20 ? 5.0 : lonRange > 6 ? 1.0 : 0.5;
   for (let lat = Math.floor(viewport.south); lat <= Math.ceil(viewport.north); lat += gridStep) {
     const { y } = latLonToCanvas(lat, viewport.west, drawW, drawH);
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(drawW, y); ctx.stroke();
@@ -1006,28 +1092,45 @@ function drawMap(canvas, options = {}) {
   // Lat/lon labels
   ctx.fillStyle = '#1e3040';
   ctx.font = '10px Courier New';
-  for (let lat = Math.ceil(viewport.south); lat <= Math.floor(viewport.north); lat += gridStep) {
+  const decimals = gridStep < 1 ? 1 : 0;
+  for (let lat = Math.ceil(viewport.south / gridStep) * gridStep; lat <= viewport.north; lat += gridStep) {
     const { y } = latLonToCanvas(lat, viewport.west, drawW, drawH);
-    ctx.fillText(`${lat.toFixed(gridStep < 1 ? 1 : 0)}N`, 4, y - 3);
+    const hemi = lat >= 0 ? 'N' : 'S';
+    ctx.fillText(`${Math.abs(lat).toFixed(decimals)}${hemi}`, 4, y - 3);
   }
-  for (let lon = Math.ceil(viewport.west); lon <= Math.floor(viewport.east); lon += gridStep) {
-    const { x } = latLonToCanvas(viewport.south, lon, drawW, drawH);
-    ctx.fillText(`${lon.toFixed(gridStep < 1 ? 1 : 0)}E`, x + 2, drawH - 4);
+  for (let lon = Math.ceil(viewport.west / gridStep) * gridStep; lon <= viewport.east; lon += gridStep) {
+    const { x } = latLonToCanvas(viewport.north, lon, drawW, drawH);
+    const hemi = lon >= 0 ? 'E' : 'W';
+    ctx.fillText(`${Math.abs(lon).toFixed(decimals)}${hemi}`, x + 2, drawH - 4);
   }
 
-  // Coastlines
-  drawCoastline(ctx, IRAN_COAST, '#3a2e1e', drawW, drawH);    // mountainous brown
-  drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);   // sandy desert
-  drawCoastline(ctx, QESHM, '#8a7050', drawW, drawH);        // rocky island
-  drawCoastline(ctx, LARAK, '#8a7050', drawW, drawH);
-  drawCoastline(ctx, HORMUZ_ISLAND, '#8a7050', drawW, drawH);
-  drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
-  drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
+  // World coastlines
+  drawWorldCoastlines(ctx, drawW, drawH);
+
+  // Shipping routes (visible when zoomed out)
+  if (lonRange > 10) {
+    drawShippingRoutes(ctx, drawW, drawH);
+  }
+
+  // Chokepoint markers
+  drawChokepointMarkers(ctx, drawW, drawH);
+
+  // Persian Gulf detail coastlines (drawn on top when zoomed in)
+  const gulfVisible = isGulfZoom();
+  if (gulfVisible) {
+    drawCoastline(ctx, IRAN_COAST, '#3a2e1e', drawW, drawH);
+    drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);
+    drawCoastline(ctx, QESHM, '#8a7050', drawW, drawH);
+    drawCoastline(ctx, LARAK, '#8a7050', drawW, drawH);
+    drawCoastline(ctx, HORMUZ_ISLAND, '#8a7050', drawW, drawH);
+    drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
+    drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
+  }
 
   const lbl = options.labels || {};
 
-  // Major city labels
-  if (lbl.cityNames !== false) {
+  // Major city labels (Gulf detail)
+  if (gulfVisible && lbl.cityNames !== false) {
     ctx.fillStyle = '#5a4a30';
     ctx.font = '11px Courier New';
     const labels = [
@@ -1053,8 +1156,8 @@ function drawMap(canvas, options = {}) {
     }
   }
 
-  // Water body labels
-  if (lbl.waterLabels !== false) {
+  // Water body labels (Gulf detail)
+  if (gulfVisible && lbl.waterLabels !== false) {
     const omanGulfLabel = latLonToCanvas(25.5, 58.2, drawW, drawH);
     if (omanGulfLabel.x > 0 && omanGulfLabel.x < drawW && omanGulfLabel.y > 0 && omanGulfLabel.y < drawH) {
       ctx.fillStyle = '#1e3050';
@@ -1145,11 +1248,11 @@ function drawMap(canvas, options = {}) {
 }
 
 // ============================================
-// MINIMAP - shows full gulf overview
+// MINIMAP - shows world overview with viewport indicator
 // ============================================
 function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShips) {
-  const mmW = 180;
-  const mmH = 100;
+  const mmW = 240;
+  const mmH = 120;
   const mmX = drawW - mmW - 10;
   const mmY = drawH - mmH - 10;
 
@@ -1160,35 +1263,40 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
   ctx.lineWidth = 1;
   ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-  // Convert full map coords to minimap
+  // Convert world coords to minimap pixels
   function mmPos(lat, lon) {
     const x = mmX + ((lon - MAP_BOUNDS.west) / (MAP_BOUNDS.east - MAP_BOUNDS.west)) * mmW;
     const y = mmY + ((MAP_BOUNDS.north - lat) / (MAP_BOUNDS.north - MAP_BOUNDS.south)) * mmH;
     return { x, y };
   }
 
-  // Simplified coastline (just a few points)
-  ctx.fillStyle = '#141e14';
-  ctx.beginPath();
-  for (let i = 0; i < IRAN_COAST.length; i++) {
-    const p = mmPos(IRAN_COAST[i][0], IRAN_COAST[i][1]);
-    if (i === 0) ctx.moveTo(p.x, p.y);
-    else ctx.lineTo(p.x, p.y);
+  // Draw world coastlines on minimap
+  for (const { poly, color } of WORLD_POLYGONS) {
+    ctx.beginPath();
+    for (let i = 0; i < poly.length; i++) {
+      const p = mmPos(poly[i][0], poly[i][1]);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color.replace(/[0-9a-f]{2}$/i, '') + '40'; // dimmer version
+    ctx.fill();
   }
-  ctx.fill();
-  ctx.beginPath();
-  for (let i = 0; i < ARAB_COAST.length; i++) {
-    const p = mmPos(ARAB_COAST[i][0], ARAB_COAST[i][1]);
-    if (i === 0) ctx.moveTo(p.x, p.y);
-    else ctx.lineTo(p.x, p.y);
+
+  // Chokepoint dots on minimap
+  for (const cp of CHOKEPOINTS) {
+    const p = mmPos(cp.lat, cp.lon);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0a030';
+    ctx.fill();
   }
-  ctx.fill();
 
   // Viewport rectangle
   const vpTL = mmPos(viewport.north, viewport.west);
   const vpBR = mmPos(viewport.south, viewport.east);
-  ctx.strokeStyle = 'rgba(240, 160, 48, 0.5)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(240, 160, 48, 0.6)';
+  ctx.lineWidth = 1.5;
   ctx.strokeRect(vpTL.x, vpTL.y, vpBR.x - vpTL.x, vpBR.y - vpTL.y);
 
   // Player ship dots
@@ -1200,7 +1308,7 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
       ctx.fillStyle = ps.isSelected ? '#f0a030' : '#c08020';
       ctx.fill();
     }
-  } else {
+  } else if (ship) {
     const sp = mmPos(ship.lat, ship.lon);
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2);
@@ -1213,7 +1321,7 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
     for (const npc of npcShips) {
       const np = mmPos(npc.lat, npc.lon);
       ctx.beginPath();
-      ctx.arc(np.x, np.y, 1.5, 0, Math.PI * 2);
+      ctx.arc(np.x, np.y, 1, 0, Math.PI * 2);
       ctx.fillStyle = '#6080a0';
       ctx.fill();
     }
@@ -1224,7 +1332,7 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
     for (const mil of militaryShips) {
       const mp = mmPos(mil.lat, mil.lon);
       ctx.beginPath();
-      ctx.arc(mp.x, mp.y, 2, 0, Math.PI * 2);
+      ctx.arc(mp.x, mp.y, 1.5, 0, Math.PI * 2);
       ctx.fillStyle = mil.color;
       ctx.fill();
     }
@@ -1233,7 +1341,7 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
   // Label
   ctx.fillStyle = '#6b7394';
   ctx.font = '8px Courier New';
-  ctx.fillText('OVERVIEW', mmX + 4, mmY + 10);
+  ctx.fillText('WORLD MAP', mmX + 4, mmY + 10);
 }
 
 // ============================================
@@ -1286,7 +1394,10 @@ function drawCompass(canvas, heading) {
 // ============================================
 // COASTLINE COLLISION (point-in-polygon)
 // ============================================
-const LAND_POLYGONS = [IRAN_COAST, ARAB_COAST, QESHM, LARAK, HORMUZ_ISLAND, BAHRAIN, QATAR];
+// Gulf detail polygons for precise collision near Hormuz
+const GULF_LAND_POLYGONS = [IRAN_COAST, ARAB_COAST, QESHM, LARAK, HORMUZ_ISLAND, BAHRAIN, QATAR];
+// World polygons for collision elsewhere
+const WORLD_LAND_POLYGONS = WORLD_POLYGONS.map(w => w.poly);
 
 function pointInPolygon(lat, lon, polygon) {
   let inside = false;
@@ -1302,7 +1413,15 @@ function pointInPolygon(lat, lon, polygon) {
 }
 
 function isOnLand(lat, lon) {
-  for (const poly of LAND_POLYGONS) {
+  // Check Gulf detail polygons first (higher precision)
+  if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
+      lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
+    for (const poly of GULF_LAND_POLYGONS) {
+      if (pointInPolygon(lat, lon, poly)) return true;
+    }
+  }
+  // Check world polygons
+  for (const poly of WORLD_LAND_POLYGONS) {
     if (pointInPolygon(lat, lon, poly)) return true;
   }
   return false;

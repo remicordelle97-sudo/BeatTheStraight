@@ -1,7 +1,8 @@
 import { io } from 'socket.io-client';
 import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane, setImpactHandler } from './map.js';
+import { CHOKEPOINTS } from './world-coastlines.js';
 import {
-  SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
+  SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
   NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, MILITARY_BASES, CITIES
 } from '../shared/constants.js';
@@ -114,9 +115,7 @@ function initPanZoom() {
     const factor = e.deltaY > 0 ? 1.15 : 0.87;
     const newLonRange = (vp.east - vp.west) * factor;
     const newLatRange = (vp.north - vp.south) * factor;
-    const maxLonRange = MAP_BOUNDS.east - MAP_BOUNDS.west;
-    const maxLatRange = MAP_BOUNDS.north - MAP_BOUNDS.south;
-    if (newLonRange < 0.5 || newLonRange > maxLonRange || newLatRange < 0.3 || newLatRange > maxLatRange) return;
+    if (newLonRange < 0.5 || newLonRange > 360 || newLatRange < 0.3 || newLatRange > 145) return;
     viewport = clampViewport({
       west: lonCenter - newLonRange * lonFrac,
       east: lonCenter + newLonRange * (1 - lonFrac),
@@ -158,6 +157,23 @@ function initPanZoom() {
   mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 initPanZoom();
+
+// Chokepoint quick-nav buttons
+(function initChokepointNav() {
+  const container = document.getElementById('chokepoint-buttons');
+  if (!container) return;
+  for (const cp of CHOKEPOINTS) {
+    const btn = document.createElement('button');
+    btn.className = 'chokepoint-btn';
+    btn.innerHTML = `${cp.shortName} <span class="cp-flow">${cp.flowMbpd}mb/d</span>`;
+    btn.title = cp.description;
+    btn.addEventListener('click', () => {
+      viewport = { ...cp.viewport };
+      setViewport(viewport);
+    });
+    container.appendChild(btn);
+  }
+})();
 
 // Fleet panel minimize toggle
 document.getElementById('fleet-toggle').addEventListener('click', () => {
@@ -208,8 +224,10 @@ mapCanvas.addEventListener('mousemove', (e) => {
 function clampViewport(vp) {
   const lonRange = vp.east - vp.west;
   const latRange = vp.north - vp.south;
-  let west = Math.max(MAP_BOUNDS.west, Math.min(MAP_BOUNDS.east - lonRange, vp.west));
+  // Clamp latitude to map bounds
   let south = Math.max(MAP_BOUNDS.south, Math.min(MAP_BOUNDS.north - latRange, vp.south));
+  // Allow longitude panning freely (wrap if needed)
+  let west = Math.max(MAP_BOUNDS.west, Math.min(MAP_BOUNDS.east - lonRange, vp.west));
   return { west, east: west + lonRange, south, north: south + latRange };
 }
 
@@ -1350,8 +1368,8 @@ function updateNPCShips(dt, elapsed) {
     }
 
     // Clamp to map
-    npc.lat = Math.max(MAP_BOUNDS.south + 0.1, Math.min(MAP_BOUNDS.north - 0.1, npc.lat));
-    npc.lon = Math.max(MAP_BOUNDS.west + 0.1, Math.min(MAP_BOUNDS.east - 0.1, npc.lon));
+    npc.lat = Math.max(GULF_BOUNDS.south + 0.1, Math.min(GULF_BOUNDS.north - 0.1, npc.lat));
+    npc.lon = Math.max(GULF_BOUNDS.west + 0.1, Math.min(GULF_BOUNDS.east - 0.1, npc.lon));
 
   }
 }
@@ -1573,8 +1591,8 @@ function transitLoop(timestamp) {
       }
       else { state.speed = Math.max(0, Math.round(state.speed * 0.5)); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
-      state.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, state.lat));
-      state.lon = Math.max(MAP_BOUNDS.west + 0.05, Math.min(MAP_BOUNDS.east - 0.05, state.lon));
+      state.lat = Math.max(GULF_BOUNDS.south + 0.05, Math.min(GULF_BOUNDS.north - 0.05, state.lat));
+      state.lon = Math.max(GULF_BOUNDS.west + 0.05, Math.min(GULF_BOUNDS.east - 0.05, state.lon));
 
       // Overspeed reliability check — pushing beyond rated speed risks malfunction
       const ratedSpeed = ship.speed || 16;

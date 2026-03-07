@@ -1255,3 +1255,55 @@ h1 {
   background: var(--border);
   border-radius: 2px;
 }
+
+/* Chokepoint quick-nav panel */
+.chokepoint-panel {
+  position: absolute;
+  bottom: 140px;
+  left: 12px;
+  background: rgba(10, 14, 26, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  z-index: 15;
+  pointer-events: auto;
+  max-width: 160px;
+}
+
+.chokepoint-title {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.chokepoint-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chokepoint-btn {
+  background: rgba(240, 160, 48, 0.08);
+  border: 1px solid rgba(240, 160, 48, 0.2);
+  border-radius: 3px;
+  color: var(--primary);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.chokepoint-btn:hover {
+  background: rgba(240, 160, 48, 0.2);
+  border-color: var(--primary);
+}
+
+.chokepoint-btn .cp-flow {
+  color: var(--text-muted);
+  font-size: 8px;
+  float: right;
+  margin-top: 1px;
+}

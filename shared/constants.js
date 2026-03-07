@@ -1,12 +1,20 @@
-// Persian Gulf map coordinates (full gulf)
+// World map bounds
 export const MAP_BOUNDS = {
+  north: 85.0,
+  south: -60.0,
+  east: 180.0,
+  west: -180.0
+};
+
+// Persian Gulf bounds (high-detail region)
+export const GULF_BOUNDS = {
   north: 30.5,
   south: 23.5,
   east: 60.0,
   west: 47.0
 };
 
-// Viewport for scrollable map (what's visible at once)
+// Viewport for scrollable map (starts on Strait of Hormuz)
 export const DEFAULT_VIEWPORT = {
   north: 28.0,
   south: 25.0,
