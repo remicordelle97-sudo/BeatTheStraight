@@ -167,6 +167,52 @@ class GameState {
     return { repairCost, ship };
   }
 
+  upgradeShip(playerId, shipId, type) {
+    const player = this.players[playerId];
+    if (!player) return null;
+    const ship = player.fleet.find(s => s.id === shipId);
+    if (!ship) return null;
+
+    if (type === 'engine') {
+      if (ship.engineUpgrade) return null; // already purchased
+      const cost = 25000000;
+      if (player.cash < cost) return null;
+      player.cash -= cost;
+      ship.engineUpgrade = 1;
+      ship.speed = (ship.speed || 0) + 4;
+      return { cost };
+    }
+
+    if (type === 'defense') {
+      if (ship.defenseUpgrade) return null; // already purchased
+      const cost = 20000000;
+      if (player.cash < cost) return null;
+      player.cash -= cost;
+      ship.defenseUpgrade = 1;
+      return { cost };
+    }
+
+    if (type === 'autopilot') {
+      if (ship.hasAutopilot) return null; // already purchased
+      const cost = 30000000;
+      if (player.cash < cost) return null;
+      player.cash -= cost;
+      ship.hasAutopilot = true;
+      return { cost };
+    }
+
+    if (type === 'repair') {
+      if (ship.health >= 1.0) return null;
+      const cost = Math.round(ship.cost * (1 - ship.health) * 0.3);
+      if (player.cash < cost) return null;
+      player.cash -= cost;
+      ship.health = 1.0;
+      return { cost };
+    }
+
+    return null;
+  }
+
   getLeaderboard() {
     return Object.values(this.players)
       .map(p => ({
