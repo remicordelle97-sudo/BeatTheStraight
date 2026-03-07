@@ -681,13 +681,23 @@ function updateFleetPanel() {
           ${s.autopilot ? '<span class="stat stat-good">AP</span>' : ''}
           ${(s.defenseUpgrade || 0) > 0 ? `<span class="stat">DEF:${s.defenseUpgrade}</span>` : ''}
         </div>
+        ${isSelected && !destroyed ? '<button class="btn btn-small btn-manage" data-manage-id="' + s.id + '">MANAGE</button>' : ''}
       </div>`;
   }).join('');
 
   container.querySelectorAll('.option-card').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      // Don't toggle selection if clicking the manage button
+      if (e.target.classList.contains('btn-manage')) return;
       if (card.dataset.shipId === selectedShipId) deselectShip();
       else selectShip(card.dataset.shipId);
+    });
+  });
+  container.querySelectorAll('.btn-manage').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectShip(btn.dataset.manageId);
+      openShipControlPanel();
     });
   });
 }
