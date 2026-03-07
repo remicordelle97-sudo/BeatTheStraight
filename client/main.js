@@ -149,6 +149,15 @@ function initPanZoom() {
 }
 initPanZoom();
 
+// Fleet panel minimize toggle
+document.getElementById('fleet-toggle').addEventListener('click', () => {
+  const body = document.getElementById('dash-fleet');
+  const icon = document.getElementById('fleet-toggle-icon');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  icon.textContent = hidden ? '▾' : '▸';
+});
+
 function clampViewport(vp) {
   const lonRange = vp.east - vp.west;
   const latRange = vp.north - vp.south;
