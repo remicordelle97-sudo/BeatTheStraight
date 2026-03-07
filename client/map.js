@@ -701,20 +701,18 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         // Transition to orbit: one continuous circle that spirals in then out
         p.phase = 'orbit';
         p.phaseStart = now;
-        // Total orbit time = loiter + returnLoiter duration (slower than approach)
-        p.orbitDuration = (p.loiterDuration + p.returnLoiterDuration) * 1.3;
-        // Total angle: ~3.5 full turns
-        p.orbitTotalAngle = p.loiterDir * Math.PI * 2 * 3.5;
+        // Slower orbit phase for visible loitering
+        p.orbitDuration = (p.loiterDuration + p.returnLoiterDuration) * 1.5;
+        // ~2 full turns — enough to circle without excessive speed
+        p.orbitTotalAngle = p.loiterDir * Math.PI * 2 * 2;
         // Seed orbit start angle from approach direction
         p.orbitStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
-        // Strike happens at 40% through the orbit
-        p.orbitStrikeT = 0.4;
+        // Strike happens at 45% through the orbit
+        p.orbitStrikeT = 0.45;
         p.orbitStruck = false;
-        // Random wobble params for organic-looking orbit
-        p.wobbleFreq1 = 2 + Math.random() * 3;
-        p.wobbleFreq2 = 5 + Math.random() * 4;
-        p.wobbleAmp1 = 0.15 + Math.random() * 0.15; // 15-30% radius variation
-        p.wobbleAmp2 = 0.05 + Math.random() * 0.08;
+        // Subtle wobble for organic look (small amplitude, low frequency)
+        p.wobbleFreq = 1.5 + Math.random() * 1.0; // 1.5-2.5 oscillations per orbit
+        p.wobbleAmp = 0.06 + Math.random() * 0.06; // 6-12% radius variation
       }
     } else if (p.phase === 'orbit') {
       // One continuous orbit: spiral in, circle, drop bomb, spiral out
@@ -730,27 +728,17 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       } else {
         rFactor = 1.0;
       }
-      // Add organic wobble so it doesn't look like a perfect circle
-      const wobble = 1 + Math.sin(angle * p.wobbleFreq1) * p.wobbleAmp1
-                       + Math.sin(angle * p.wobbleFreq2) * p.wobbleAmp2;
+      // Subtle wobble so it's not a perfect circle
+      const wobble = 1 + Math.sin(angle * p.wobbleFreq) * p.wobbleAmp;
       const r = p.loiterRadius * rFactor * wobble;
 
       currentLat = p.toLat + Math.sin(angle) * r;
       currentLon = p.toLon + Math.cos(angle) * r;
 
-      // Heading from finite difference for accuracy with wobble
-      const dt = 0.002;
-      const nextAngle = p.orbitStartAngle + p.orbitTotalAngle * Math.min(1, t + dt);
-      let nextRFactor;
-      if ((t + dt) < 0.15) nextRFactor = (t + dt) / 0.15;
-      else if ((t + dt) > 0.80) nextRFactor = (1 - (t + dt)) / 0.20;
-      else nextRFactor = 1.0;
-      const nextWobble = 1 + Math.sin(nextAngle * p.wobbleFreq1) * p.wobbleAmp1
-                           + Math.sin(nextAngle * p.wobbleFreq2) * p.wobbleAmp2;
-      const nextR = p.loiterRadius * nextRFactor * nextWobble;
-      const nextLat = p.toLat + Math.sin(nextAngle) * nextR;
-      const nextLon = p.toLon + Math.cos(nextAngle) * nextR;
-      canvasAngle = latLonHeadingToCanvas(nextLat - currentLat, nextLon - currentLon);
+      // Analytical tangent for smooth heading
+      const tangentLat = Math.cos(angle) * p.loiterDir;
+      const tangentLon = -Math.sin(angle) * p.loiterDir;
+      canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
 
       // Trigger strike explosion at the right moment
       if (!p.orbitStruck && t >= p.orbitStrikeT) {
