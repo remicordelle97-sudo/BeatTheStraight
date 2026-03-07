@@ -75,14 +75,14 @@ class GameState {
 
     const ais = AIS_OPTIONS[plan.aisId];
     const insurance = INSURANCE_OPTIONS[plan.insuranceId];
-    const time = TIME_OPTIONS[plan.timeId];
+    const time = plan.timeId ? TIME_OPTIONS[plan.timeId] : { id: 'day', name: 'Daytime', visibilityMultiplier: 1.0 };
     const ship = player.fleet.find(s => s.id === plan.shipId);
     // Find terminal by id from any key
     const terminal = plan.terminalId
       ? Object.values(OIL_TERMINALS).find(t => t.id === plan.terminalId)
       : null;
 
-    if (!ais || !insurance || !time || !ship) return null;
+    if (!ais || !insurance || !ship) return null;
 
     player.currentPlan = {
       ais, insurance, time, ship, terminal,

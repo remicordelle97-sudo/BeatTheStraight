@@ -418,6 +418,26 @@ function drawMap(canvas, options = {}) {
     drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId);
   }
 
+  // Spawn point
+  if (options.showSpawn) {
+    const sp = latLonToCanvas(SIM_CONFIG.SPAWN_LAT, SIM_CONFIG.SPAWN_LON, drawW, drawH);
+    if (sp.x > -20 && sp.x < drawW + 20 && sp.y > -20 && sp.y < drawH + 20) {
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(64, 144, 224, 0.2)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(64, 144, 224, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#4090e0';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('SPAWN', sp.x + 12, sp.y + 4);
+    }
+  }
+
   // Danger zones
   if (options.showZones) {
     drawDangerZones(ctx, drawW, drawH);

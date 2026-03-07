@@ -23,7 +23,6 @@ let joinMode = false;
 
 // Planning selections
 let selectedShipId = null;
-let selectedTimeId = null;
 let selectedAisId = null;
 let selectedInsuranceId = null;
 let selectedTerminalId = null;
@@ -309,7 +308,6 @@ function renderPlanning() {
   document.getElementById('plan-cash').textContent = formatMoney(me?.cash || 0);
 
   selectedShipId = null;
-  selectedTimeId = null;
   selectedAisId = null;
   selectedInsuranceId = null;
   selectedTerminalId = null;
@@ -374,16 +372,6 @@ function renderPlanning() {
     shipSelector.innerHTML = '<div class="muted">No ships! You\'re out.</div>';
   }
 
-  // Time selector
-  renderOptionSelector('time-selector', options.timeOptions, (key, opt) => `
-    <div class="option-name">${opt.name}</div>
-    <div class="option-stats">
-      <span class="stat ${opt.visibilityMultiplier <= 0.4 ? 'stat-good' : opt.visibilityMultiplier >= 0.8 ? 'stat-bad' : 'stat-warn'}">
-        Vis: ${Math.round(opt.visibilityMultiplier * 100)}%
-      </span>
-    </div>
-  `, (key) => { selectedTimeId = key; updateCostPreview(); });
-
   // AIS selector
   renderOptionSelector('ais-selector', options.aisOptions, (key, opt) => {
     const detClass = opt.detectionMultiplier <= 0.5 ? 'stat-good' : opt.detectionMultiplier >= 1.2 ? 'stat-bad' : 'stat-warn';
@@ -413,10 +401,8 @@ function renderPlanning() {
   document.getElementById('plan-waiting').classList.add('hidden');
   updateCostPreview();
 
-  // Show map with terminals during planning
-  viewport = { ...DEFAULT_VIEWPORT };
-  // Zoom out to show more of the gulf
-  viewport = { north: 30.0, south: 24.0, west: 47.5, east: 57.5 };
+  // Show map with terminals during planning (zoom out to show gulf + spawn area)
+  viewport = { north: 30.0, south: 24.0, west: 47.5, east: 58.5 };
   setViewport(viewport);
 }
 
@@ -440,7 +426,7 @@ function renderOptionSelector(containerId, optionsObj, renderFn, onSelect) {
 function updateCostPreview() {
   const preview = document.getElementById('cost-preview');
   const me = gameState?.players.find(p => p.id === myId);
-  if (!me || !selectedShipId || !selectedInsuranceId || !selectedTerminalId) {
+  if (!me || !selectedShipId || !selectedInsuranceId || !selectedTerminalId || !selectedAisId) {
     preview.innerHTML = '<div class="muted">Select all options to see costs</div>';
     return;
   }
@@ -473,7 +459,7 @@ function updateCostPreview() {
 
 // Submit plan and start transit
 document.getElementById('btn-submit-plan').addEventListener('click', () => {
-  if (!selectedShipId || !selectedTimeId || !selectedAisId || !selectedInsuranceId || !selectedTerminalId) {
+  if (!selectedShipId || !selectedAisId || !selectedInsuranceId || !selectedTerminalId) {
     showError('Select all options before launching');
     return;
   }
@@ -482,7 +468,7 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
   const ship = me.fleet.find(s => s.id === selectedShipId);
   const ais = options.aisOptions[selectedAisId];
   const insurance = options.insuranceOptions[selectedInsuranceId];
-  const time = options.timeOptions[selectedTimeId];
+  const time = { id: 'day', name: 'Daytime', visibilityMultiplier: 1.0 };
   const terminal = Object.values(OIL_TERMINALS).find(t => t.id === selectedTerminalId);
 
   transitPlan = { ship, ais, insurance, time, terminal };
@@ -490,7 +476,6 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
   socket.emit('submit_plan', {
     shipId: selectedShipId,
     routeId: 'PLAYER_NAVIGATED',
-    timeId: selectedTimeId,
     aisId: selectedAisId,
     insuranceId: selectedInsuranceId,
     terminalId: selectedTerminalId
@@ -741,12 +726,12 @@ function startTransit() {
   const terminal = transitPlan.terminal;
   const ship = transitPlan.ship;
 
-  // Start at the selected terminal
+  // Start in the Gulf of Oman (outside the strait)
   simState = {
-    lat: terminal.lat,
-    lon: terminal.lon,
-    heading: 90,
-    targetHeading: 90,
+    lat: SIM_CONFIG.SPAWN_LAT,
+    lon: SIM_CONFIG.SPAWN_LON,
+    heading: 270,       // Facing west toward the strait
+    targetHeading: 270,
     speed: ship.speed,
     health: ship.health,
     totalDamage: 0,
@@ -756,12 +741,12 @@ function startTransit() {
     destroyed: false
   };
 
-  // Center viewport on terminal, then we'll track the ship
+  // Center viewport on spawn point
   viewport = {
-    north: terminal.lat + 1.5,
-    south: terminal.lat - 1.5,
-    west: terminal.lon - 2.0,
-    east: terminal.lon + 2.0
+    north: SIM_CONFIG.SPAWN_LAT + 1.5,
+    south: SIM_CONFIG.SPAWN_LAT - 1.5,
+    west: SIM_CONFIG.SPAWN_LON - 2.0,
+    east: SIM_CONFIG.SPAWN_LON + 2.0
   };
   setViewport(viewport);
 
@@ -771,27 +756,17 @@ function startTransit() {
 
   // HUD setup
   document.getElementById('hud-ship-name').textContent =
-    `${ship.name} - Loading at ${terminal.name}`;
+    `${ship.name} - En route to ${terminal.name}`;
   document.getElementById('hud-events').innerHTML = '';
-  document.getElementById('hud-cargo-status').textContent = 'LOADING CARGO...';
+  document.getElementById('hud-cargo-status').textContent = 'NAVIGATE TO TERMINAL';
   document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
 
   mapCanvas.style.pointerEvents = 'auto';
   mapCanvas.style.cursor = 'crosshair';
 
-  addTransitEvent('DEPARTURE', `${ship.name} loading cargo at ${terminal.name}`, 'success');
-
-  // Auto-load cargo after a brief delay (simulating loading)
-  setTimeout(() => {
-    cargoLoaded = true;
-    document.getElementById('hud-cargo-status').textContent = 'CARGO LOADED - HEAD TO FINISH';
-    document.getElementById('hud-cargo-status').className = 'hud-cargo loaded';
-    document.getElementById('hud-ship-name').textContent =
-      `${ship.name} - ${transitPlan.time.name}`;
-    addTransitEvent('CARGO LOADED',
-      `Full load from ${terminal.name}. Navigate east through the Strait of Hormuz to the finish line.`,
-      'success');
-  }, 3000);
+  addTransitEvent('DEPARTURE',
+    `${ship.name} departing Gulf of Oman. Navigate west to ${terminal.name} to load cargo.`,
+    'success');
 
   requestAnimationFrame(transitLoop);
 }
@@ -859,18 +834,34 @@ function transitLoop(timestamp) {
   updateNPCShips(dt);
   updateMilitaryShips(dt);
 
-  // Check collisions
-  if (cargoLoaded) {
-    checkCollisions(elapsed);
+  // Check proximity to terminal for cargo loading
+  if (!cargoLoaded) {
+    const terminal = transitPlan.terminal;
+    const dLon = simState.lon - terminal.lon;
+    const dLat = simState.lat - terminal.lat;
+    const distToTerminal = Math.sqrt(dLon * dLon + dLat * dLat);
+    if (distToTerminal < (terminal.loadRadius || SIM_CONFIG.LOAD_RADIUS)) {
+      cargoLoaded = true;
+      document.getElementById('hud-cargo-status').textContent = 'CARGO LOADED - CROSS THE STRAIT';
+      document.getElementById('hud-cargo-status').className = 'hud-cargo loaded';
+      document.getElementById('hud-ship-name').textContent =
+        `${transitPlan.ship.name} - Loaded at ${terminal.name}`;
+      addTransitEvent('CARGO LOADED',
+        `Full load from ${terminal.name}. Navigate east through the Strait of Hormuz to the finish line.`,
+        'success');
+    }
   }
 
+  // Check collisions
+  checkCollisions(elapsed);
+
   // Check danger zone events
-  if (cargoLoaded && elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
     checkDangerZones(elapsed);
   }
 
-  // Check if transit complete (past finish line with cargo)
+  // Check if transit complete (past finish line WITH cargo)
   if (cargoLoaded && simState.lon >= SIM_CONFIG.END_LON) {
     finishTransit();
     return;
@@ -893,6 +884,7 @@ function transitLoop(timestamp) {
     showZones: true,
     showFinish: cargoLoaded,
     showTerminals: true,
+    showSpawn: !cargoLoaded,
     selectedTerminalId: transitPlan.terminal.id,
     ship: simState,
     trail: simTrail,
@@ -948,12 +940,25 @@ function updateHUD(elapsed) {
   document.getElementById('hud-health').textContent =
     `${Math.round((simState.health - simState.totalDamage) * 100)}%`;
 
-  // Progress: how far east through the strait
-  const startLon = transitPlan.terminal.lon;
-  const progress = cargoLoaded
-    ? Math.min(100, Math.round(((simState.lon - startLon) / (SIM_CONFIG.END_LON - startLon)) * 100))
-    : 0;
-  document.getElementById('hud-progress').textContent = `${Math.max(0, progress)}%`;
+  // Progress: two-leg journey
+  // Leg 1: spawn → terminal, Leg 2: terminal → finish line
+  const terminal = transitPlan.terminal;
+  const spawnLon = SIM_CONFIG.SPAWN_LON;
+  const terminalLon = terminal.lon;
+  const finishLon = SIM_CONFIG.END_LON;
+  let progress;
+  if (!cargoLoaded) {
+    // Leg 1: heading west to terminal (50% of total)
+    const leg1Total = spawnLon - terminalLon;
+    const leg1Done = spawnLon - simState.lon;
+    progress = Math.min(50, Math.max(0, Math.round((leg1Done / leg1Total) * 50)));
+  } else {
+    // Leg 2: heading east to finish (50-100%)
+    const leg2Total = finishLon - terminalLon;
+    const leg2Done = simState.lon - terminalLon;
+    progress = 50 + Math.min(50, Math.max(0, Math.round((leg2Done / leg2Total) * 50)));
+  }
+  document.getElementById('hud-progress').textContent = `${progress}%`;
 
   const healthEl = document.getElementById('hud-health');
   const hp = simState.health - simState.totalDamage;
@@ -1384,6 +1389,7 @@ function drawBackgroundMap() {
       showZones: isPlanning,
       showFinish: isPlanning,
       showTerminals: isPlanning,
+      showSpawn: isPlanning,
       selectedTerminalId: selectedTerminalId
     });
   } catch (e) {
