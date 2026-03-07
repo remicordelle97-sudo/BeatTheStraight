@@ -701,30 +701,30 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         // Transition to orbit: one continuous circle that spirals in then out
         p.phase = 'orbit';
         p.phaseStart = now;
-        // Slower orbit phase for visible loitering
-        p.orbitDuration = (p.loiterDuration + p.returnLoiterDuration) * 1.5;
-        // ~2 full turns — enough to circle without excessive speed
-        p.orbitTotalAngle = p.loiterDir * Math.PI * 2 * 2;
+        // Half-circle arc: sweep in, strike near midpoint, sweep out
+        p.orbitDuration = p.loiterDuration * 0.8;
+        // One half turn (PI radians)
+        p.orbitTotalAngle = p.loiterDir * Math.PI;
         // Seed orbit start angle from approach direction
         p.orbitStartAngle = Math.atan2(cur.lon - prev.lon, cur.lat - prev.lat);
-        // Strike happens at 45% through the orbit
-        p.orbitStrikeT = 0.45;
+        // Strike at midpoint of the arc
+        p.orbitStrikeT = 0.5;
         p.orbitStruck = false;
-        // Subtle wobble for organic look (small amplitude, low frequency)
-        p.wobbleFreq = 1.5 + Math.random() * 1.0; // 1.5-2.5 oscillations per orbit
-        p.wobbleAmp = 0.06 + Math.random() * 0.06; // 6-12% radius variation
+        // Subtle wobble
+        p.wobbleFreq = 1.5 + Math.random() * 1.0;
+        p.wobbleAmp = 0.06 + Math.random() * 0.06;
       }
     } else if (p.phase === 'orbit') {
       // One continuous orbit: spiral in, circle, drop bomb, spiral out
       const t = Math.min(1, phaseElapsed / p.orbitDuration);
       const angle = p.orbitStartAngle + p.orbitTotalAngle * t;
 
-      // Radius envelope: grows from 0 → full in first 15%, holds, shrinks to 0 in last 20%
+      // Radius envelope: grows from 0 → full in first 25%, holds, shrinks to 0 in last 25%
       let rFactor;
-      if (t < 0.15) {
-        rFactor = t / 0.15;
-      } else if (t > 0.80) {
-        rFactor = (1 - t) / 0.20;
+      if (t < 0.25) {
+        rFactor = t / 0.25;
+      } else if (t > 0.75) {
+        rFactor = (1 - t) / 0.25;
       } else {
         rFactor = 1.0;
       }
