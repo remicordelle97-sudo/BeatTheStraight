@@ -250,6 +250,7 @@ function openShipControlPanel() {
   document.querySelectorAll('.scp-ais-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ais === currentAisId);
   });
+  refreshUpgradeButtons();
 }
 
 function closeShipControlPanel() {
@@ -290,6 +291,216 @@ document.querySelectorAll('.scp-ais-btn').forEach(btn => {
     }
   });
 });
+
+// Insurance buttons
+document.querySelectorAll('.scp-ins-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!selectedShipId || !options) return;
+    const insKey = btn.dataset.ins;
+    const insOpt = options.insuranceOptions[insKey];
+    if (insOpt) {
+      const ship = getSelectedShipData();
+      if (ship) { ship.insuranceId = insKey; ship.insuranceName = insOpt.name; }
+      document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name}`, '');
+    }
+  });
+});
+
+// Upgrade: Repair
+document.getElementById('scp-repair').addEventListener('click', () => {
+  if (!selectedShipId) return;
+  const state = shipStates[selectedShipId];
+  const ship = getSelectedShipData();
+  if (!state || !ship) return;
+  if (state.totalDamage <= 0) {
+    document.getElementById('scp-upgrade-info').textContent = 'Ship is at full health.';
+    return;
+  }
+  const repairCost = Math.round(ship.cost * state.totalDamage * 0.3);
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me || me.cash < repairCost) {
+    document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(repairCost)} to repair.`;
+    return;
+  }
+  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'repair', cost: repairCost }, (res) => {
+    if (res?.success) {
+      state.totalDamage = 0;
+      addTransitEvent('SHIP REPAIRED', `${ship.name} fully repaired for ${formatMoney(repairCost)}.`, 'success');
+      updateFleetPanel();
+      refreshUpgradeButtons();
+    }
+  });
+});
+
+// Upgrade: Engine
+document.getElementById('scp-engine').addEventListener('click', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  if (!ship) return;
+  const engineLevel = ship.engineUpgrade || 0;
+  if (engineLevel >= 3) {
+    document.getElementById('scp-upgrade-info').textContent = 'Engine fully upgraded (max +6 kts).';
+    return;
+  }
+  const cost = [10000000, 25000000, 50000000][engineLevel];
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me || me.cash < cost) {
+    document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for engine upgrade.`;
+    return;
+  }
+  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'engine', cost }, (res) => {
+    if (res?.success) {
+      ship.engineUpgrade = engineLevel + 1;
+      ship.speed += 2;
+      addTransitEvent('ENGINE UPGRADE', `${ship.name} engine upgraded! +2 kts (Lv${engineLevel + 1})`, 'success');
+      refreshUpgradeButtons();
+    }
+  });
+});
+
+// Upgrade: Defense
+const DEFENSE_LEVELS = [
+  { name: 'Armed Guards', cost: 5000000, desc: 'Armed security team onboard' },
+  { name: 'Missile Defense', cost: 20000000, desc: 'Anti-missile countermeasures' },
+  { name: 'Armored Hull', cost: 40000000, desc: 'Reinforced hull plating' },
+];
+document.getElementById('scp-defense').addEventListener('click', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  if (!ship) return;
+  const defLevel = ship.defenseUpgrade || 0;
+  if (defLevel >= DEFENSE_LEVELS.length) {
+    document.getElementById('scp-upgrade-info').textContent = 'Defenses fully upgraded.';
+    return;
+  }
+  const upgrade = DEFENSE_LEVELS[defLevel];
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me || me.cash < upgrade.cost) {
+    document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(upgrade.cost)} for ${upgrade.name}.`;
+    return;
+  }
+  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'defense', cost: upgrade.cost }, (res) => {
+    if (res?.success) {
+      ship.defenseUpgrade = defLevel + 1;
+      addTransitEvent('DEFENSE UPGRADE', `${ship.name}: ${upgrade.name} installed!`, 'success');
+      refreshUpgradeButtons();
+    }
+  });
+});
+
+// Upgrade: Autopilot
+document.getElementById('scp-autopilot').addEventListener('click', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  const state = shipStates[selectedShipId];
+  if (!ship || !state) return;
+
+  if (ship.autopilot) {
+    // Toggle off
+    ship.autopilot = false;
+    addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+    refreshUpgradeButtons();
+    return;
+  }
+
+  if (!ship.hasAutopilot) {
+    const cost = 30000000;
+    const me = gameState?.players.find(p => p.id === myId);
+    if (!me || me.cash < cost) {
+      document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for autopilot.`;
+      return;
+    }
+    socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'autopilot', cost }, (res) => {
+      if (res?.success) {
+        ship.hasAutopilot = true;
+        ship.autopilot = true;
+        ship.autopilotTerminal = findBestTerminalForShip(ship);
+        addTransitEvent('AUTOPILOT INSTALLED', `${ship.name}: Autopilot engaged! Route: ${ship.autopilotTerminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+        refreshUpgradeButtons();
+      }
+    });
+  } else {
+    ship.autopilot = true;
+    ship.autopilotTerminal = findBestTerminalForShip(ship);
+    addTransitEvent('AUTOPILOT ON', `${ship.name}: Autopilot engaged. Route: ${ship.autopilotTerminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+    refreshUpgradeButtons();
+  }
+});
+
+function findBestTerminalForShip(ship) {
+  const cargoType = ship.cargoType || 'oil';
+  const terminals = Object.values(OIL_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  // Pick highest bonus terminal
+  return terminals.reduce((best, t) => (t.loadingBonus > best.loadingBonus ? t : best), terminals[0]);
+}
+
+function refreshUpgradeButtons() {
+  const ship = getSelectedShipData();
+  const state = selectedShipId ? shipStates[selectedShipId] : null;
+  if (!ship || !state) return;
+
+  const me = gameState?.players.find(p => p.id === myId);
+  const cash = me?.cash || 0;
+
+  // Repair
+  const repairBtn = document.getElementById('scp-repair');
+  if (state.totalDamage <= 0) {
+    repairBtn.textContent = 'REPAIR (OK)';
+    repairBtn.disabled = true;
+  } else {
+    const repairCost = Math.round(ship.cost * state.totalDamage * 0.3);
+    repairBtn.textContent = `REPAIR ${formatMoney(repairCost)}`;
+    repairBtn.disabled = cash < repairCost;
+  }
+
+  // Engine
+  const engineBtn = document.getElementById('scp-engine');
+  const eLvl = ship.engineUpgrade || 0;
+  if (eLvl >= 3) {
+    engineBtn.textContent = 'ENGINE MAX';
+    engineBtn.classList.add('owned');
+    engineBtn.disabled = true;
+  } else {
+    const eCost = [10000000, 25000000, 50000000][eLvl];
+    engineBtn.textContent = `ENGINE +2 ${formatMoney(eCost)}`;
+    engineBtn.disabled = cash < eCost;
+  }
+
+  // Defense
+  const defBtn = document.getElementById('scp-defense');
+  const dLvl = ship.defenseUpgrade || 0;
+  if (dLvl >= DEFENSE_LEVELS.length) {
+    defBtn.textContent = 'DEFENSE MAX';
+    defBtn.classList.add('owned');
+    defBtn.disabled = true;
+  } else {
+    defBtn.textContent = `${DEFENSE_LEVELS[dLvl].name.toUpperCase()} ${formatMoney(DEFENSE_LEVELS[dLvl].cost)}`;
+    defBtn.disabled = cash < DEFENSE_LEVELS[dLvl].cost;
+  }
+
+  // Autopilot
+  const apBtn = document.getElementById('scp-autopilot');
+  if (ship.autopilot) {
+    apBtn.textContent = 'AUTOPILOT ON';
+    apBtn.classList.add('owned');
+  } else if (ship.hasAutopilot) {
+    apBtn.textContent = 'AUTOPILOT OFF';
+    apBtn.classList.remove('owned');
+  } else {
+    apBtn.textContent = `AUTOPILOT ${formatMoney(30000000)}`;
+    apBtn.disabled = cash < 30000000;
+  }
+
+  // Insurance
+  const currentIns = ship.insuranceId || 'FULL_WAR_RISK';
+  document.querySelectorAll('.scp-ins-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.ins === currentIns);
+  });
+
+  document.getElementById('scp-upgrade-info').textContent = '';
+}
 
 // ============================================
 // TITLE SCREEN
@@ -467,6 +678,8 @@ function updateFleetPanel() {
           <span class="stat">${(s.capacity / 1000).toFixed(0)}K</span>
           <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
           <span class="stat ${cargoClass}">${cargoText}</span>
+          ${s.autopilot ? '<span class="stat stat-good">AP</span>' : ''}
+          ${(s.defenseUpgrade || 0) > 0 ? `<span class="stat">DEF:${s.defenseUpgrade}</span>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -942,6 +1155,26 @@ function transitLoop(timestamp) {
       if (!state || state.destroyed || state.seized) continue;
       const wps = shipWaypoints[ship.id] || [];
 
+      // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
+      if (ship.autopilot && ship.autopilotTerminal) {
+        const cargo = shipCargo[ship.id];
+        if (wps.length === 0 && state.speed === 0) {
+          // Need new destination
+          if (cargo && cargo.loaded) {
+            // Head to dropoff
+            shipWaypoints[ship.id] = [{ lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon }];
+            state.speed = ship.speed || 14;
+            state.targetHeading = headingToTarget(state.lat, state.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+          } else {
+            // Head to terminal
+            const t = ship.autopilotTerminal;
+            shipWaypoints[ship.id] = [{ lat: t.lat, lon: t.lon }];
+            state.speed = ship.speed || 14;
+            state.targetHeading = headingToTarget(state.lat, state.lon, t.lat, t.lon);
+          }
+        }
+      }
+
       // Waypoint navigation
       if (wps.length > 0) {
         const wp = wps[0];
@@ -1161,7 +1394,10 @@ function checkDangerZonesAllShips(elapsed) {
       const cooldownKey = `${ship.id}_${zone.id}`;
       if ((zoneCooldowns[cooldownKey] || 0) > elapsed - SIM_CONFIG.EVENT_COOLDOWN / 1000) continue;
 
-      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage));
+      // Defense upgrades reduce event probability
+      const defLevel = ship.defenseUpgrade || 0;
+      const defReduction = 1 - defLevel * 0.2; // 20% reduction per level
+      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction;
       if (Math.random() < prob) {
         const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
         const evt = EVENTS.find(e => e.id === eventId);
@@ -1171,7 +1407,9 @@ function checkDangerZonesAllShips(elapsed) {
         for (let w = 0; w < 3; w++) { cw += [0.5, 0.25, 0.25][w]; if (roll < cw) { oi = w; break; } }
         const outcome = evt.outcomes[oi];
         zoneCooldowns[cooldownKey] = elapsed;
-        state.totalDamage += outcome.damagePercent;
+        // Defense reduces damage taken
+        const damageReduction = 1 - defLevel * 0.15;
+        state.totalDamage += outcome.damagePercent * damageReduction;
         state.totalDelay += Math.max(0, outcome.delayHours);
         state.totalMoneyLoss += outcome.moneyLoss;
         if (outcome.delayHours >= 720) state.seized = true;

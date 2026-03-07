@@ -844,7 +844,9 @@ h1 {
   color: var(--primary);
   letter-spacing: 2px;
   margin-bottom: 10px;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .scp-section {
@@ -903,8 +905,63 @@ h1 {
 }
 
 #scp-close {
-  width: 100%;
+  background: none;
+  border: none;
+  font-size: 16px;
+}
+
+.scp-ins-btn {
+  flex: 1;
+  padding: 6px 4px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scp-ins-btn:hover {
+  border-color: var(--text-muted);
+}
+
+.scp-ins-btn.active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(240, 160, 48, 0.1);
+}
+
+.scp-divider {
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+.scp-upgrade-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.btn-upgrade {
+  padding: 6px 4px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.btn-upgrade.owned {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(64, 192, 112, 0.1);
+}
+
+.scp-upgrade-info {
+  font-size: 10px;
+  color: var(--text-muted);
   margin-top: 4px;
+  min-height: 14px;
 }
 
 /* Compass */

@@ -144,7 +144,10 @@
       <button id="btn-clear-waypoints" class="btn-clear-wp hidden">CLEAR WAYPOINTS</button>
 
       <div id="ship-control-panel" class="hidden">
-        <div class="scp-header">SHIP CONTROLS</div>
+        <div class="scp-header">
+          <span>SHIP CONTROLS</span>
+          <button id="scp-close" class="btn btn-small btn-ghost">&times;</button>
+        </div>
         <div class="scp-section">
           <div class="scp-label">SPEED</div>
           <div class="scp-speed-control">
@@ -161,7 +164,25 @@
             <button class="scp-ais-btn" data-ais="DARK">DARK</button>
           </div>
         </div>
-        <button id="scp-close" class="btn btn-small btn-ghost">CLOSE</button>
+        <div class="scp-section">
+          <div class="scp-label">INSURANCE</div>
+          <div id="scp-insurance-options" class="scp-ais-grid">
+            <button class="scp-ins-btn" data-ins="FULL_WAR_RISK">WAR RISK</button>
+            <button class="scp-ins-btn" data-ins="STANDARD_MARINE">STANDARD</button>
+            <button class="scp-ins-btn" data-ins="NONE">NONE</button>
+          </div>
+        </div>
+        <div class="scp-divider"></div>
+        <div class="scp-section">
+          <div class="scp-label">UPGRADES</div>
+          <div class="scp-upgrade-grid">
+            <button id="scp-repair" class="btn btn-small btn-upgrade">REPAIR SHIP</button>
+            <button id="scp-engine" class="btn btn-small btn-upgrade">ENGINE +2 kts</button>
+            <button id="scp-defense" class="btn btn-small btn-upgrade">DEFENSE +</button>
+            <button id="scp-autopilot" class="btn btn-small btn-upgrade">AUTOPILOT</button>
+          </div>
+          <div id="scp-upgrade-info" class="scp-upgrade-info"></div>
+        </div>
       </div>
 
       <div id="hud-compass">

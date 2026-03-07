@@ -161,6 +161,18 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
+  socket.on('upgrade_ship', ({ shipId, type, cost }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+    const player = game.players[socket.id];
+    if (!player || player.cash < cost) { callback?.({ success: false, error: 'Cannot afford' }); return; }
+    player.cash -= cost;
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true });
+  });
+
   socket.on('get_options', (_, callback) => {
     callback?.({
       shipTypes: SHIP_TYPES,
