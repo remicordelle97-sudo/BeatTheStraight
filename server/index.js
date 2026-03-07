@@ -173,7 +173,7 @@ io.on('connection', (socket) => {
     if (ship) {
       const ins = INSURANCE_OPTIONS[ship.insuranceId];
       if (ins && ins.coveragePercent > 0 && ship.insuranceWeeksRemaining > 0) {
-        insurancePayout = Math.round(ship.cost * ins.coveragePercent);
+        insurancePayout = Math.round((ship.totalInvested || ship.cost) * ins.coveragePercent);
         player.cash += insurancePayout;
       }
       player.fleet = player.fleet.filter(s => s.id !== shipId);

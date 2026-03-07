@@ -76,7 +76,8 @@ class GameState {
         if (ship.insuranceWeeksRemaining <= 0 && ship.autoRenewInsurance) {
           const ins = INSURANCE_OPTIONS[ship.insuranceId];
           if (ins && ins.weeklyPremiumPercent > 0) {
-            const premium = Math.round(ship.cost * ins.weeklyPremiumPercent);
+            const insuredValue = ship.totalInvested || ship.cost;
+            const premium = Math.round(insuredValue * ins.weeklyPremiumPercent);
             if (player.cash >= premium) {
               player.cash -= premium;
               ship.insuranceWeeksRemaining = 1;
@@ -152,7 +153,7 @@ class GameState {
       if (ship) {
         const ins = INSURANCE_OPTIONS[ship.insuranceId];
         if (ins && ins.coveragePercent > 0 && ship.insuranceWeeksRemaining > 0) {
-          const payout = Math.round(ship.cost * ins.coveragePercent);
+          const payout = Math.round((ship.totalInvested || ship.cost) * ins.coveragePercent);
           player.cash += payout;
           clientResult.insurancePayout = payout;
         }
@@ -175,11 +176,6 @@ class GameState {
     if (!player || !shipType || !ais || !insurance) return null;
     if (player.cash < shipType.cost) return null;
 
-    // Charge first week's premium upfront
-    const weeklyPremium = Math.round(shipType.cost * (insurance.weeklyPremiumPercent || 0));
-    const totalCost = shipType.cost + weeklyPremium;
-    if (player.cash < totalCost) return null;
-
     const newShip = {
       ...shipType,
       health: 1.0,
@@ -190,8 +186,13 @@ class GameState {
       insuranceName: insurance.name,
       autoRenewInsurance: true,
       insuranceWeeksRemaining: 1,
-      insurancePremium: weeklyPremium
+      totalInvested: shipType.cost
     };
+    // Charge first week's premium upfront
+    const weeklyPremium = Math.round(newShip.totalInvested * (insurance.weeklyPremiumPercent || 0));
+    newShip.insurancePremium = weeklyPremium;
+    const totalCost = shipType.cost + weeklyPremium;
+    if (player.cash < totalCost) return null;
     player.cash -= totalCost;
     player.fleet.push(newShip);
     return newShip;
@@ -224,6 +225,7 @@ class GameState {
       player.cash -= cost;
       ship.engineUpgrade = 1;
       ship.speed = (ship.speed || 0) + 4;
+      ship.totalInvested = (ship.totalInvested || ship.cost) + cost;
       return { cost };
     }
 
@@ -233,6 +235,7 @@ class GameState {
       if (player.cash < cost) return null;
       player.cash -= cost;
       ship.defenseUpgrade = 1;
+      ship.totalInvested = (ship.totalInvested || ship.cost) + cost;
       return { cost };
     }
 
@@ -242,6 +245,7 @@ class GameState {
       if (player.cash < cost) return null;
       player.cash -= cost;
       ship.hasAutopilot = true;
+      ship.totalInvested = (ship.totalInvested || ship.cost) + cost;
       return { cost };
     }
 
