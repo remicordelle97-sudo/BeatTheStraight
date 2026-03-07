@@ -934,7 +934,6 @@ function transitLoop(timestamp) {
       if (cargo && cargo.loaded && !cargo.delivered) {
         const dropDist = distanceDeg(state.lat, state.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
         if (dropDist < DROPOFF_POINT.radius) {
-          cargo.delivered = true;
           const oilPrice = gameState.oilPrice || 80;
           const bonus = cargo.terminal?.loadingBonus || 1.0;
           const revenue = Math.round(ship.capacity * oilPrice * bonus * (1 - state.totalDamage));
@@ -943,6 +942,8 @@ function transitLoop(timestamp) {
               addTransitEvent('CARGO DELIVERED', `${ship.name}: Delivered for ${formatMoney(revenue)}!`, 'success');
             }
           });
+          // Reset cargo so ship can pick up another load
+          shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
           addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${DROPOFF_POINT.name}. Revenue: ${formatMoney(revenue)}`, 'success');
           updateFleetPanel();
         }
