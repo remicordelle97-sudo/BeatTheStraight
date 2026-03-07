@@ -705,6 +705,23 @@ function updateNPCShips(dt) {
     const diff = angleDiff(npc.heading, adjustedTarget);
     if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
 
+    // NPC-NPC separation: steer away from nearby ships
+    const separationDist = 0.15; // degrees (~15km)
+    for (let j = 0; j < npcShips.length; j++) {
+      if (j === i) continue;
+      const other = npcShips[j];
+      if (other.state === NPC_STATE.LOADING) continue;
+      const d = distanceDeg(npc.lat, npc.lon, other.lat, other.lon);
+      if (d < separationDist && d > 0.001) {
+        // Steer away from the other ship
+        const awayHeading = headingToTarget(other.lat, other.lon, npc.lat, npc.lon);
+        const steerDiff = angleDiff(npc.heading, awayHeading);
+        const strength = (1 - d / separationDist) * 3.0;
+        npc.heading = normalizeAngle(npc.heading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), strength * dt * 60));
+        npc.wanderOffset = 0;
+      }
+    }
+
     const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
