@@ -743,24 +743,89 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const tangentLon = -Math.sin(angle) * p.loiterDir;
       canvasAngle = latLonHeadingToCanvas(tangentLat, tangentLon);
 
-      // Trigger strike explosion at the right moment
+      // Trigger bomb drop at the right moment
       if (!p.orbitStruck && t >= p.orbitStrikeT) {
         p.orbitStruck = true;
-        p.explosionStart = now;
+        p.bombDropTime = now;
+        p.bombFromLat = currentLat;
+        p.bombFromLon = currentLon;
       }
-      // Draw explosion if active
+
+      // Bomb drop animation: falls from plane to target over 800ms
+      const bombDuration = 800;
+      if (p.bombDropTime && !p.explosionStart) {
+        const bombElapsed = now - p.bombDropTime;
+        const bt = Math.min(1, bombElapsed / bombDuration);
+        // Interpolate from drop position to target with slight forward drift
+        const bombLat = p.bombFromLat + (p.toLat - p.bombFromLat) * bt;
+        const bombLon = p.bombFromLon + (p.toLon - p.bombFromLon) * bt;
+        const bombPos = latLonToCanvas(bombLat, bombLon, drawW, drawH);
+
+        // Growing shadow on ground
+        ctx.beginPath();
+        ctx.ellipse(bombPos.x, bombPos.y + (1 - bt) * 12, 2 + bt * 3, 1 + bt * 1.5, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.15 + bt * 0.2})`;
+        ctx.fill();
+
+        // Bomb body (shrinks as it falls, simulating perspective)
+        const bombSize = 3 - bt * 1;
+        const bombOffsetY = -(1 - bt) * 15; // starts above, falls to ground
+        ctx.beginPath();
+        ctx.arc(bombPos.x, bombPos.y + bombOffsetY, bombSize, 0, Math.PI * 2);
+        ctx.fillStyle = '#333';
+        ctx.fill();
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+
+        // Small trail behind bomb
+        if (bt > 0.1 && bt < 0.9) {
+          ctx.beginPath();
+          ctx.moveTo(bombPos.x, bombPos.y + bombOffsetY - bombSize);
+          ctx.lineTo(bombPos.x, bombPos.y + bombOffsetY - bombSize - 6);
+          ctx.strokeStyle = `rgba(180, 180, 180, ${0.4 * (1 - bt)})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        // Start explosion when bomb lands
+        if (bt >= 1) {
+          p.explosionStart = now;
+        }
+      }
+
+      // Ground explosion after bomb impact
       if (p.explosionStart) {
         const explodeElapsed = now - p.explosionStart;
-        const explodeDuration = 1000;
+        const explodeDuration = 1200;
         if (explodeElapsed < explodeDuration) {
           const strikeProgress = explodeElapsed / explodeDuration;
           const epos = latLonToCanvas(p.toLat, p.toLon, drawW, drawH);
-          const alpha = (1 - strikeProgress) * 0.6;
-          const radius = 5 + strikeProgress * 20;
+          // Fireball
+          const alpha = (1 - strikeProgress) * 0.7;
+          const radius = 4 + strikeProgress * 22;
           ctx.beginPath();
           ctx.arc(epos.x, epos.y, radius, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255, 180, 50, ${alpha})`;
+          ctx.fillStyle = `rgba(255, 160, 30, ${alpha})`;
           ctx.fill();
+          // Inner bright core
+          if (strikeProgress < 0.5) {
+            const coreAlpha = (1 - strikeProgress * 2) * 0.8;
+            ctx.beginPath();
+            ctx.arc(epos.x, epos.y, radius * 0.4, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 255, 200, ${coreAlpha})`;
+            ctx.fill();
+          }
+          // Smoke ring
+          if (strikeProgress > 0.3) {
+            const smokeAlpha = (1 - strikeProgress) * 0.3;
+            const smokeR = radius * 1.5;
+            ctx.beginPath();
+            ctx.arc(epos.x, epos.y, smokeR, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(100, 100, 100, ${smokeAlpha})`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
         }
       }
 
