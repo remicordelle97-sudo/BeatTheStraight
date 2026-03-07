@@ -1225,6 +1225,50 @@ function transitLoop(timestamp) {
         }
       }
 
+      // Autopilot avoidance: land look-ahead and ship separation
+      if (ship.autopilot && state.speed > 0) {
+        // Coast escape mode for autopilot
+        if (state.apEscapeTimer > 0) {
+          state.apEscapeTimer -= dt;
+          state.targetHeading = state.apEscapeHeading;
+        } else {
+          const headRad = state.heading * Math.PI / 180;
+          // Check ahead for land at multiple distances
+          for (const la of [0.05, 0.1, 0.15]) {
+            if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
+              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+                const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.15, state.lon + Math.sin(tryRad) * 0.15)) {
+                  state.apEscapeHeading = normalizeAngle(state.heading + angle);
+                  state.apEscapeTimer = 3 + Math.random() * 2;
+                  state.targetHeading = state.apEscapeHeading;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+          // Avoid NPC ships
+          for (const npc of npcShips) {
+            const d = distanceDeg(state.lat, state.lon, npc.lat, npc.lon);
+            if (d < 0.08 && d > 0.001) {
+              const awayAngle = headingToTarget(npc.lat, npc.lon, state.lat, state.lon);
+              const steerDiff = angleDiff(state.targetHeading, awayAngle);
+              state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 15));
+            }
+          }
+          // Avoid military ships
+          for (const mil of militaryShips) {
+            const d = distanceDeg(state.lat, state.lon, mil.lat, mil.lon);
+            if (d < (mil.dangerRadius + 0.05) && d > 0.001) {
+              const awayAngle = headingToTarget(mil.lat, mil.lon, state.lat, state.lon);
+              const steerDiff = angleDiff(state.targetHeading, awayAngle);
+              state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 20));
+            }
+          }
+        }
+      }
+
       // Turn toward target heading
       const headingDiff = angleDiff(state.heading, state.targetHeading);
       if (Math.abs(headingDiff) > 0.5) {
@@ -1237,6 +1281,22 @@ function transitLoop(timestamp) {
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
       if (!isOnLand(newLat, newLon)) { state.lon = newLon; state.lat = newLat; }
+      else if (ship.autopilot) {
+        // Autopilot: don't stop, find escape direction
+        const probeDist = 0.08;
+        for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
+          const th = normalizeAngle(state.heading + angle);
+          const tr = th * Math.PI / 180;
+          if (!isOnLand(state.lat + Math.cos(tr) * probeDist, state.lon + Math.sin(tr) * probeDist)) {
+            state.apEscapeHeading = th;
+            state.apEscapeTimer = 5;
+            state.targetHeading = th;
+            state.lon += Math.sin(tr) * probeDist * 0.5;
+            state.lat += Math.cos(tr) * probeDist * 0.5;
+            break;
+          }
+        }
+      }
       else { state.speed = Math.max(0, state.speed * 0.5); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
       state.lat = Math.max(MAP_BOUNDS.south + 0.05, Math.min(MAP_BOUNDS.north - 0.05, state.lat));
