@@ -749,8 +749,8 @@ function spawnShipState(ship) {
 // UNIVERSAL IMPACT HANDLER — proximity damage for all missiles & bombs
 // ============================================
 const BLAST_RADIUS = 0.12;       // degrees (~13km) — max damage range
-const MISSILE_MAX_DMG = 0.20;    // max damage at epicenter for missiles
-const BOMB_MAX_DMG = 0.30;       // max damage at epicenter for bombs
+const MISSILE_MAX_DMG = 1.00;    // max damage at epicenter for missiles
+const BOMB_MAX_DMG = 1.00;       // max damage at epicenter for bombs
 const NPC_KILL_THRESHOLD = 0.08; // NPC destroyed if impact within this range
 
 setImpactHandler((impactLat, impactLon, type) => {
