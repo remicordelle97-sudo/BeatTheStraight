@@ -13,8 +13,8 @@ class GameState {
     this.id = id;
     this.hostId = hostId;
     this.phase = GAME_PHASES.LOBBY;
-    this.riskLevel = 'MODERATE';
-    this.oilPrice = BASE_OIL_PRICE * RISK_LEVELS.MODERATE.oilPriceMultiplier;
+    this.riskLevel = 'CRITICAL';
+    this.oilPrice = BASE_OIL_PRICE * RISK_LEVELS.CRITICAL.oilPriceMultiplier;
     this.players = {};
     this.transitLog = [];
     this.transitCount = 0;
