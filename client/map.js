@@ -822,7 +822,7 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     const pos = latLonToCanvas(currentLat, currentLon, drawW, drawH);
     ctx.save();
     ctx.translate(pos.x, pos.y);
-    ctx.rotate(canvasAngle - Math.PI / 2);
+    ctx.rotate(canvasAngle + Math.PI / 2);
     ctx.fillStyle = '#88aadd';
     ctx.beginPath();
     ctx.moveTo(0, -7);    // nose
