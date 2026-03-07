@@ -1691,8 +1691,14 @@ function updateHUD() {
 // ============================================
 // AMBIENT WAR - missiles and planes fly between bases independent of ships
 // ============================================
-let lastAmbientCheck = 0;
-const AMBIENT_INTERVAL = 3; // check every 3 seconds
+let lastIranianCheck = 0;
+let lastAlliedCheck = 0;
+// Independent intervals so Iranian and allied salvos don't always coincide
+const IRANIAN_INTERVAL = 3;  // seconds between Iranian launch checks
+const ALLIED_INTERVAL = 3;   // seconds between allied launch checks
+// Stagger initial offsets so they don't start in sync
+let iranianOffset = 0;
+let alliedOffset = 1.5 + Math.random() * 1.5; // 1.5-3s after Iranian
 
 // Add slight randomness to impact point (scatter around target)
 function scatterTarget(lat, lon) {
@@ -1730,12 +1736,8 @@ function pickMissileTarget(bases, cities) {
 }
 
 function updateAmbientWar(elapsed) {
-  if (elapsed - lastAmbientCheck < AMBIENT_INTERVAL) return;
-  lastAmbientCheck = elapsed;
-
   const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
   const ambientChance = risk.eventFrequency;
-  if (Math.random() > ambientChance) return;
 
   const iranMissileBases = MILITARY_BASES.filter(b => b.country === 'Iran' && (b.type === 'missile' || b.type === 'naval'));
   const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
@@ -1747,70 +1749,84 @@ function updateAmbientWar(elapsed) {
   const alliedAirBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && b.type === 'air');
   const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
 
-  // --- Coordinated Iranian salvo toward allies ---
-  if (iranMissileBases.length > 0 && Math.random() < 0.6) {
-    // Pick 2-5 bases to fire in a coordinated salvo
-    const salvoSize = 2 + Math.floor(Math.random() * Math.min(4, iranMissileBases.length));
-    const shuffled = [...iranMissileBases].sort(() => Math.random() - 0.5);
-    const firingBases = shuffled.slice(0, salvoSize);
-    for (let si = 0; si < firingBases.length; si++) {
-      const launcher = firingBases[si];
-      const target = pickMissileTarget(alliedBases, alliedCities);
-      if (target) {
-        // Stagger launches within ~0.8s window
-        const delay = si * (100 + Math.random() * 200);
-        setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
-      }
-    }
-  }
+  // --- Iranian salvo (independent timer) ---
+  const iranTime = elapsed - iranianOffset;
+  if (iranTime >= 0 && iranTime - lastIranianCheck >= IRANIAN_INTERVAL) {
+    lastIranianCheck = iranTime;
+    // Randomize next interval slightly (2-5s) so salvos feel organic
+    iranianOffset += (Math.random() - 0.5) * 2;
 
-  if (iranAirBases.length > 0 && Math.random() < 0.4) {
-    const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
-    const target = pickMissileTarget(alliedBases, alliedCities);
-    if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
-  }
-
-  // --- Coordinated allied counter-salvo toward Iran ---
-  if (alliedMissileBases.length > 0 && Math.random() < 0.5) {
-    const salvoSize = 2 + Math.floor(Math.random() * Math.min(3, alliedMissileBases.length));
-    const shuffled = [...alliedMissileBases].sort(() => Math.random() - 0.5);
-    const firingBases = shuffled.slice(0, salvoSize);
-    for (let si = 0; si < firingBases.length; si++) {
-      const launcher = firingBases[si];
-      const target = pickMissileTarget(iranMissileBases, iranCities);
-      if (target) {
-        const delay = si * (100 + Math.random() * 200);
-        setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
-      }
-    }
-  }
-
-  if (alliedAirBases.length > 0 && Math.random() < 0.35) {
-    const airBase = alliedAirBases[Math.floor(Math.random() * alliedAirBases.length)];
-    const target = pickMissileTarget(iranMissileBases, iranCities);
-    if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
-  }
-
-  // --- Missiles targeting NPC ships (small chance) ---
-  if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
-    const movingNpcs = npcShips.filter(n => n.speed > 0);
-    if (movingNpcs.length > 0) {
-      const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
-      const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
-      // Aim at NPC's current position (with scatter)
-      const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
-      spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon, {
-        onImpact: (impactLat, impactLon) => {
-          // Only destroy NPC if missile lands within ~0.1 degrees (~10km)
-          const idx = npcShips.indexOf(targetNpc);
-          if (idx === -1) return;
-          const dist = Math.hypot(targetNpc.lat - impactLat, targetNpc.lon - impactLon);
-          if (dist < 0.1) {
-            addTransitEvent('NPC SHIP HIT', `${targetNpc.shipName} struck by missile!`, 'danger');
-            npcShips[idx] = createNPCTanker(false);
+    if (Math.random() < ambientChance) {
+      if (iranMissileBases.length > 0 && Math.random() < 0.6) {
+        const salvoSize = 2 + Math.floor(Math.random() * Math.min(4, iranMissileBases.length));
+        const shuffled = [...iranMissileBases].sort(() => Math.random() - 0.5);
+        const firingBases = shuffled.slice(0, salvoSize);
+        for (let si = 0; si < firingBases.length; si++) {
+          const launcher = firingBases[si];
+          const target = pickMissileTarget(alliedBases, alliedCities);
+          if (target) {
+            const delay = si * (100 + Math.random() * 200);
+            setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
           }
         }
-      });
+      }
+
+      if (iranAirBases.length > 0 && Math.random() < 0.4) {
+        const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
+        const target = pickMissileTarget(alliedBases, alliedCities);
+        if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+      }
+
+      // --- Missiles targeting NPC ships (small chance, Iranian only) ---
+      if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
+        const movingNpcs = npcShips.filter(n => n.speed > 0);
+        if (movingNpcs.length > 0) {
+          const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
+          const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
+          const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
+          spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon, {
+            onImpact: (impactLat, impactLon) => {
+              const idx = npcShips.indexOf(targetNpc);
+              if (idx === -1) return;
+              const dist = Math.hypot(targetNpc.lat - impactLat, targetNpc.lon - impactLon);
+              if (dist < 0.1) {
+                addTransitEvent('NPC SHIP HIT', `${targetNpc.shipName} struck by missile!`, 'danger');
+                npcShips[idx] = createNPCTanker(false);
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+
+  // --- Allied counter-salvo (independent timer, offset from Iranian) ---
+  const alliedTime = elapsed - alliedOffset;
+  if (alliedTime >= 0 && alliedTime - lastAlliedCheck >= ALLIED_INTERVAL) {
+    lastAlliedCheck = alliedTime;
+    // Randomize next interval slightly
+    alliedOffset += (Math.random() - 0.5) * 2;
+
+    if (Math.random() < ambientChance) {
+      if (alliedMissileBases.length > 0 && Math.random() < 0.5) {
+        const salvoSize = 2 + Math.floor(Math.random() * Math.min(3, alliedMissileBases.length));
+        const shuffled = [...alliedMissileBases].sort(() => Math.random() - 0.5);
+        const firingBases = shuffled.slice(0, salvoSize);
+        for (let si = 0; si < firingBases.length; si++) {
+          const launcher = firingBases[si];
+          const target = pickMissileTarget(iranMissileBases, iranCities);
+          if (target) {
+            const delay = si * (100 + Math.random() * 200);
+            setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
+          }
+        }
+      }
+
+      if (alliedAirBases.length > 0 && Math.random() < 0.35) {
+        const airBase = alliedAirBases[Math.floor(Math.random() * alliedAirBases.length)];
+        const target = pickMissileTarget(iranMissileBases, iranCities);
+        if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+      }
     }
   }
 }
