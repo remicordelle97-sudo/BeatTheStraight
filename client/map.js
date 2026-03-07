@@ -609,7 +609,7 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
 // ============================================
 // FIGHTER PLANE ANIMATION SYSTEM
 // ============================================
-const PLANE_SPEED_DEG_PER_SEC = 35 * (0.25 / 60); // ~35 knots equivalent
+const PLANE_SPEED_DEG_PER_SEC = 70 * (0.25 / 60); // ~70 knots equivalent
 
 function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
   const now = Date.now();
