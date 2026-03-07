@@ -391,6 +391,39 @@ document.getElementById('scp-defense').addEventListener('click', () => {
 });
 
 // Upgrade: Autopilot
+function populateApTerminalSelect(ship) {
+  const sel = document.getElementById('scp-ap-terminal');
+  sel.innerHTML = '';
+  const cargoType = ship.cargoType || 'oil';
+  const terminals = Object.values(OIL_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  terminals.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `${t.name} (${t.country}) +${Math.round(t.loadingBonus * 100)}%`;
+    sel.appendChild(opt);
+  });
+  // Pre-select current terminal if set
+  if (ship.autopilotTerminal) sel.value = ship.autopilotTerminal.id;
+}
+
+function getTerminalById(id) {
+  return Object.values(OIL_TERMINALS).find(t => t.id === id);
+}
+
+function engageAutopilot(ship) {
+  const sel = document.getElementById('scp-ap-terminal');
+  const terminal = getTerminalById(sel.value);
+  if (!terminal) return;
+  ship.autopilot = true;
+  ship.autopilotTerminal = terminal;
+  // Reset escape state and clear old waypoints so it re-routes
+  const state = shipStates[ship.id];
+  if (state) { state.apEscapeTimer = 0; state.apEscapeHeading = 0; }
+  shipWaypoints[ship.id] = [];
+  addTransitEvent('AUTOPILOT ON', `${ship.name}: Route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+  refreshUpgradeButtons();
+}
+
 document.getElementById('scp-autopilot').addEventListener('click', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
@@ -415,26 +448,28 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
     socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'autopilot', cost }, (res) => {
       if (res?.success) {
         ship.hasAutopilot = true;
-        ship.autopilot = true;
-        ship.autopilotTerminal = findBestTerminalForShip(ship);
-        addTransitEvent('AUTOPILOT INSTALLED', `${ship.name}: Autopilot engaged! Route: ${ship.autopilotTerminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
-        refreshUpgradeButtons();
+        populateApTerminalSelect(ship);
+        engageAutopilot(ship);
       }
     });
   } else {
-    ship.autopilot = true;
-    ship.autopilotTerminal = findBestTerminalForShip(ship);
-    addTransitEvent('AUTOPILOT ON', `${ship.name}: Autopilot engaged. Route: ${ship.autopilotTerminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
-    refreshUpgradeButtons();
+    engageAutopilot(ship);
   }
 });
 
-function findBestTerminalForShip(ship) {
-  const cargoType = ship.cargoType || 'oil';
-  const terminals = Object.values(OIL_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
-  // Pick highest bonus terminal
-  return terminals.reduce((best, t) => (t.loadingBonus > best.loadingBonus ? t : best), terminals[0]);
-}
+// Change autopilot destination while running
+document.getElementById('scp-ap-terminal').addEventListener('change', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  if (!ship || !ship.autopilot) return;
+  const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
+  if (!terminal) return;
+  ship.autopilotTerminal = terminal;
+  shipWaypoints[ship.id] = [];
+  const state = shipStates[ship.id];
+  if (state) { state.apEscapeTimer = 0; }
+  addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: New route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+});
 
 function refreshUpgradeButtons() {
   const ship = getSelectedShipData();
@@ -482,15 +517,21 @@ function refreshUpgradeButtons() {
 
   // Autopilot
   const apBtn = document.getElementById('scp-autopilot');
+  const apDest = document.getElementById('scp-ap-dest');
   if (ship.autopilot) {
     apBtn.textContent = 'AUTOPILOT ON';
     apBtn.classList.add('owned');
+    populateApTerminalSelect(ship);
+    apDest.classList.remove('hidden');
   } else if (ship.hasAutopilot) {
     apBtn.textContent = 'AUTOPILOT OFF';
     apBtn.classList.remove('owned');
+    populateApTerminalSelect(ship);
+    apDest.classList.remove('hidden');
   } else {
     apBtn.textContent = `AUTOPILOT ${formatMoney(30000000)}`;
     apBtn.disabled = cash < 30000000;
+    apDest.classList.add('hidden');
   }
 
   // Insurance
@@ -630,7 +671,8 @@ function spawnShipState(ship) {
   shipStates[ship.id] = {
     lat, lon, heading: 270, targetHeading: 270, speed: 0,
     health: ship.health, totalDamage: 0, totalMoneyLoss: 0, totalDelay: 0,
-    seized: false, destroyed: false
+    seized: false, destroyed: false,
+    apEscapeTimer: 0, apEscapeHeading: 0
   };
   shipWaypoints[ship.id] = [];
   shipTrails[ship.id] = [];
@@ -1207,8 +1249,9 @@ function transitLoop(timestamp) {
         }
       }
 
-      // Waypoint navigation
-      if (wps.length > 0) {
+      // Waypoint navigation (skip if autopilot is in escape mode)
+      const apEscaping = ship.autopilot && state.apEscapeTimer > 0;
+      if (wps.length > 0 && !apEscaping) {
         const wp = wps[0];
         const dLon = wp.lon - state.lon;
         const dLat = wp.lat - state.lat;

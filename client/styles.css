@@ -974,6 +974,21 @@ h1 {
   background: rgba(64, 192, 112, 0.1);
 }
 
+.scp-ap-dest {
+  margin-top: 4px;
+}
+.scp-ap-dest select {
+  width: 100%;
+  background: var(--bg-dark, #1a1a2e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 3px;
+  padding: 3px 4px;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .scp-upgrade-info {
   font-size: 10px;
   color: var(--text-muted);
