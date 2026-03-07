@@ -708,17 +708,29 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     if (p.phase === 'outbound') {
       const tRaw = Math.min(1, phaseElapsed / p.flightDuration);
-      // Linear approach — orbit handles its own speed variation
       const t = tRaw;
 
       // Fly straight toward the loop entry point (one ellipseB behind target)
       const entryLat = p.toLat - p.approachLat * p.ellipseB;
       const entryLon = p.toLon - p.approachLon * p.ellipseB;
-      currentLat = p.fromLat + (entryLat - p.fromLat) * t;
-      currentLon = p.fromLon + (entryLon - p.fromLon) * t;
+      const baseLat = p.fromLat + (entryLat - p.fromLat) * t;
+      const baseLon = p.fromLon + (entryLon - p.fromLon) * t;
 
-      // Heading: straight along approach direction
-      canvasAngle = latLonHeadingToCanvas(p.approachLat, p.approachLon);
+      // Sine wave weave: fades in from departure, fades out into orbit entry
+      const envelope = Math.sin(t * Math.PI); // 0 at start & end
+      const weave = Math.sin(t * Math.PI * p.weaveFreq * 2) * p.weaveAmp * envelope;
+      currentLat = baseLat + p.perpLat * weave;
+      currentLon = baseLon + p.perpLon * weave;
+
+      // Heading accounts for weave derivative
+      const dWeave = p.weaveAmp * Math.PI * (
+        p.weaveFreq * 2 * Math.cos(t * Math.PI * p.weaveFreq * 2) * Math.sin(t * Math.PI) +
+        Math.sin(t * Math.PI * p.weaveFreq * 2) * Math.cos(t * Math.PI)
+      );
+      canvasAngle = latLonHeadingToCanvas(
+        p.approachLat + p.perpLat * dWeave,
+        p.approachLon + p.perpLon * dWeave
+      );
 
       if (tRaw >= 1) {
         p.phase = 'orbit';
@@ -864,16 +876,33 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       const rFromLat = p.returnFromLat || p.toLat;
       const rFromLon = p.returnFromLon || p.toLon;
       const tRaw = Math.min(1, phaseElapsed / (p.flightDuration * 1.2));
-      // Smoothstep: starts fast (matching orbit exit speed), cruises, decelerates at base
-      const t = tRaw * tRaw * (3 - 2 * tRaw);
-      currentLat = rFromLat + (p.fromLat - rFromLat) * t;
-      currentLon = rFromLon + (p.fromLon - rFromLon) * t;
+      const t = tRaw;
+      const baseLat = rFromLat + (p.fromLat - rFromLat) * t;
+      const baseLon = rFromLon + (p.fromLon - rFromLon) * t;
 
-      // Heading from exit point toward base — matches orbit exit tangent
-      // (orbit exits heading backward = toward base direction)
+      // Return direction (unit vector from orbit exit toward base)
+      const retDLat = p.fromLat - rFromLat;
+      const retDLon = p.fromLon - rFromLon;
+      const retLen = Math.hypot(retDLat, retDLon) || 1;
+      const retPerpLat = -retDLon / retLen;
+      const retPerpLon = retDLat / retLen;
+
+      // Sine wave weave: fades in from orbit exit, fades out at base
+      const envelope = Math.sin(t * Math.PI);
+      const weave = Math.sin(t * Math.PI * p.weaveFreq * 2) * p.weaveAmp * envelope;
+      currentLat = baseLat + retPerpLat * weave;
+      currentLon = baseLon + retPerpLon * weave;
+
+      // Heading accounts for weave derivative
+      const retFwdLat = retDLat / retLen;
+      const retFwdLon = retDLon / retLen;
+      const dWeave = p.weaveAmp * Math.PI * (
+        p.weaveFreq * 2 * Math.cos(t * Math.PI * p.weaveFreq * 2) * Math.sin(t * Math.PI) +
+        Math.sin(t * Math.PI * p.weaveFreq * 2) * Math.cos(t * Math.PI)
+      );
       canvasAngle = latLonHeadingToCanvas(
-        p.fromLat - rFromLat,
-        p.fromLon - rFromLon
+        retFwdLat + retPerpLat * dWeave,
+        retFwdLon + retPerpLon * dWeave
       );
 
       if (tRaw >= 1) {
