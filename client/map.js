@@ -701,17 +701,20 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       if (t >= 1) {
         p.phase = 'loiter';
         p.phaseStart = now;
-        // Start loiter angle from where plane actually is relative to target
-        p.loiterAngle = Math.atan2(currentLon - p.toLon, currentLat - p.toLat);
+        // Use approach heading to seed the loiter start angle
+        p.loiterAngle = Math.atan2(p.toLon - p.fromLon, p.toLat - p.fromLat);
       }
     } else if (p.phase === 'loiter') {
       const t = Math.min(1, phaseElapsed / p.loiterDuration);
       const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 2;
-      currentLat = p.toLat + Math.cos(angle) * p.loiterRadius;
-      currentLon = p.toLon + Math.sin(angle) * p.loiterRadius;
-      // Tangent to circle
-      const dLat = -Math.sin(angle) * p.loiterDir * p.loiterRadius;
-      const dLon = Math.cos(angle) * p.loiterDir * p.loiterRadius;
+      // Spiral outward from center: radius grows smoothly from 0 to full
+      const spiralT = Math.min(1, t * 4); // reach full radius by 25% into loiter
+      const r = p.loiterRadius * spiralT;
+      currentLat = p.toLat + Math.cos(angle) * r;
+      currentLon = p.toLon + Math.sin(angle) * r;
+      // Tangent to spiral
+      const dLat = -Math.sin(angle) * p.loiterDir * r;
+      const dLon = Math.cos(angle) * p.loiterDir * r;
       canvasAngle = latLonHeadingToCanvas(dLat, dLon);
 
       if (t >= 1) {
@@ -721,6 +724,7 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
         p.strikeLat = currentLat;
         p.strikeLon = currentLon;
         p.strikeAngle = canvasAngle;
+        p.strikeRadius = r; // remember actual radius for returnLoiter
       }
     } else if (p.phase === 'strike') {
       const strikeDuration = 800;
@@ -742,22 +746,31 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       if (strikeElapsed >= strikeDuration) {
         p.phase = 'returnLoiter';
         p.phaseStart = now;
-        // Start from current position
+        // Compute actual angle from strike position
         p.loiterAngle = Math.atan2(p.strikeLon - p.toLon, p.strikeLat - p.toLat);
+        p.returnLoiterRadius = p.strikeRadius || p.loiterRadius;
       }
     } else if (p.phase === 'returnLoiter') {
       const t = Math.min(1, phaseElapsed / p.returnLoiterDuration);
+      const r = p.returnLoiterRadius;
       const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 1.5;
-      currentLat = p.toLat + Math.cos(angle) * p.loiterRadius * 0.8;
-      currentLon = p.toLon + Math.sin(angle) * p.loiterRadius * 0.8;
-      const dLat = -Math.sin(angle) * p.loiterDir * p.loiterRadius * 0.8;
-      const dLon = Math.cos(angle) * p.loiterDir * p.loiterRadius * 0.8;
-      canvasAngle = latLonHeadingToCanvas(dLat, dLon);
+      // Spiral inward: radius shrinks to 0 at the end for smooth departure
+      const spiralT = 1 - Math.max(0, (t - 0.6) / 0.4); // shrink in last 40%
+      const curR = r * spiralT;
+      currentLat = p.toLat + Math.cos(angle) * curR;
+      currentLon = p.toLon + Math.sin(angle) * curR;
+      const dLat = -Math.sin(angle) * p.loiterDir * curR;
+      const dLon = Math.cos(angle) * p.loiterDir * curR;
+      // When spiral collapses, point toward home base
+      if (spiralT < 0.3) {
+        canvasAngle = latLonHeadingToCanvas(p.fromLat - p.toLat, p.fromLon - p.toLon);
+      } else {
+        canvasAngle = latLonHeadingToCanvas(dLat, dLon);
+      }
 
       if (t >= 1) {
         p.phase = 'return';
         p.phaseStart = now;
-        // Store where we are so return starts from here
         p.returnFromLat = currentLat;
         p.returnFromLon = currentLon;
       }
