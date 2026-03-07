@@ -656,29 +656,73 @@ document.getElementById('btn-submit-plan').addEventListener('click', () => {
 // ============================================
 // NPC & MILITARY SHIP SPAWNING
 // ============================================
+// NPC tanker states
+const NPC_STATE = {
+  ENTERING: 'entering',        // Sailing in from off-screen
+  HEADING_TO_TERMINAL: 'heading_to_terminal',
+  LOADING: 'loading',          // Docked at terminal
+  DEPARTING: 'departing',      // Heading out through strait
+};
+
+function createNPCTanker(staggered) {
+  const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
+  const terminals = Object.values(OIL_TERMINALS);
+  const terminal = terminals[Math.floor(Math.random() * terminals.length)];
+
+  // Spawn from east edge (Gulf of Oman) - off-screen
+  const lon = 59.5 + Math.random() * 1.0;
+  const lat = 24.5 + Math.random() * 2.0;
+  // Head west toward the strait/gulf
+  const heading = 250 + Math.random() * 30;
+
+  const speed = type.speed + (Math.random() - 0.5) * 2;
+  return {
+    lat, lon, heading,
+    speed,
+    baseSpeed: speed,
+    size: type.size,
+    color: type.color,
+    name: type.name + ' ' + Math.floor(Math.random() * 900 + 100),
+    targetHeading: heading,
+    wanderTimer: Math.random() * 10,
+    wanderOffset: 0,
+    state: NPC_STATE.ENTERING,
+    targetTerminal: terminal,
+    loadTimer: 0,
+    stuckCount: 0
+  };
+}
+
 function spawnNPCShips() {
   npcShips = [];
   const count = SIM_CONFIG.NPC_COUNT;
   for (let i = 0; i < count; i++) {
-    const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
-    const goingEast = Math.random() > 0.4; // Most traffic goes east through strait
-    let lon, lat;
-    // Ensure NPC doesn't spawn on land
-    do {
-      lon = 54.0 + Math.random() * 3.0;
-      lat = 26.0 + Math.random() * 1.2;
-    } while (isOnLand(lat, lon));
-
-    npcShips.push({
-      lat, lon,
-      heading: goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20,
-      speed: type.speed + (Math.random() - 0.5) * 3,
-      size: type.size,
-      color: type.color,
-      name: type.name,
-      targetHeading: goingEast ? 90 : 270,
-      wanderTimer: Math.random() * 10
-    });
+    const npc = createNPCTanker(true);
+    // Stagger initial positions: some already in transit at various stages
+    if (i < count / 3) {
+      // Some already heading to terminal (mid-strait)
+      let lon, lat;
+      do {
+        lon = 54.0 + Math.random() * 3.0;
+        lat = 25.5 + Math.random() * 2.0;
+      } while (isOnLand(lat, lon));
+      npc.lat = lat;
+      npc.lon = lon;
+      npc.state = NPC_STATE.HEADING_TO_TERMINAL;
+    } else if (i < (count * 2) / 3) {
+      // Some already departing (heading east through strait)
+      let lon, lat;
+      do {
+        lon = 55.0 + Math.random() * 2.5;
+        lat = 25.5 + Math.random() * 1.5;
+      } while (isOnLand(lat, lon));
+      npc.lat = lat;
+      npc.lon = lon;
+      npc.state = NPC_STATE.DEPARTING;
+      npc.heading = 80 + Math.random() * 20;
+      npc.targetHeading = 90;
+    }
+    npcShips.push(npc);
   }
 }
 
@@ -687,16 +731,31 @@ function spawnMilitaryShips() {
   const types = Object.values(MILITARY_SHIPS);
   for (const type of types) {
     const pb = type.patrolBounds;
-    let spLat, spLon;
-    do {
+    // Spawn from edge of patrol bounds (entering from off-screen direction)
+    const edge = Math.floor(Math.random() * 4);
+    let spLat, spLon, heading;
+    if (edge === 0) { // from east
+      spLon = pb.east + 0.5;
       spLat = pb.south + Math.random() * (pb.north - pb.south);
+      heading = 270;
+    } else if (edge === 1) { // from west
+      spLon = pb.west - 0.5;
+      spLat = pb.south + Math.random() * (pb.north - pb.south);
+      heading = 90;
+    } else if (edge === 2) { // from south
       spLon = pb.west + Math.random() * (pb.east - pb.west);
-    } while (isOnLand(spLat, spLon));
+      spLat = pb.south - 0.5;
+      heading = 0;
+    } else { // from north
+      spLon = pb.west + Math.random() * (pb.east - pb.west);
+      spLat = pb.north + 0.5;
+      heading = 180;
+    }
     militaryShips.push({
       lat: spLat,
       lon: spLon,
-      heading: Math.random() * 360,
-      speed: type.speed * (0.3 + Math.random() * 0.5), // patrol at lower speed
+      heading,
+      speed: type.speed * (0.5 + Math.random() * 0.3),
       size: type.size,
       color: type.color,
       name: type.name,
@@ -704,23 +763,73 @@ function spawnMilitaryShips() {
       dangerRadius: type.dangerRadius,
       friendlyFireChance: type.friendlyFireChance,
       patrolBounds: pb,
-      targetHeading: Math.random() * 360,
-      patrolTimer: Math.random() * 15
+      targetHeading: heading,
+      patrolTimer: 5 + Math.random() * 10,
+      entered: false // hasn't reached patrol zone yet
     });
   }
 }
 
+function headingToTarget(fromLat, fromLon, toLat, toLon) {
+  const dLon = toLon - fromLon;
+  const dLat = toLat - fromLat;
+  return normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
+}
+
+function distanceDeg(lat1, lon1, lat2, lon2) {
+  return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
+}
+
 function updateNPCShips(dt) {
-  for (const npc of npcShips) {
-    // Slight wander
+  for (let i = 0; i < npcShips.length; i++) {
+    const npc = npcShips[i];
+
+    // State machine for NPC tanker behavior
+    if (npc.state === NPC_STATE.LOADING) {
+      npc.loadTimer -= dt;
+      npc.speed = 0;
+      if (npc.loadTimer <= 0) {
+        // Done loading, depart eastward
+        npc.state = NPC_STATE.DEPARTING;
+        npc.speed = npc.baseSpeed || 13;
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, 25.5, 58.5);
+      }
+      continue;
+    }
+
+    // Calculate target heading based on state
+    if (npc.state === NPC_STATE.ENTERING || npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+      const t = npc.targetTerminal;
+      const dist = distanceDeg(npc.lat, npc.lon, t.lat, t.lon);
+      if (dist < (t.loadRadius || 0.15)) {
+        // Arrived at terminal
+        npc.state = NPC_STATE.LOADING;
+        npc.loadTimer = 15 + Math.random() * 20; // 15-35 seconds loading
+        npc.speed = 0;
+        continue;
+      }
+      // Steer toward terminal
+      npc.targetHeading = headingToTarget(npc.lat, npc.lon, t.lat, t.lon);
+      // Once past the strait entrance, switch to heading_to_terminal
+      if (npc.state === NPC_STATE.ENTERING && npc.lon < 57.0) {
+        npc.state = NPC_STATE.HEADING_TO_TERMINAL;
+      }
+    } else if (npc.state === NPC_STATE.DEPARTING) {
+      // Head toward Gulf of Oman exit
+      npc.targetHeading = headingToTarget(npc.lat, npc.lon, 25.3, 59.5);
+    }
+
+    // Add slight wander so movement looks natural
     npc.wanderTimer -= dt;
     if (npc.wanderTimer <= 0) {
-      npc.targetHeading = npc.heading + (Math.random() - 0.5) * 30;
+      npc.wanderOffset = (Math.random() - 0.5) * 8;
       npc.wanderTimer = 5 + Math.random() * 10;
     }
 
+    const adjustedTarget = normalizeAngle(npc.targetHeading + (npc.wanderOffset || 0));
+
     // Turn toward target heading
-    const diff = angleDiff(npc.heading, npc.targetHeading);
+    const diff = angleDiff(npc.heading, adjustedTarget);
     if (Math.abs(diff) > 0.5) {
       npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 1.5 * dt * 60));
     }
@@ -737,56 +846,55 @@ function updateNPCShips(dt) {
       npc.lat = newLat;
       npc.stuckCount = 0;
     } else {
-      // Try to turn away from land - add randomness to avoid getting stuck
       npc.stuckCount = (npc.stuckCount || 0) + 1;
       npc.targetHeading = normalizeAngle(npc.heading + 90 + Math.random() * 180);
-      // Force immediate heading change to escape faster
       npc.heading = normalizeAngle(npc.heading + (Math.random() > 0.5 ? 30 : -30));
       npc.wanderTimer = 3;
-      // If stuck too long, respawn in open water
       if (npc.stuckCount > 120) {
-        const goingEast = Math.random() > 0.4;
-        do {
-          npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
-          npc.lat = 26.0 + Math.random() * 1.2;
-        } while (isOnLand(npc.lat, npc.lon));
-        npc.heading = goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20;
-        npc.targetHeading = npc.heading;
-        npc.stuckCount = 0;
+        // Respawn from edge
+        const replacement = createNPCTanker(false);
+        npcShips[i] = replacement;
+        continue;
       }
     }
 
-    // Remove and respawn if out of bounds
-    if (npc.lon > 59.0 || npc.lon < 53.5 || npc.lat > 28.0 || npc.lat < 25.0) {
-      const goingEast = Math.random() > 0.4;
-      do {
-        npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
-        npc.lat = 26.0 + Math.random() * 1.2;
-      } while (isOnLand(npc.lat, npc.lon));
-      npc.heading = goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20;
-      npc.targetHeading = goingEast ? 90 : 270;
+    // If exited the map, respawn as a new ship entering from off-screen
+    if (npc.lon > 60.5 || npc.lon < 46.5 || npc.lat > 31.0 || npc.lat < 23.0) {
+      const replacement = createNPCTanker(false);
+      npcShips[i] = replacement;
     }
   }
 }
 
 function updateMilitaryShips(dt) {
   for (const mil of militaryShips) {
-    mil.patrolTimer -= dt;
-    if (mil.patrolTimer <= 0) {
-      // Pick new patrol waypoint within bounds (ensure it's in water)
-      const pb = mil.patrolBounds;
-      let targetLat, targetLon;
-      let attempts = 0;
-      do {
-        targetLat = pb.south + Math.random() * (pb.north - pb.south);
-        targetLon = pb.west + Math.random() * (pb.east - pb.west);
-        attempts++;
-      } while (isOnLand(targetLat, targetLon) && attempts < 20);
-      const dLon = targetLon - mil.lon;
-      const dLat = targetLat - mil.lat;
-      mil.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
-      mil.patrolTimer = 8 + Math.random() * 12;
+    const pb = mil.patrolBounds;
+
+    // Check if ship has entered patrol zone
+    if (!mil.entered) {
+      if (mil.lat >= pb.south && mil.lat <= pb.north &&
+          mil.lon >= pb.west && mil.lon <= pb.east) {
+        mil.entered = true;
+        mil.patrolTimer = 0; // trigger new patrol waypoint
+      }
     }
+
+    // Once entered, use patrol waypoint logic
+    if (mil.entered) {
+      mil.patrolTimer -= dt;
+      if (mil.patrolTimer <= 0) {
+        let targetLat, targetLon;
+        let attempts = 0;
+        do {
+          targetLat = pb.south + Math.random() * (pb.north - pb.south);
+          targetLon = pb.west + Math.random() * (pb.east - pb.west);
+          attempts++;
+        } while (isOnLand(targetLat, targetLon) && attempts < 20);
+        mil.targetHeading = headingToTarget(mil.lat, mil.lon, targetLat, targetLon);
+        mil.patrolTimer = 8 + Math.random() * 12;
+      }
+    }
+    // If not entered yet, keep heading toward patrol zone center
 
     // Turn
     const diff = angleDiff(mil.heading, mil.targetHeading);
@@ -810,23 +918,23 @@ function updateMilitaryShips(dt) {
       mil.targetHeading = normalizeAngle(mil.heading + 90 + Math.random() * 180);
       mil.heading = normalizeAngle(mil.heading + (Math.random() > 0.5 ? 30 : -30));
       mil.patrolTimer = 3;
-      // If stuck too long, respawn within patrol bounds
       if (mil.stuckCount > 120) {
-        const pb2 = mil.patrolBounds;
         do {
-          mil.lat = pb2.south + Math.random() * (pb2.north - pb2.south);
-          mil.lon = pb2.west + Math.random() * (pb2.east - pb2.west);
+          mil.lat = pb.south + Math.random() * (pb.north - pb.south);
+          mil.lon = pb.west + Math.random() * (pb.east - pb.west);
         } while (isOnLand(mil.lat, mil.lon));
         mil.heading = Math.random() * 360;
         mil.targetHeading = mil.heading;
         mil.stuckCount = 0;
+        mil.entered = true;
       }
     }
 
-    // Clamp to patrol bounds
-    const pb = mil.patrolBounds;
-    mil.lat = Math.max(pb.south, Math.min(pb.north, mil.lat));
-    mil.lon = Math.max(pb.west, Math.min(pb.east, mil.lon));
+    // Clamp to patrol bounds (only after entered)
+    if (mil.entered) {
+      mil.lat = Math.max(pb.south, Math.min(pb.north, mil.lat));
+      mil.lon = Math.max(pb.west, Math.min(pb.east, mil.lon));
+    }
   }
 }
 
