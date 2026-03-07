@@ -204,14 +204,16 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
     if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) continue;
 
     const isSelected = selectedTerminalId === terminal.id;
+    const isLng = terminal.cargoType === 'lng';
+    const baseColor = isLng ? '#4090e0' : '#40c070';
 
     // Loading radius circle
     const radiusPx = (terminal.loadRadius / (viewport.east - viewport.west)) * drawW;
     ctx.beginPath();
     ctx.arc(x, y, radiusPx, 0, Math.PI * 2);
-    ctx.fillStyle = isSelected ? 'rgba(240, 160, 48, 0.15)' : 'rgba(64, 192, 112, 0.08)';
+    ctx.fillStyle = isSelected ? 'rgba(240, 160, 48, 0.15)' : isLng ? 'rgba(64, 144, 224, 0.08)' : 'rgba(64, 192, 112, 0.08)';
     ctx.fill();
-    ctx.strokeStyle = isSelected ? 'rgba(240, 160, 48, 0.5)' : 'rgba(64, 192, 112, 0.3)';
+    ctx.strokeStyle = isSelected ? 'rgba(240, 160, 48, 0.5)' : isLng ? 'rgba(64, 144, 224, 0.3)' : 'rgba(64, 192, 112, 0.3)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.stroke();
@@ -225,20 +227,20 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
     ctx.lineTo(x, y + sz);
     ctx.lineTo(x - sz, y);
     ctx.closePath();
-    ctx.fillStyle = isSelected ? '#f0a030' : '#40c070';
+    ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     // Label
-    ctx.fillStyle = isSelected ? '#f0a030' : '#40c070';
+    ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
     ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
     ctx.textAlign = 'left';
     ctx.fillText(terminal.name, x + sz + 4, y - 2);
     ctx.fillStyle = '#6b7394';
     ctx.font = '9px Courier New';
-    ctx.fillText(terminal.country, x + sz + 4, y + 9);
+    ctx.fillText(isLng ? `${terminal.country} (LNG)` : terminal.country, x + sz + 4, y + 9);
     ctx.textAlign = 'left';
   }
 }

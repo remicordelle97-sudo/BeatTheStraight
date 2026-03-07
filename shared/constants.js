@@ -36,10 +36,11 @@ export const OIL_TERMINALS = {
     id: 'ras_tanura',
     name: 'Ras Tanura',
     country: 'Saudi Arabia',
+    cargoType: 'oil',
     lat: 26.68,
     lon: 50.16,
     capacity: 'Large',
-    loadingBonus: 1.0,  // multiplier on cargo value
+    loadingBonus: 1.0,
     description: 'Largest oil terminal in the world. Fast loading, standard rates.',
     loadRadius: 0.15
   },
@@ -47,10 +48,11 @@ export const OIL_TERMINALS = {
     id: 'kharg_island',
     name: 'Kharg Island',
     country: 'Iran',
+    cargoType: 'oil',
     lat: 29.23,
     lon: 50.20,
     capacity: 'Large',
-    loadingBonus: 1.15,  // Iran sells cheaper
+    loadingBonus: 1.15,
     description: 'Major Iranian export terminal. Cheaper oil but riskier transit.',
     loadRadius: 0.15
   },
@@ -58,10 +60,11 @@ export const OIL_TERMINALS = {
     id: 'basra_oil',
     name: 'Al Basrah Oil Terminal',
     country: 'Iraq',
+    cargoType: 'oil',
     lat: 29.68,
     lon: 48.80,
     capacity: 'Large',
-    loadingBonus: 1.10,  // Slightly cheaper
+    loadingBonus: 1.10,
     description: 'Iraqi offshore terminal near Basra. Good prices, long transit.',
     loadRadius: 0.15
   },
@@ -69,6 +72,7 @@ export const OIL_TERMINALS = {
     id: 'jebel_dhanna',
     name: 'Jebel Dhanna',
     country: 'UAE',
+    cargoType: 'oil',
     lat: 24.30,
     lon: 52.10,
     capacity: 'Medium',
@@ -80,6 +84,7 @@ export const OIL_TERMINALS = {
     id: 'das_island',
     name: 'Das Island',
     country: 'UAE',
+    cargoType: 'oil',
     lat: 25.06,
     lon: 52.87,
     capacity: 'Medium',
@@ -91,11 +96,24 @@ export const OIL_TERMINALS = {
     id: 'mina_al_ahmadi',
     name: 'Mina al-Ahmadi',
     country: 'Kuwait',
+    cargoType: 'oil',
     lat: 29.07,
     lon: 48.17,
     capacity: 'Large',
     loadingBonus: 1.05,
     description: 'Kuwait\'s main oil export terminal. Competitive rates.',
+    loadRadius: 0.15
+  },
+  RAS_LAFFAN: {
+    id: 'ras_laffan',
+    name: 'Ras Laffan',
+    country: 'Qatar',
+    cargoType: 'lng',
+    lat: 25.95,
+    lon: 51.55,
+    capacity: 'Large',
+    loadingBonus: 1.20,
+    description: 'World\'s largest LNG export facility. Only LNG carriers can load here.',
     loadRadius: 0.15
   }
 };
@@ -235,38 +253,52 @@ export const SHIP_TYPES = {
   SMALL_TANKER: {
     id: 'small_tanker',
     name: 'Handysize Tanker',
+    cargoType: 'oil',
     capacity: 30000,
     speed: 14,
     cost: 5000000,
     fuelPerHour: 800,
-    description: 'Small, nimble tanker. Cheaper but lower capacity.'
+    description: 'Small, nimble oil tanker. Cheaper but lower capacity.'
   },
   MEDIUM_TANKER: {
     id: 'medium_tanker',
     name: 'Aframax Tanker',
+    cargoType: 'oil',
     capacity: 100000,
     speed: 15,
     cost: 25000000,
     fuelPerHour: 2000,
-    description: 'Mid-size tanker. Good balance of cost and capacity.'
+    description: 'Mid-size oil tanker. Good balance of cost and capacity.'
   },
   LARGE_TANKER: {
     id: 'large_tanker',
     name: 'Suezmax Tanker',
+    cargoType: 'oil',
     capacity: 160000,
     speed: 15.5,
     cost: 60000000,
     fuelPerHour: 3200,
-    description: 'Large tanker. High capacity, high stakes.'
+    description: 'Large oil tanker. High capacity, high stakes.'
   },
   VLCC: {
     id: 'vlcc',
     name: 'VLCC (Very Large Crude Carrier)',
+    cargoType: 'oil',
     capacity: 300000,
     speed: 16,
     cost: 120000000,
     fuelPerHour: 5500,
     description: 'Massive supertanker. Maximum profit potential.'
+  },
+  LNG_CARRIER: {
+    id: 'lng_carrier',
+    name: 'LNG Carrier',
+    cargoType: 'lng',
+    capacity: 170000,
+    speed: 19,
+    cost: 200000000,
+    fuelPerHour: 4000,
+    description: 'Specialized LNG carrier. Fast, expensive, can only load LNG.'
   }
 };
 

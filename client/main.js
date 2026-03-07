@@ -428,6 +428,7 @@ function updateFleetPanel() {
       <div class="option-card ${isSelected ? 'selected' : ''} ${destroyed ? 'destroyed' : ''}" data-ship-id="${s.id}">
         <div class="option-name">${s.name}</div>
         <div class="option-stats">
+          <span class="stat">${(s.cargoType || 'oil').toUpperCase()}</span>
           <span class="stat">${(s.capacity / 1000).toFixed(0)}K</span>
           <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
           <span class="stat ${cargoClass}">${cargoText}</span>
@@ -872,14 +873,18 @@ function transitLoop(timestamp) {
         while (trail.length > 0 && elapsed - trail[0].t > 5) trail.shift();
       }
 
-      // Terminal cargo loading
+      // Terminal cargo loading (cargo type must match)
       const cargo = shipCargo[ship.id];
       if (cargo && !cargo.loaded) {
+        const shipCargoType = ship.cargoType || 'oil';
         for (const terminal of Object.values(OIL_TERMINALS)) {
+          const terminalCargoType = terminal.cargoType || 'oil';
+          if (shipCargoType !== terminalCargoType) continue;
           const dist = distanceDeg(state.lat, state.lon, terminal.lat, terminal.lon);
           if (dist < (terminal.loadRadius || SIM_CONFIG.LOAD_RADIUS)) {
             cargo.loaded = true; cargo.terminal = terminal; cargo.terminalId = terminal.id;
-            addTransitEvent('CARGO LOADED', `${ship.name}: Loaded at ${terminal.name}.`, 'success');
+            const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
+            addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name}.`, 'success');
             updateFleetPanel(); break;
           }
         }
@@ -1051,13 +1056,17 @@ function addTransitEvent(name, text, type) {
 // ============================================
 function showTerminalPopup(terminal, screenX, screenY) {
   const popup = document.getElementById('terminal-info-popup');
+  const isLng = terminal.cargoType === 'lng';
   const oilPrice = gameState?.oilPrice || 80;
   const ratePerBbl = (oilPrice * terminal.loadingBonus).toFixed(2);
+  const priceLabel = isLng ? 'LNG Price' : 'Oil Price';
+  const unit = isLng ? 'MMBtu' : 'bbl';
   document.getElementById('terminal-popup-name').textContent = terminal.name;
   document.getElementById('terminal-popup-body').innerHTML = `
     <div class="terminal-popup-row"><span>Country:</span><span>${terminal.country}</span></div>
+    <div class="terminal-popup-row"><span>Type:</span><span>${isLng ? 'LNG' : 'Oil'}</span></div>
     <div class="terminal-popup-row"><span>Capacity:</span><span>${terminal.capacity}</span></div>
-    <div class="terminal-popup-row"><span>Oil Price:</span><span class="${terminal.loadingBonus > 1 ? 'stat-good' : terminal.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">$${ratePerBbl}/bbl (${Math.round(terminal.loadingBonus * 100)}%)</span></div>
+    <div class="terminal-popup-row"><span>${priceLabel}:</span><span class="${terminal.loadingBonus > 1 ? 'stat-good' : terminal.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">$${ratePerBbl}/${unit} (${Math.round(terminal.loadingBonus * 100)}%)</span></div>
     <div class="terminal-popup-desc">${terminal.description}</div>`;
   const popupW = 260, popupH = 200;
   let left = Math.min(screenX + 15, window.innerWidth - popupW - 10);
