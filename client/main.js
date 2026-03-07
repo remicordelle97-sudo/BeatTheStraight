@@ -3,7 +3,7 @@ import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getV
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
-  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, MILITARY_BASES
+  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, MILITARY_BASES, CITIES
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -1553,38 +1553,79 @@ function updateHUD() {
 let lastAmbientCheck = 0;
 const AMBIENT_INTERVAL = 3; // check every 3 seconds
 
+// Add slight randomness to impact point (scatter around target)
+function scatterTarget(lat, lon) {
+  const scatter = 0.08; // ~8km spread
+  return {
+    lat: lat + (Math.random() - 0.5) * scatter,
+    lon: lon + (Math.random() - 0.5) * scatter
+  };
+}
+
+// Pick a missile target for a given side
+// 60% military base, 25% city, 15% random land scatter
+function pickMissileTarget(bases, cities) {
+  const roll = Math.random();
+  if (roll < 0.60 && bases.length > 0) {
+    const t = bases[Math.floor(Math.random() * bases.length)];
+    return scatterTarget(t.lat, t.lon);
+  } else if (roll < 0.85 && cities.length > 0) {
+    const t = cities[Math.floor(Math.random() * cities.length)];
+    return scatterTarget(t.lat, t.lon);
+  } else {
+    // Random land hit — pick a base or city and scatter widely
+    const all = [...bases, ...cities];
+    if (all.length === 0) return null;
+    const t = all[Math.floor(Math.random() * all.length)];
+    return {
+      lat: t.lat + (Math.random() - 0.5) * 0.4,
+      lon: t.lon + (Math.random() - 0.5) * 0.4
+    };
+  }
+}
+
 function updateAmbientWar(elapsed) {
   if (elapsed - lastAmbientCheck < AMBIENT_INTERVAL) return;
   lastAmbientCheck = elapsed;
 
   const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
-  // Scale ambient activity by risk level
-  // LOW: ~5% chance per check, CRITICAL: ~50%
   const ambientChance = risk.eventFrequency;
   if (Math.random() > ambientChance) return;
 
-  const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
-  const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
   const iranMissileBases = MILITARY_BASES.filter(b => b.country === 'Iran' && (b.type === 'missile' || b.type === 'naval'));
-  const alliedBases = MILITARY_BASES.filter(b =>
-    ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
-  );
+  const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
+  const iranCities = CITIES.filter(c => c.country === 'Iran');
 
-  if (alliedBases.length === 0) return;
+  const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+  const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
+  const alliedMissileBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && (b.type !== 'radar'));
+  const alliedAirBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && b.type === 'air');
+  const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
 
-  const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
-
-  // Launch a missile
+  // --- Iranian strikes toward allies ---
   if (iranMissileBases.length > 0 && Math.random() < 0.6) {
     const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
-    spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+    const target = pickMissileTarget(alliedBases, alliedCities);
+    if (target) spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
   }
 
-  // Launch a plane sortie
   if (iranAirBases.length > 0 && Math.random() < 0.4) {
     const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
-    const planeTarget = alliedBases[Math.floor(Math.random() * alliedBases.length)];
-    spawnPlane(airBase.id, airBase.lat, airBase.lon, planeTarget.lat, planeTarget.lon);
+    const target = pickMissileTarget(alliedBases, alliedCities);
+    if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+  }
+
+  // --- Allied counter-strikes toward Iran ---
+  if (alliedMissileBases.length > 0 && Math.random() < 0.5) {
+    const launcher = alliedMissileBases[Math.floor(Math.random() * alliedMissileBases.length)];
+    const target = pickMissileTarget(iranMissileBases, iranCities);
+    if (target) spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+  }
+
+  if (alliedAirBases.length > 0 && Math.random() < 0.35) {
+    const airBase = alliedAirBases[Math.floor(Math.random() * alliedAirBases.length)];
+    const target = pickMissileTarget(iranMissileBases, iranCities);
+    if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
   }
 }
 
@@ -1631,50 +1672,47 @@ function checkDangerZonesAllShips(elapsed) {
         // Spawn missile animation for missile events
         if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
-          const alliedBases = MILITARY_BASES.filter(b =>
-            ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
-          );
+          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+          const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
+          const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
           if (iranBases.length > 0) {
-            // Pick a random Iranian launch site
             const launcher = iranBases[Math.floor(Math.random() * iranBases.length)];
             const roll = Math.random();
             if (roll < 0.25) {
               // 25% chance: missile aimed directly at this ship
-              spawnMissile(launcher.lat, launcher.lon, state.lat, state.lon);
-            } else if (alliedBases.length > 0) {
-              // 75% chance: missile aimed at an allied base
-              const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
-              if (Math.random() < 0.05) {
-                // 5% of base-targeted missiles malfunction and hit the ship instead
-                spawnMissile(launcher.lat, launcher.lon, state.lat, state.lon);
-                addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
-              } else {
-                spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+              const shipTarget = scatterTarget(state.lat, state.lon);
+              spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
+            } else {
+              // 75% chance: missile aimed at allied target (base/city/random land)
+              const target = pickMissileTarget(alliedBases, alliedCities);
+              if (target) {
+                if (Math.random() < 0.05) {
+                  // 5% malfunction — hits ship instead
+                  const shipTarget = scatterTarget(state.lat, state.lon);
+                  spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
+                  addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
+                } else {
+                  spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+                }
               }
             }
           }
-        }
-        // Spawn fighter plane sorties for combat events
-        if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
+          // Fighter plane sorties
           const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
-          const alliedBases = MILITARY_BASES.filter(b =>
-            ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain'].includes(b.country)
-          );
           if (iranAirBases.length > 0) {
             const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
-            const roll = Math.random();
-            if (roll < 0.25) {
-              // 25%: strike at ship
+            const roll2 = Math.random();
+            if (roll2 < 0.25) {
               spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
-            } else if (alliedBases.length > 0) {
-              // 75%: strike at allied base
-              const target = alliedBases[Math.floor(Math.random() * alliedBases.length)];
-              if (Math.random() < 0.05) {
-                // 5% error — hits ship instead
-                spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
-                addTransitEvent('AIRSTRIKE ERROR', 'An enemy fighter veered off course toward your vessel!', 'danger');
-              } else {
-                spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+            } else {
+              const target = pickMissileTarget(alliedBases, alliedCities);
+              if (target) {
+                if (Math.random() < 0.05) {
+                  spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
+                  addTransitEvent('AIRSTRIKE ERROR', 'An enemy fighter veered off course toward your vessel!', 'danger');
+                } else {
+                  spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+                }
               }
             }
           }

@@ -488,7 +488,7 @@ function spawnMissile(fromLat, fromLon, toLat, toLon) {
     fromLat, fromLon, toLat, toLon,
     progress: 0,
     startTime: Date.now(),
-    duration: 2500,
+    duration: 5000,
     trail: [],
     exploding: false,
     explosionStart: 0,

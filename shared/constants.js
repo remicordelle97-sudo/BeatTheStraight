@@ -210,6 +210,25 @@ export const MILITARY_BASES = [
     lat: 26.15, lon: 56.25, color: '#44aa88', icon: 'radar' },
 ];
 
+// Cities around the Persian Gulf (missile targets)
+export const CITIES = [
+  // Iranian cities
+  { id: 'bandar_abbas_city', name: 'Bandar Abbas', country: 'Iran', lat: 27.18, lon: 56.28 },
+  { id: 'bushehr_city', name: 'Bushehr', country: 'Iran', lat: 28.97, lon: 50.84 },
+  { id: 'chabahar', name: 'Chabahar', country: 'Iran', lat: 25.30, lon: 60.64 },
+  { id: 'bandar_lengeh', name: 'Bandar Lengeh', country: 'Iran', lat: 26.56, lon: 54.88 },
+  { id: 'kish_island', name: 'Kish Island', country: 'Iran', lat: 26.54, lon: 53.98 },
+  // Allied cities
+  { id: 'dubai', name: 'Dubai', country: 'UAE', lat: 25.20, lon: 55.27 },
+  { id: 'abu_dhabi', name: 'Abu Dhabi', country: 'UAE', lat: 24.45, lon: 54.65 },
+  { id: 'doha', name: 'Doha', country: 'Qatar', lat: 25.29, lon: 51.53 },
+  { id: 'manama', name: 'Manama', country: 'Bahrain', lat: 26.23, lon: 50.59 },
+  { id: 'muscat', name: 'Muscat', country: 'Oman', lat: 23.61, lon: 58.54 },
+  { id: 'kuwait_city', name: 'Kuwait City', country: 'Kuwait', lat: 29.38, lon: 47.99 },
+  { id: 'fujairah_city', name: 'Fujairah', country: 'UAE', lat: 25.13, lon: 56.33 },
+  { id: 'ras_al_khaimah', name: 'Ras Al Khaimah', country: 'UAE', lat: 25.79, lon: 55.94 },
+];
+
 // Key geographic points
 export const WAYPOINTS = {
   PERSIAN_GULF_ENTRY: { lat: 26.8, lon: 54.5, name: 'Persian Gulf' },
