@@ -202,6 +202,25 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
 });
 
 // ============================================
+// CLEAR WAYPOINTS BUTTON
+// ============================================
+const clearWpBtn = document.getElementById('btn-clear-waypoints');
+clearWpBtn.addEventListener('click', () => {
+  simWaypoints = [];
+  simTargetPoint = null;
+  simState.speed = 0;
+  updateClearWpButton();
+});
+
+function updateClearWpButton() {
+  if (simWaypoints.length > 0) {
+    clearWpBtn.classList.remove('hidden');
+  } else {
+    clearWpBtn.classList.add('hidden');
+  }
+}
+
+// ============================================
 // SHIP CONTROL PANEL
 // ============================================
 let shipControlOpen = false;
@@ -641,10 +660,25 @@ function updateNPCShips(dt) {
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon;
       npc.lat = newLat;
+      npc.stuckCount = 0;
     } else {
-      // Turn away from land
-      npc.targetHeading = normalizeAngle(npc.heading + 180);
-      npc.wanderTimer = 2;
+      // Try to turn away from land - add randomness to avoid getting stuck
+      npc.stuckCount = (npc.stuckCount || 0) + 1;
+      npc.targetHeading = normalizeAngle(npc.heading + 90 + Math.random() * 180);
+      // Force immediate heading change to escape faster
+      npc.heading = normalizeAngle(npc.heading + (Math.random() > 0.5 ? 30 : -30));
+      npc.wanderTimer = 3;
+      // If stuck too long, respawn in open water
+      if (npc.stuckCount > 120) {
+        const goingEast = Math.random() > 0.4;
+        do {
+          npc.lon = goingEast ? 54.0 + Math.random() * 0.5 : 57.0 + Math.random() * 0.5;
+          npc.lat = 26.0 + Math.random() * 1.2;
+        } while (isOnLand(npc.lat, npc.lon));
+        npc.heading = goingEast ? 80 + Math.random() * 20 : 250 + Math.random() * 20;
+        npc.targetHeading = npc.heading;
+        npc.stuckCount = 0;
+      }
     }
 
     // Remove and respawn if out of bounds
@@ -664,10 +698,15 @@ function updateMilitaryShips(dt) {
   for (const mil of militaryShips) {
     mil.patrolTimer -= dt;
     if (mil.patrolTimer <= 0) {
-      // Pick new patrol waypoint within bounds
+      // Pick new patrol waypoint within bounds (ensure it's in water)
       const pb = mil.patrolBounds;
-      const targetLat = pb.south + Math.random() * (pb.north - pb.south);
-      const targetLon = pb.west + Math.random() * (pb.east - pb.west);
+      let targetLat, targetLon;
+      let attempts = 0;
+      do {
+        targetLat = pb.south + Math.random() * (pb.north - pb.south);
+        targetLon = pb.west + Math.random() * (pb.east - pb.west);
+        attempts++;
+      } while (isOnLand(targetLat, targetLon) && attempts < 20);
       const dLon = targetLon - mil.lon;
       const dLat = targetLat - mil.lat;
       mil.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
@@ -690,10 +729,23 @@ function updateMilitaryShips(dt) {
     if (!isOnLand(newMilLat, newMilLon)) {
       mil.lon = newMilLon;
       mil.lat = newMilLat;
+      mil.stuckCount = 0;
     } else {
-      // Turn away from land
-      mil.targetHeading = normalizeAngle(mil.heading + 180);
-      mil.patrolTimer = 2;
+      mil.stuckCount = (mil.stuckCount || 0) + 1;
+      mil.targetHeading = normalizeAngle(mil.heading + 90 + Math.random() * 180);
+      mil.heading = normalizeAngle(mil.heading + (Math.random() > 0.5 ? 30 : -30));
+      mil.patrolTimer = 3;
+      // If stuck too long, respawn within patrol bounds
+      if (mil.stuckCount > 120) {
+        const pb2 = mil.patrolBounds;
+        do {
+          mil.lat = pb2.south + Math.random() * (pb2.north - pb2.south);
+          mil.lon = pb2.west + Math.random() * (pb2.east - pb2.west);
+        } while (isOnLand(mil.lat, mil.lon));
+        mil.heading = Math.random() * 360;
+        mil.targetHeading = mil.heading;
+        mil.stuckCount = 0;
+      }
     }
 
     // Clamp to patrol bounds
@@ -881,29 +933,39 @@ function transitLoop(timestamp) {
 
   simGameTime = elapsed * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
-  // Update ship heading
-  const headingDiff = angleDiff(simState.heading, simState.targetHeading);
-  if (Math.abs(headingDiff) > 0.5) {
-    const turnAmount = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), SIM_CONFIG.TURN_RATE * dt * 60);
-    simState.heading = normalizeAngle(simState.heading + turnAmount);
-  }
-
-  // Advance to next waypoint when close enough
+  // Waypoint navigation: continuously re-aim at current waypoint
   if (simWaypoints.length > 0) {
     const wp = simWaypoints[0];
     const dLon = wp.lon - simState.lon;
     const dLat = wp.lat - simState.lat;
     const distToWP = Math.sqrt(dLon * dLon + dLat * dLat);
+
     if (distToWP < 0.03) {
+      // Arrived at waypoint
       simWaypoints.shift();
+      updateClearWpButton();
       if (simWaypoints.length > 0) {
+        // Aim at next waypoint
         const next = simWaypoints[0];
         const nLon = next.lon - simState.lon;
         const nLat = next.lat - simState.lat;
         simState.targetHeading = normalizeAngle(Math.atan2(nLon, nLat) * 180 / Math.PI);
+      } else {
+        // Last waypoint reached - stop the ship
+        simState.speed = 0;
+        simTargetPoint = null;
       }
-      simTargetPoint = simWaypoints.length > 0 ? simWaypoints[0] : null;
+    } else {
+      // Continuously correct heading toward current waypoint
+      simState.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
     }
+  }
+
+  // Update ship heading toward target
+  const headingDiff = angleDiff(simState.heading, simState.targetHeading);
+  if (Math.abs(headingDiff) > 0.5) {
+    const turnAmount = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), SIM_CONFIG.TURN_RATE * dt * 60);
+    simState.heading = normalizeAngle(simState.heading + turnAmount);
   }
 
   // Move ship (nautical: 0°=North, 90°=East)
@@ -975,9 +1037,6 @@ function transitLoop(timestamp) {
     return;
   }
 
-  // Auto-follow ship (smooth pan)
-  autoFollowShip();
-
   // Update HUD
   updateHUD(elapsed);
 
@@ -1002,35 +1061,6 @@ function transitLoop(timestamp) {
   requestAnimationFrame(transitLoop);
 }
 
-function autoFollowShip() {
-  if (isPanning) return; // Don't auto-follow while user is panning
-
-  const vp = getViewport();
-  const lonRange = vp.east - vp.west;
-  const latRange = vp.north - vp.south;
-  const margin = 0.25; // How close to edge before panning
-
-  const shipLonFrac = (simState.lon - vp.west) / lonRange;
-  const shipLatFrac = (vp.north - simState.lat) / latRange;
-
-  // If ship is near edge, smoothly re-center
-  if (shipLonFrac < margin || shipLonFrac > (1 - margin) ||
-      shipLatFrac < margin || shipLatFrac > (1 - margin)) {
-    const targetVp = clampViewport({
-      west: simState.lon - lonRange / 2,
-      east: simState.lon + lonRange / 2,
-      north: simState.lat + latRange / 2,
-      south: simState.lat - latRange / 2
-    });
-
-    // Smooth lerp
-    viewport.west += (targetVp.west - viewport.west) * 0.05;
-    viewport.east += (targetVp.east - viewport.east) * 0.05;
-    viewport.north += (targetVp.north - viewport.north) * 0.05;
-    viewport.south += (targetVp.south - viewport.south) * 0.05;
-    setViewport(viewport);
-  }
-}
 
 function updateHUD(elapsed) {
   const gameHours = Math.floor(simGameTime / 3600);
@@ -1272,6 +1302,12 @@ mapCanvas.addEventListener('click', (e) => {
   // Add waypoint to queue (max 10)
   if (simWaypoints.length < 10) {
     simWaypoints.push(target);
+    updateClearWpButton();
+  }
+
+  // If ship is stopped (was at last waypoint), resume at full speed
+  if (simState.speed === 0 && transitPlan) {
+    simState.speed = transitPlan.ship.speed;
   }
 
   // Set bearing toward first waypoint if this is the only one
@@ -1288,6 +1324,8 @@ mapCanvas.addEventListener('contextmenu', (e) => {
   if (transitActive && simWaypoints.length > 0) {
     simWaypoints = [];
     simTargetPoint = null;
+    simState.speed = 0;
+    updateClearWpButton();
   }
 });
 
