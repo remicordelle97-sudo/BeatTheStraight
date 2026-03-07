@@ -652,17 +652,13 @@ function spawnMilitaryShips() {
   militaryShips = [];
   for (const type of Object.values(MILITARY_SHIPS)) {
     const pb = type.patrolBounds;
-    const edge = Math.floor(Math.random() * 4);
-    let spLat, spLon, heading;
-    if (edge === 0) { spLon = pb.east + 0.5; spLat = pb.south + Math.random() * (pb.north - pb.south); heading = 270; }
-    else if (edge === 1) { spLon = pb.west - 0.5; spLat = pb.south + Math.random() * (pb.north - pb.south); heading = 90; }
-    else if (edge === 2) { spLon = pb.west + Math.random() * (pb.east - pb.west); spLat = pb.south - 0.5; heading = 0; }
-    else { spLon = pb.west + Math.random() * (pb.east - pb.west); spLat = pb.north + 0.5; heading = 180; }
+    const pos = randomWaterPos(pb.south, pb.north, pb.west, pb.east);
+    const heading = Math.random() * 360;
     militaryShips.push({
-      lat: spLat, lon: spLon, heading, speed: type.speed * (0.5 + Math.random() * 0.3),
+      lat: pos.lat, lon: pos.lon, heading, speed: type.speed * (0.5 + Math.random() * 0.3),
       size: type.size, color: type.color, name: type.name, country: type.country,
       dangerRadius: type.dangerRadius, friendlyFireChance: type.friendlyFireChance,
-      patrolBounds: pb, targetHeading: heading, patrolTimer: 5 + Math.random() * 10, entered: false
+      patrolBounds: pb, targetHeading: heading, patrolTimer: 5 + Math.random() * 10, entered: true
     });
   }
 }
