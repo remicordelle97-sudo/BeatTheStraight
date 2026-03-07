@@ -1703,25 +1703,29 @@ function scatterTarget(lat, lon) {
   };
 }
 
-// Pick a missile target for a given side
-// 60% military base, 25% city, 15% random land scatter
+// Pick a missile/plane target for a given side
+// 50% military base, 20% city, 30% random land on enemy territory
 function pickMissileTarget(bases, cities) {
   const roll = Math.random();
-  if (roll < 0.60 && bases.length > 0) {
+  if (roll < 0.50 && bases.length > 0) {
     const t = bases[Math.floor(Math.random() * bases.length)];
     return scatterTarget(t.lat, t.lon);
-  } else if (roll < 0.85 && cities.length > 0) {
+  } else if (roll < 0.70 && cities.length > 0) {
     const t = cities[Math.floor(Math.random() * cities.length)];
     return scatterTarget(t.lat, t.lon);
   } else {
-    // Random land hit — pick a base or city and scatter widely
+    // Random land hit on enemy territory — pick a point near a known location
+    // and scatter widely to simulate hitting random infrastructure/terrain
     const all = [...bases, ...cities];
     if (all.length === 0) return null;
     const t = all[Math.floor(Math.random() * all.length)];
-    return {
-      lat: t.lat + (Math.random() - 0.5) * 0.4,
-      lon: t.lon + (Math.random() - 0.5) * 0.4
-    };
+    // Wide scatter: 0.3-0.8 degrees (~30-80km) from known location
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 0.3 + Math.random() * 0.5;
+    const candidate = { lat: t.lat + Math.sin(angle) * dist, lon: t.lon + Math.cos(angle) * dist };
+    // Verify it's on land; if not, fall back to tighter scatter
+    if (isOnLand(candidate.lat, candidate.lon)) return candidate;
+    return { lat: t.lat + (Math.random() - 0.5) * 0.3, lon: t.lon + (Math.random() - 0.5) * 0.3 };
   }
 }
 
