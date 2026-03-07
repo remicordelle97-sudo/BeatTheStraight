@@ -3,7 +3,7 @@ import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getV
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
-  NPC_SHIP_TYPES, MILITARY_SHIPS
+  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -422,8 +422,8 @@ function updateFleetPanel() {
     const isSelected = selectedShipId === s.id;
     const hp = state ? Math.round((state.health - state.totalDamage) * 100) : Math.round(s.health * 100);
     const destroyed = state?.destroyed || state?.seized;
-    const cargoText = destroyed ? 'LOST' : cargo?.loaded ? 'LOADED' : 'EMPTY';
-    const cargoClass = destroyed ? 'stat-bad' : cargo?.loaded ? 'stat-good' : 'stat-warn';
+    const cargoText = destroyed ? 'LOST' : cargo?.delivered ? 'DELIVERED' : cargo?.loaded ? 'LOADED' : 'EMPTY';
+    const cargoClass = destroyed ? 'stat-bad' : cargo?.delivered ? 'stat-good' : cargo?.loaded ? 'stat-warn' : 'stat-warn';
     return `
       <div class="option-card ${isSelected ? 'selected' : ''} ${destroyed ? 'destroyed' : ''}" data-ship-id="${s.id}">
         <div class="option-name">${s.name}</div>
@@ -436,7 +436,10 @@ function updateFleetPanel() {
   }).join('');
 
   container.querySelectorAll('.option-card').forEach(card => {
-    card.addEventListener('click', () => selectShip(card.dataset.shipId));
+    card.addEventListener('click', () => {
+      if (card.dataset.shipId === selectedShipId) deselectShip();
+      else selectShip(card.dataset.shipId);
+    });
   });
 }
 
@@ -882,6 +885,24 @@ function transitLoop(timestamp) {
         }
       }
 
+      // Dropoff delivery check
+      if (cargo && cargo.loaded && !cargo.delivered) {
+        const dropDist = distanceDeg(state.lat, state.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+        if (dropDist < DROPOFF_POINT.radius) {
+          cargo.delivered = true;
+          const oilPrice = gameState.oilPrice || 80;
+          const bonus = cargo.terminal?.loadingBonus || 1.0;
+          const revenue = Math.round(ship.capacity * oilPrice * bonus * (1 - state.totalDamage));
+          socket.emit('deliver_cargo', { shipId: ship.id, revenue }, (res) => {
+            if (res?.success) {
+              addTransitEvent('CARGO DELIVERED', `${ship.name}: Delivered for ${formatMoney(revenue)}!`, 'success');
+            }
+          });
+          addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${DROPOFF_POINT.name}. Revenue: ${formatMoney(revenue)}`, 'success');
+          updateFleetPanel();
+        }
+      }
+
       // Destruction check
       if (state.totalDamage >= 0.9 && !state.destroyed) {
         state.destroyed = true;
@@ -951,9 +972,10 @@ function updateHUD() {
     document.getElementById('hud-ship-name').textContent = ship.name;
     const cargo = shipCargo[selectedShipId];
     const cargoEl = document.getElementById('hud-cargo-status');
-    if (cargo?.loaded) { cargoEl.textContent = `LOADED - ${cargo.terminal?.name || ''}`; cargoEl.className = 'hud-cargo loaded'; }
+    if (cargo?.delivered) { cargoEl.textContent = 'DELIVERED'; cargoEl.className = 'hud-cargo loaded'; }
+    else if (cargo?.loaded) { cargoEl.textContent = `LOADED - Head to ${DROPOFF_POINT.name}`; cargoEl.className = 'hud-cargo loading'; }
     else { cargoEl.textContent = 'NAVIGATE TO TERMINAL'; cargoEl.className = 'hud-cargo loading'; }
-    document.getElementById('hud-progress').textContent = cargo?.loaded ? 'LOADED' : 'EMPTY';
+    document.getElementById('hud-progress').textContent = cargo?.delivered ? 'DONE' : cargo?.loaded ? 'LOADED' : 'EMPTY';
   } else {
     document.getElementById('hud-speed').textContent = '-- kts';
     document.getElementById('hud-heading').innerHTML = '--&deg;';

@@ -48,7 +48,7 @@ export const OIL_TERMINALS = {
     name: 'Kharg Island',
     country: 'Iran',
     lat: 29.23,
-    lon: 50.33,
+    lon: 50.20,
     capacity: 'Large',
     loadingBonus: 1.15,  // Iran sells cheaper
     description: 'Major Iranian export terminal. Cheaper oil but riskier transit.',
@@ -69,8 +69,8 @@ export const OIL_TERMINALS = {
     id: 'jebel_dhanna',
     name: 'Jebel Dhanna',
     country: 'UAE',
-    lat: 24.19,
-    lon: 52.58,
+    lat: 24.30,
+    lon: 52.10,
     capacity: 'Medium',
     loadingBonus: 0.95,
     description: 'ADNOC terminal in Abu Dhabi. Premium pricing.',
@@ -98,6 +98,16 @@ export const OIL_TERMINALS = {
     description: 'Kuwait\'s main oil export terminal. Competitive rates.',
     loadRadius: 0.15
   }
+};
+
+// Dropoff point - east side of map in Gulf of Oman
+export const DROPOFF_POINT = {
+  id: 'dropoff',
+  name: 'Gulf of Oman Anchorage',
+  lat: 25.3,
+  lon: 59.2,
+  radius: 0.3,
+  description: 'International shipping anchorage. Deliver cargo here to complete transit.'
 };
 
 // Danger zones on the map

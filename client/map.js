@@ -1,6 +1,6 @@
 // Persian Gulf fullscreen map renderer with pan/zoom
 import {
-  MAP_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT
+  MAP_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT
 } from '../shared/constants.js';
 
 // Viewport state (mutable, controlled by main.js)
@@ -243,6 +243,41 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId) {
   }
 }
 
+function drawDropoffPoint(ctx, drawW, drawH) {
+  const dp = DROPOFF_POINT;
+  const { x, y } = latLonToCanvas(dp.lat, dp.lon, drawW, drawH);
+  if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) return;
+
+  // Radius circle
+  const radiusPx = (dp.radius / (viewport.east - viewport.west)) * drawW;
+  ctx.beginPath();
+  ctx.arc(x, y, radiusPx, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(240, 160, 48, 0.08)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(240, 160, 48, 0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Icon (anchor / square marker)
+  const sz = 7;
+  ctx.fillStyle = '#f0a030';
+  ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - sz, y - sz, sz * 2, sz * 2);
+
+  // Label
+  ctx.fillStyle = '#f0a030';
+  ctx.font = 'bold 10px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillText(dp.name, x + sz + 4, y - 2);
+  ctx.fillStyle = '#a0a8c0';
+  ctx.font = '9px Courier New';
+  ctx.fillText('DROPOFF', x + sz + 4, y + 9);
+}
+
 function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
   const { x, y } = latLonToCanvas(lat, lon, drawW, drawH);
 
@@ -466,6 +501,7 @@ function drawMap(canvas, options = {}) {
   // Oil terminals (always shown)
   if (options.showTerminals) {
     drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId);
+    drawDropoffPoint(ctx, drawW, drawH);
   }
 
   // Ship trail (for selected ship)

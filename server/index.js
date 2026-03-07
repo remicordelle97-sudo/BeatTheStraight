@@ -149,6 +149,18 @@ io.on('connection', (socket) => {
     callback?.({ success: true, ...result });
   });
 
+  socket.on('deliver_cargo', ({ shipId, revenue }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) { callback?.({ success: false }); return; }
+    player.cash = (player.cash || 0) + (revenue || 0);
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true });
+  });
+
   socket.on('get_options', (_, callback) => {
     callback?.({
       shipTypes: SHIP_TYPES,
