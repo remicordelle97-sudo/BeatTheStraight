@@ -609,41 +609,92 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
 // ============================================
 // FIGHTER PLANE ANIMATION SYSTEM
 // ============================================
+const PLANE_SPEED_DEG_PER_SEC = 35 * (0.25 / 60); // ~35 knots equivalent
+
 function spawnPlane(baseId, fromLat, fromLon, toLat, toLon) {
   const now = Date.now();
   const cooldownEnd = planeCooldowns[baseId] || 0;
   if (now < cooldownEnd) return; // base still on cooldown
   planeCooldowns[baseId] = now + 180000; // 3-minute cooldown
+
+  const dist = Math.hypot(toLat - fromLat, toLon - fromLon);
+  const flightMs = (dist / PLANE_SPEED_DEG_PER_SEC) * 1000;
+  const loiterDuration = 4000 + Math.random() * 4000; // 4-8s circling near target
+
+  // Random weave parameters (unique per sortie)
+  const weaveFreq = 1.5 + Math.random() * 1.5; // oscillations during flight
+  const weaveAmp = 0.08 + Math.random() * 0.1;  // lateral deviation in degrees
+  const loiterRadius = 0.15 + Math.random() * 0.1; // circling radius near target
+  const loiterDir = Math.random() < 0.5 ? 1 : -1; // CW or CCW
+
   activePlanes.push({
     baseId, fromLat, fromLon, toLat, toLon,
-    progress: 0,
     startTime: now,
-    outboundDuration: 3000,
-    returnDuration: 3000,
-    phase: 'outbound', // outbound -> strike -> return
+    phase: 'outbound', // outbound -> loiter -> strike -> returnLoiter -> return
+    phaseStart: now,
+    flightDuration: flightMs,
+    loiterDuration,
+    returnLoiterDuration: 2000 + Math.random() * 3000,
     trail: [],
+    weaveFreq, weaveAmp, loiterRadius, loiterDir,
     strikeTime: 0,
   });
+}
+
+// Compute perpendicular offset for weaving flight path
+function planeWeavePos(fromLat, fromLon, toLat, toLon, t, weaveFreq, weaveAmp) {
+  // Base position along straight line
+  const baseLat = fromLat + (toLat - fromLat) * t;
+  const baseLon = fromLon + (toLon - fromLon) * t;
+  // Perpendicular direction
+  const dx = toLon - fromLon;
+  const dy = toLat - fromLat;
+  const len = Math.hypot(dx, dy) || 1;
+  const perpLat = -dx / len;
+  const perpLon = dy / len;
+  // S-curve weave that starts and ends at zero
+  const weave = Math.sin(t * Math.PI * weaveFreq) * weaveAmp * Math.sin(t * Math.PI);
+  return {
+    lat: baseLat + perpLat * weave,
+    lon: baseLon + perpLon * weave
+  };
 }
 
 function updateAndDrawPlanes(ctx, drawW, drawH) {
   const now = Date.now();
   for (let i = activePlanes.length - 1; i >= 0; i--) {
     const p = activePlanes[i];
-    const elapsed = now - p.startTime;
+    const phaseElapsed = now - p.phaseStart;
 
     let currentLat, currentLon, heading;
 
     if (p.phase === 'outbound') {
-      const t = Math.min(1, elapsed / p.outboundDuration);
-      p.progress = t;
-      currentLat = p.fromLat + (p.toLat - p.fromLat) * t;
-      currentLon = p.fromLon + (p.toLon - p.fromLon) * t;
-      heading = Math.atan2(p.toLon - p.fromLon, p.toLat - p.fromLat);
+      const t = Math.min(1, phaseElapsed / p.flightDuration);
+      const pos = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, t, p.weaveFreq, p.weaveAmp);
+      currentLat = pos.lat;
+      currentLon = pos.lon;
+      // Heading from previous trail point for smooth rotation
+      const prevT = Math.max(0, t - 0.02);
+      const prev = planeWeavePos(p.fromLat, p.fromLon, p.toLat, p.toLon, prevT, p.weaveFreq, p.weaveAmp);
+      heading = Math.atan2(pos.lon - prev.lon, pos.lat - prev.lat);
+
+      if (t >= 1) {
+        p.phase = 'loiter';
+        p.phaseStart = now;
+        p.loiterAngle = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat); // start angle
+      }
+    } else if (p.phase === 'loiter') {
+      // Circle around target before striking
+      const t = phaseElapsed / p.loiterDuration;
+      const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 2 * (1 + Math.random() * 0.01);
+      currentLat = p.toLat + Math.cos(angle) * p.loiterRadius;
+      currentLon = p.toLon + Math.sin(angle) * p.loiterRadius;
+      heading = angle + p.loiterDir * Math.PI / 2; // tangent to circle
 
       if (t >= 1) {
         p.phase = 'strike';
         p.strikeTime = now;
+        p.phaseStart = now;
       }
     } else if (p.phase === 'strike') {
       const strikeDuration = 800;
@@ -663,17 +714,30 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
       ctx.fill();
 
       if (strikeElapsed >= strikeDuration) {
+        p.phase = 'returnLoiter';
+        p.phaseStart = now;
+        p.loiterAngle = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+      }
+    } else if (p.phase === 'returnLoiter') {
+      // Circle briefly before heading home
+      const t = phaseElapsed / p.returnLoiterDuration;
+      const angle = p.loiterAngle + p.loiterDir * t * Math.PI * 1.5;
+      currentLat = p.toLat + Math.cos(angle) * p.loiterRadius * 0.8;
+      currentLon = p.toLon + Math.sin(angle) * p.loiterRadius * 0.8;
+      heading = angle + p.loiterDir * Math.PI / 2;
+
+      if (t >= 1) {
         p.phase = 'return';
-        p.startTime = now;
-        p.progress = 0;
+        p.phaseStart = now;
       }
     } else if (p.phase === 'return') {
-      const returnElapsed = now - p.startTime;
-      const t = Math.min(1, returnElapsed / p.returnDuration);
-      p.progress = t;
-      currentLat = p.toLat + (p.fromLat - p.toLat) * t;
-      currentLon = p.toLon + (p.fromLon - p.toLon) * t;
-      heading = Math.atan2(p.fromLon - p.toLon, p.fromLat - p.toLat);
+      const t = Math.min(1, phaseElapsed / p.flightDuration);
+      const pos = planeWeavePos(p.toLat, p.toLon, p.fromLat, p.fromLon, t, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
+      currentLat = pos.lat;
+      currentLon = pos.lon;
+      const prevT = Math.max(0, t - 0.02);
+      const prev = planeWeavePos(p.toLat, p.toLon, p.fromLat, p.fromLon, prevT, p.weaveFreq * 0.8, p.weaveAmp * 0.7);
+      heading = Math.atan2(pos.lon - prev.lon, pos.lat - prev.lat);
 
       if (t >= 1) {
         activePlanes.splice(i, 1);
@@ -685,7 +749,7 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
 
     // Trail
     p.trail.push({ lat: currentLat, lon: currentLon, time: now });
-    p.trail = p.trail.filter(pt => now - pt.time < 2000);
+    p.trail = p.trail.filter(pt => now - pt.time < 3000);
     if (p.trail.length > 1) {
       for (let j = 1; j < p.trail.length; j++) {
         const alpha = (j / p.trail.length) * 0.4;
