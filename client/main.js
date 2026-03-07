@@ -412,7 +412,7 @@ function engageAutopilot(ship) {
   shipAutopilot[ship.id] = { active: true, terminal };
   // Reset escape state and clear old waypoints so it re-routes
   const state = shipStates[ship.id];
-  if (state) { state.apEscapeTimer = 0; state.apEscapeHeading = 0; }
+  if (state) { state.apCoastEscapeTimer = 0; state.apCoastEscapeHeading = 0; }
   shipWaypoints[ship.id] = [];
   addTransitEvent('AUTOPILOT ON', `${ship.name}: Route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
   refreshUpgradeButtons();
@@ -430,7 +430,7 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
     ap.active = false;
     shipWaypoints[ship.id] = [];
     const state = shipStates[ship.id];
-    if (state) { state.speed = 0; state.apEscapeTimer = 0; }
+    if (state) { state.speed = 0; state.apCoastEscapeTimer = 0; }
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
     refreshUpgradeButtons();
     return;
@@ -466,7 +466,7 @@ document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   ap.terminal = terminal;
   const state = shipStates[ship.id];
   if (state) {
-    state.apEscapeTimer = 0;
+    state.apCoastEscapeTimer = 0;
     // Immediately compute new route to updated destination
     const cargo = shipCargo[ship.id];
     let dest;
@@ -684,7 +684,7 @@ function spawnShipState(ship) {
     lat, lon, heading: 270, targetHeading: 270, speed: 0,
     health: ship.health, totalDamage: 0, totalMoneyLoss: 0, totalDelay: 0,
     seized: false, destroyed: false,
-    apEscapeTimer: 0, apEscapeHeading: 0
+    apCoastEscapeTimer: 0, apCoastEscapeHeading: 0
   };
   shipWaypoints[ship.id] = [];
   shipTrails[ship.id] = [];
@@ -1008,176 +1008,10 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
   return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
 }
 
-// Dynamically compute a safe-water approach point for a coastal position
-// Probes outward in 8 directions to find open water with good clearance
-const _approachCache = {};
-function computeApproachPoint(lat, lon) {
-  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
-  if (_approachCache[key]) return _approachCache[key];
-
-  // If already in open water with clearance, no approach point needed
-  if (!isOnLand(lat, lon)) {
-    let nearCoast = false;
-    for (let a = 0; a < 360; a += 45) {
-      const r = a * Math.PI / 180;
-      if (isOnLand(lat + Math.cos(r) * 0.1, lon + Math.sin(r) * 0.1)) { nearCoast = true; break; }
-    }
-    if (!nearCoast) return null;
-  }
-
-  // Probe outward in 16 directions at increasing distances to find safe water
-  let bestPt = null, bestDist = Infinity;
-  for (let a = 0; a < 360; a += 22.5) {
-    const r = a * Math.PI / 180;
-    for (let d = 0.15; d <= 0.8; d += 0.05) {
-      const pLat = lat + Math.cos(r) * d;
-      const pLon = lon + Math.sin(r) * d;
-      if (isOnLand(pLat, pLon)) continue;
-      // Check this point has clearance from coast in all directions
-      let clear = true;
-      for (let ca = 0; ca < 360; ca += 45) {
-        const cr = ca * Math.PI / 180;
-        if (isOnLand(pLat + Math.cos(cr) * 0.08, pLon + Math.sin(cr) * 0.08)) { clear = false; break; }
-      }
-      if (!clear) continue;
-      // Check the path from origin to this point doesn't cross land (basic check)
-      if (!isPathClearBasic(lat, lon, pLat, pLon)) continue;
-      // Found a reachable safe-water point — prefer closest
-      if (d < bestDist) { bestDist = d; bestPt = { lat: pLat, lon: pLon }; }
-      break; // found one at this angle, move to next angle
-    }
-  }
-  _approachCache[key] = bestPt;
-  return bestPt;
-}
-
-// Sea-lane waypoints for autopilot routing (ordered NW to SE through the Gulf)
-// All points are in deep open water with good clearance from all coastlines
-const SEA_LANE = [
-  { lat: 28.8, lon: 49.0 },   // NW Gulf (Iraq/Kuwait approach)
-  { lat: 28.0, lon: 50.0 },   // Central north
-  { lat: 27.0, lon: 51.5 },   // Central west (clear of Qatar/Bahrain)
-  { lat: 26.5, lon: 52.8 },   // East of Qatar
-  { lat: 26.3, lon: 54.0 },   // Central east
-  { lat: 26.3, lon: 55.3 },   // Pre-strait
-  { lat: 26.4, lon: 56.0 },   // Strait approach (south of Qeshm)
-  { lat: 26.0, lon: 57.0 },   // Post-strait
-  { lat: 25.5, lon: 58.0 },   // Gulf of Oman approach
-  { lat: 25.3, lon: 58.8 },   // Gulf of Oman (near dropoff)
-];
-
-// Simple centerline land check (no safety corridor — for near-coast segments)
-function isPathClearBasic(lat1, lon1, lat2, lon2) {
-  const steps = Math.max(15, Math.round(distanceDeg(lat1, lon1, lat2, lon2) / 0.03));
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    if (isOnLand(lat1 + (lat2 - lat1) * t, lon1 + (lon2 - lon1) * t)) return false;
-  }
-  return true;
-}
-
-// Strict check with safety corridor (for open-water segments)
-function isPathClear(lat1, lon1, lat2, lon2) {
-  const dist = distanceDeg(lat1, lon1, lat2, lon2);
-  const steps = Math.max(20, Math.round(dist / 0.02));
-  const dLat = lat2 - lat1, dLon = lon2 - lon1;
-  const len = Math.sqrt(dLat * dLat + dLon * dLon) || 1;
-  const perpLat = -dLon / len * 0.05;
-  const perpLon = dLat / len * 0.05;
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const lat = lat1 + dLat * t;
-    const lon = lon1 + dLon * t;
-    if (isOnLand(lat, lon) ||
-        isOnLand(lat + perpLat, lon + perpLon) ||
-        isOnLand(lat - perpLat, lon - perpLon)) return false;
-  }
-  return true;
-}
-
-function findNearestSeaLaneIdx(lat, lon) {
-  let bestIdx = 0, bestDist = Infinity;
-  for (let i = 0; i < SEA_LANE.length; i++) {
-    const d = distanceDeg(lat, lon, SEA_LANE[i].lat, SEA_LANE[i].lon);
-    if (d < bestDist) { bestDist = d; bestIdx = i; }
-  }
-  return bestIdx;
-}
-
+// Autopilot route is simply the destination waypoint.
+// Land avoidance is handled reactively (same as NPC ships) during movement.
 function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
-  // Dynamically compute approach points if origin/destination are near coast
-  const departApproach = computeApproachPoint(fromLat, fromLon);
-  const arriveApproach = computeApproachPoint(toLat, toLon);
-
-  // Effective open-water start/end for sea-lane routing
-  const startLat = departApproach ? departApproach.lat : fromLat;
-  const startLon = departApproach ? departApproach.lon : fromLon;
-  const endLat = arriveApproach ? arriveApproach.lat : toLat;
-  const endLon = arriveApproach ? arriveApproach.lon : toLon;
-
-  // Try direct route from open-water start to open-water end
-  if (isPathClear(startLat, startLon, endLat, endLon)) {
-    const route = [];
-    if (departApproach) route.push({ lat: departApproach.lat, lon: departApproach.lon });
-    if (arriveApproach) route.push({ lat: arriveApproach.lat, lon: arriveApproach.lon });
-    route.push({ lat: toLat, lon: toLon });
-    return route;
-  }
-
-  // Route through sea lanes
-  // Find entry: closest sea-lane reachable from open-water start
-  let entryIdx = -1, entryDist = Infinity;
-  for (let i = 0; i < SEA_LANE.length; i++) {
-    const d = distanceDeg(startLat, startLon, SEA_LANE[i].lat, SEA_LANE[i].lon);
-    if (d < entryDist && isPathClear(startLat, startLon, SEA_LANE[i].lat, SEA_LANE[i].lon)) {
-      entryDist = d; entryIdx = i;
-    }
-  }
-
-  // Find exit: closest sea-lane reachable from open-water end
-  let exitIdx = -1, exitDist = Infinity;
-  for (let i = 0; i < SEA_LANE.length; i++) {
-    const d = distanceDeg(endLat, endLon, SEA_LANE[i].lat, SEA_LANE[i].lon);
-    if (d < exitDist && isPathClear(SEA_LANE[i].lat, SEA_LANE[i].lon, endLat, endLon)) {
-      exitDist = d; exitIdx = i;
-    }
-  }
-
-  // Fallback: nearest sea-lane points (approach points should make these reachable)
-  if (entryIdx < 0) entryIdx = findNearestSeaLaneIdx(startLat, startLon);
-  if (exitIdx < 0) exitIdx = findNearestSeaLaneIdx(endLat, endLon);
-
-  // Assemble full route: depart approach → sea lane entry → ... → sea lane exit → arrive approach → destination
-  const route = [];
-  if (departApproach) route.push({ lat: departApproach.lat, lon: departApproach.lon });
-
-  if (entryIdx <= exitIdx) {
-    for (let i = entryIdx; i <= exitIdx; i++) route.push({ ...SEA_LANE[i] });
-  } else {
-    for (let i = entryIdx; i >= exitIdx; i--) route.push({ ...SEA_LANE[i] });
-  }
-
-  if (arriveApproach) route.push({ lat: arriveApproach.lat, lon: arriveApproach.lon });
-  route.push({ lat: toLat, lon: toLon });
-
-  // Prune: skip intermediate waypoints where a direct clear path exists
-  const pruned = [route[0]];
-  for (let i = 1; i < route.length; i++) {
-    if (i < route.length - 1 && isPathClear(pruned[pruned.length - 1].lat, pruned[pruned.length - 1].lon, route[i + 1].lat, route[i + 1].lon)) {
-      continue;
-    }
-    pruned.push(route[i]);
-  }
-
-  // Final validation: ensure no segment crosses land (basic centerline check)
-  // If any segment is bad, keep the unpruned route instead
-  for (let i = 0; i < pruned.length - 1; i++) {
-    if (!isPathClearBasic(pruned[i].lat, pruned[i].lon, pruned[i + 1].lat, pruned[i + 1].lon)) {
-      return route; // pruning created a bad path, use full route
-    }
-  }
-
-  return pruned;
+  return [{ lat: toLat, lon: toLon }];
 }
 
 function updateNPCShips(dt, elapsed) {
@@ -1436,8 +1270,9 @@ function transitLoop(timestamp) {
       // Read waypoints fresh (autopilot block above may have replaced them)
       const wps = shipWaypoints[ship.id] || [];
 
-      // Waypoint navigation
-      if (wps.length > 0) {
+      // Waypoint navigation (skip during coast escape — committed to escape heading)
+      const apEscaping = apActive && state.apCoastEscapeTimer > 0;
+      if (wps.length > 0 && !apEscaping) {
         const wp = wps[0];
         const dLon = wp.lon - state.lon;
         const dLat = wp.lat - state.lat;
@@ -1454,71 +1289,52 @@ function transitLoop(timestamp) {
         }
       }
 
-      // Autopilot avoidance: land look-ahead, stuck detection, and ship separation
+      // Autopilot land avoidance — same proven approach as NPC ships:
+      // commit to escape heading when coast detected, ignore waypoints until clear
       if (apActive && state.speed > 0) {
-        // Reroute cooldown: after a reroute, give the ship time to turn and move
-        if (!state.apRerouteCooldown) state.apRerouteCooldown = 0;
-        state.apRerouteCooldown = Math.max(0, state.apRerouteCooldown - dt);
-
-        let needsReroute = false;
-
-        if (state.apRerouteCooldown <= 0) {
-          // Check ahead along TARGET heading (where ship is turning toward)
-          const targetRad = state.targetHeading * Math.PI / 180;
-          for (const la of [0.08, 0.15, 0.25, 0.4]) {
-            if (isOnLand(state.lat + Math.cos(targetRad) * la, state.lon + Math.sin(targetRad) * la)) {
-              needsReroute = true;
+        if (state.apCoastEscapeTimer > 0) {
+          // Committed to escape heading — steer toward it, ignore waypoints
+          state.apCoastEscapeTimer -= dt;
+          const diff = angleDiff(state.heading, state.apCoastEscapeHeading);
+          if (Math.abs(diff) > 0.5) {
+            state.heading = normalizeAngle(state.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
+          }
+          state.targetHeading = state.apCoastEscapeHeading;
+        } else {
+          // Proactive lookahead: check ahead for land
+          const headRad = state.heading * Math.PI / 180;
+          for (const la of [0.05, 0.1, 0.15]) {
+            if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
+              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+                const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.15, state.lon + Math.sin(tryRad) * 0.15)) {
+                  state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
+                  state.apCoastEscapeTimer = 3 + Math.random() * 2;
+                  state.targetHeading = state.apCoastEscapeHeading;
+                  break;
+                }
+              }
               break;
             }
           }
 
-          // Also detect if current waypoint is on land
-          const curWps = shipWaypoints[ship.id] || [];
-          if (curWps.length > 0 && isOnLand(curWps[0].lat, curWps[0].lon)) {
-            needsReroute = true;
+          // Avoid NPC ships (gentle steering)
+          for (const npc of npcShips) {
+            const d = distanceDeg(state.lat, state.lon, npc.lat, npc.lon);
+            if (d < 0.08 && d > 0.001) {
+              const awayAngle = headingToTarget(npc.lat, npc.lon, state.lat, state.lon);
+              const steerDiff = angleDiff(state.targetHeading, awayAngle);
+              state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 15));
+            }
           }
-        }
-
-        // Stuck detection: if ship hasn't moved much recently (always active)
-        if (!state.apLastPos) state.apLastPos = { lat: state.lat, lon: state.lon, t: 0 };
-        state.apLastPos.t += dt;
-        if (state.apLastPos.t > 8) {
-          const moved = distanceDeg(state.lat, state.lon, state.apLastPos.lat, state.apLastPos.lon);
-          if (moved < 0.01) needsReroute = true;
-          state.apLastPos = { lat: state.lat, lon: state.lon, t: 0 };
-        }
-
-        if (needsReroute && ap.terminal) {
-          const cargo = shipCargo[ship.id];
-          let dest;
-          if (cargo && cargo.loaded) {
-            dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
-          } else {
-            dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
-          }
-          const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
-          shipWaypoints[ship.id] = route;
-          state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
-          // Cooldown: don't reroute again for 8 seconds to allow turning and moving
-          state.apRerouteCooldown = 8;
-        }
-
-        // Avoid NPC ships (gentle steering)
-        for (const npc of npcShips) {
-          const d = distanceDeg(state.lat, state.lon, npc.lat, npc.lon);
-          if (d < 0.08 && d > 0.001) {
-            const awayAngle = headingToTarget(npc.lat, npc.lon, state.lat, state.lon);
-            const steerDiff = angleDiff(state.targetHeading, awayAngle);
-            state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 15));
-          }
-        }
-        // Avoid military ships (gentle steering)
-        for (const mil of militaryShips) {
-          const d = distanceDeg(state.lat, state.lon, mil.lat, mil.lon);
-          if (d < (mil.dangerRadius + 0.05) && d > 0.001) {
-            const awayAngle = headingToTarget(mil.lat, mil.lon, state.lat, state.lon);
-            const steerDiff = angleDiff(state.targetHeading, awayAngle);
-            state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 20));
+          // Avoid military ships (gentle steering)
+          for (const mil of militaryShips) {
+            const d = distanceDeg(state.lat, state.lon, mil.lat, mil.lon);
+            if (d < (mil.dangerRadius + 0.05) && d > 0.001) {
+              const awayAngle = headingToTarget(mil.lat, mil.lon, state.lat, state.lon);
+              const steerDiff = angleDiff(state.targetHeading, awayAngle);
+              state.targetHeading = normalizeAngle(state.targetHeading + Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), 20));
+            }
           }
         }
       }
@@ -1536,19 +1352,31 @@ function transitLoop(timestamp) {
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
       if (!isOnLand(newLat, newLon)) { state.lon = newLon; state.lat = newLat; }
       else if (apActive) {
-        // Autopilot hit land: find safe water and nudge toward it
-        const approach = computeApproachPoint(state.lat, state.lon);
-        const target = approach || SEA_LANE[findNearestSeaLaneIdx(state.lat, state.lon)];
-        const escHeading = headingToTarget(state.lat, state.lon, target.lat, target.lon);
-        const nudgeRad = escHeading * Math.PI / 180;
-        const nudgeDist = 0.03;
-        const nudgeLat = state.lat + Math.cos(nudgeRad) * nudgeDist;
-        const nudgeLon = state.lon + Math.sin(nudgeRad) * nudgeDist;
-        if (!isOnLand(nudgeLat, nudgeLon)) {
-          state.lat = nudgeLat;
-          state.lon = nudgeLon;
+        // Autopilot hit land: same approach as NPC — probe for clear direction, nudge, commit
+        const probeDist = 0.08;
+        let escaped = false;
+        for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
+          const th = normalizeAngle(state.heading + angle);
+          const tr = th * Math.PI / 180;
+          if (!isOnLand(state.lat + Math.cos(tr) * probeDist, state.lon + Math.sin(tr) * probeDist)) {
+            state.heading = th;
+            state.lon += Math.sin(tr) * probeDist * 0.6;
+            state.lat += Math.cos(tr) * probeDist * 0.6;
+            state.apCoastEscapeHeading = th;
+            state.apCoastEscapeTimer = 4 + Math.random() * 3;
+            state.targetHeading = th;
+            escaped = true;
+            break;
+          }
         }
-        state.targetHeading = escHeading;
+        if (!escaped) {
+          state.heading = normalizeAngle(state.heading + 180);
+          const rr = state.heading * Math.PI / 180;
+          state.lon += Math.sin(rr) * probeDist * 0.6;
+          state.lat += Math.cos(rr) * probeDist * 0.6;
+          state.apCoastEscapeHeading = state.heading;
+          state.apCoastEscapeTimer = 5;
+        }
       }
       else { state.speed = Math.max(0, Math.round(state.speed * 0.5)); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
