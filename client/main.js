@@ -988,6 +988,89 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
   return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
 }
 
+// Sea-lane waypoints for autopilot routing (ordered NW to SE through the Gulf)
+const SEA_LANE = [
+  { lat: 29.0, lon: 49.0 },   // NW Gulf (Iraq/Kuwait approach)
+  { lat: 28.2, lon: 50.0 },   // Central north
+  { lat: 27.2, lon: 51.0 },   // Central west
+  { lat: 26.3, lon: 52.5 },   // East of Qatar
+  { lat: 26.2, lon: 54.0 },   // Central east
+  { lat: 26.2, lon: 55.5 },   // Pre-strait
+  { lat: 26.4, lon: 56.3 },   // Strait passage
+  { lat: 25.8, lon: 57.5 },   // Post-strait
+  { lat: 25.5, lon: 58.5 },   // Gulf of Oman
+];
+
+function isPathClear(lat1, lon1, lat2, lon2) {
+  const steps = Math.max(20, Math.round(distanceDeg(lat1, lon1, lat2, lon2) / 0.02));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    if (isOnLand(lat1 + (lat2 - lat1) * t, lon1 + (lon2 - lon1) * t)) return false;
+  }
+  return true;
+}
+
+function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
+  // Try direct route first
+  if (isPathClear(fromLat, fromLon, toLat, toLon)) {
+    return [{ lat: toLat, lon: toLon }];
+  }
+
+  // Find closest reachable sea-lane entry point from origin
+  let entryIdx = -1, entryDist = Infinity;
+  for (let i = 0; i < SEA_LANE.length; i++) {
+    const d = distanceDeg(fromLat, fromLon, SEA_LANE[i].lat, SEA_LANE[i].lon);
+    if (d < entryDist && isPathClear(fromLat, fromLon, SEA_LANE[i].lat, SEA_LANE[i].lon)) {
+      entryDist = d; entryIdx = i;
+    }
+  }
+
+  // Find closest reachable sea-lane exit point to destination
+  let exitIdx = -1, exitDist = Infinity;
+  for (let i = 0; i < SEA_LANE.length; i++) {
+    const d = distanceDeg(toLat, toLon, SEA_LANE[i].lat, SEA_LANE[i].lon);
+    if (d < exitDist && isPathClear(SEA_LANE[i].lat, SEA_LANE[i].lon, toLat, toLon)) {
+      exitDist = d; exitIdx = i;
+    }
+  }
+
+  // Fallback: if no clear entry/exit, use nearest points anyway
+  if (entryIdx < 0) {
+    SEA_LANE.forEach((wp, i) => {
+      const d = distanceDeg(fromLat, fromLon, wp.lat, wp.lon);
+      if (d < entryDist) { entryDist = d; entryIdx = i; }
+    });
+  }
+  if (exitIdx < 0) {
+    SEA_LANE.forEach((wp, i) => {
+      const d = distanceDeg(toLat, toLon, wp.lat, wp.lon);
+      if (d < exitDist) { exitDist = d; exitIdx = i; }
+    });
+  }
+
+  // Build route through channel
+  const route = [];
+  if (entryIdx <= exitIdx) {
+    for (let i = entryIdx; i <= exitIdx; i++) route.push({ ...SEA_LANE[i] });
+  } else {
+    for (let i = entryIdx; i >= exitIdx; i--) route.push({ ...SEA_LANE[i] });
+  }
+  route.push({ lat: toLat, lon: toLon });
+
+  // Prune unnecessary intermediate waypoints (skip if direct path is clear)
+  const pruned = [route[0]];
+  for (let i = 1; i < route.length; i++) {
+    const last = pruned[pruned.length - 1];
+    const next = route[i];
+    // Check if we can skip intermediate points
+    if (i < route.length - 1 && isPathClear(last.lat, last.lon, route[i + 1].lat, route[i + 1].lon)) {
+      continue; // skip this waypoint
+    }
+    pruned.push(next);
+  }
+  return pruned;
+}
+
 function updateNPCShips(dt, elapsed) {
   for (let i = 0; i < npcShips.length; i++) {
     const npc = npcShips[i];
@@ -1225,19 +1308,18 @@ function transitLoop(timestamp) {
       if (ship.autopilot && ship.autopilotTerminal) {
         const cargo = shipCargo[ship.id];
         if (wps.length === 0 && state.speed === 0) {
-          // Need new destination
+          // Need new destination — compute routed waypoints
+          let dest;
           if (cargo && cargo.loaded) {
-            // Head to dropoff
-            shipWaypoints[ship.id] = [{ lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon }];
-            state.speed = ship.speed || 14;
-            state.targetHeading = headingToTarget(state.lat, state.lon, DROPOFF_POINT.lat, DROPOFF_POINT.lon);
+            dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
           } else {
-            // Head to terminal
             const t = ship.autopilotTerminal;
-            shipWaypoints[ship.id] = [{ lat: t.lat, lon: t.lon }];
-            state.speed = ship.speed || 14;
-            state.targetHeading = headingToTarget(state.lat, state.lon, t.lat, t.lon);
+            dest = { lat: t.lat, lon: t.lon };
           }
+          const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+          shipWaypoints[ship.id] = route;
+          state.speed = ship.speed || 14;
+          state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
         }
       }
 
