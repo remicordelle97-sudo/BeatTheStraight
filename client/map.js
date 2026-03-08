@@ -262,56 +262,102 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH, lonShift = 0) {
   ctx.stroke();
 }
 
-// Biome zones: latitude/longitude-based color regions painted over land
-// Each zone has soft fade edges (fadeLat degrees of gradient on top/bottom)
-const BIOME_ZONES = [
-  // Arctic / tundra
-  { latMin: 63, latMax: 90, lonMin: -180, lonMax: 180, color: '#8a9a8a', fadeLat: 4 },
-  // Northern Europe — cool temperate
-  { latMin: 46, latMax: 63, lonMin: -12, lonMax: 42, color: '#5a7a4a', fadeLat: 4 },
-  // Scandinavia — boreal
-  { latMin: 56, latMax: 71, lonMin: 5, lonMax: 32, color: '#4a6a4a', fadeLat: 3 },
-  // Mediterranean — warm dry
-  { latMin: 35, latMax: 46, lonMin: -10, lonMax: 42, color: '#7a8050', fadeLat: 3 },
-  // Siberia / Central Asia steppe
-  { latMin: 42, latMax: 63, lonMin: 42, lonMax: 140, color: '#6a7a50', fadeLat: 4 },
-  // Sahara Desert
-  { latMin: 18, latMax: 35, lonMin: -17, lonMax: 35, color: '#b09860', fadeLat: 4 },
-  // Arabian Desert / Middle East
-  { latMin: 15, latMax: 35, lonMin: 35, lonMax: 60, color: '#a89058', fadeLat: 4 },
-  // Sahel — semi-arid transition
-  { latMin: 10, latMax: 18, lonMin: -17, lonMax: 35, color: '#8a8040', fadeLat: 3 },
-  // Tropical West/Central Africa
-  { latMin: -5, latMax: 10, lonMin: -17, lonMax: 35, color: '#3a6a2a', fadeLat: 3 },
-  // East Africa — savanna
-  { latMin: -12, latMax: 5, lonMin: 28, lonMax: 52, color: '#6a7a30', fadeLat: 3 },
-  // Southern Africa — savanna/veld
-  { latMin: -35, latMax: -5, lonMin: 10, lonMax: 52, color: '#7a7a38', fadeLat: 4 },
+// Biome control points: each defines a center (lat,lon) with a color and radius of influence
+// The biome color at any point is a weighted blend of nearby control points
+const BIOME_POINTS = [
+  // Sahara
+  { lat: 25, lon: 5, r: 18, rgb: [176, 152, 96] },
+  { lat: 28, lon: 20, r: 14, rgb: [170, 148, 90] },
+  // Arabian Desert
+  { lat: 25, lon: 48, r: 14, rgb: [168, 144, 88] },
+  { lat: 22, lon: 55, r: 10, rgb: [165, 140, 85] },
+  // Sahel
+  { lat: 13, lon: 5, r: 10, rgb: [138, 128, 64] },
+  { lat: 13, lon: 20, r: 10, rgb: [130, 120, 60] },
+  // Tropical Africa
+  { lat: 2, lon: 10, r: 12, rgb: [58, 106, 42] },
+  { lat: 0, lon: 25, r: 12, rgb: [50, 100, 38] },
+  // East Africa savanna
+  { lat: -3, lon: 36, r: 10, rgb: [106, 122, 48] },
+  { lat: 5, lon: 42, r: 8, rgb: [100, 115, 45] },
+  // Southern Africa
+  { lat: -20, lon: 28, r: 14, rgb: [122, 122, 56] },
+  { lat: -30, lon: 25, r: 10, rgb: [110, 110, 52] },
+  // Mediterranean
+  { lat: 40, lon: 10, r: 10, rgb: [122, 128, 80] },
+  { lat: 38, lon: 25, r: 8, rgb: [118, 122, 75] },
+  // Northern Europe
+  { lat: 54, lon: 10, r: 12, rgb: [90, 122, 74] },
+  { lat: 52, lon: -2, r: 10, rgb: [80, 115, 68] },
+  // Scandinavia boreal
+  { lat: 63, lon: 18, r: 10, rgb: [74, 106, 74] },
+  // Siberia / Russia
+  { lat: 55, lon: 70, r: 18, rgb: [106, 122, 80] },
+  { lat: 55, lon: 110, r: 16, rgb: [100, 115, 75] },
+  // Arctic tundra
+  { lat: 70, lon: 0, r: 14, rgb: [138, 154, 138] },
+  { lat: 70, lon: 90, r: 18, rgb: [135, 150, 132] },
+  { lat: 70, lon: -100, r: 16, rgb: [130, 148, 130] },
   // Indian subcontinent
-  { latMin: 8, latMax: 28, lonMin: 68, lonMax: 90, color: '#5a8a3a', fadeLat: 3 },
-  // Himalayas / Tibetan plateau
-  { latMin: 28, latMax: 40, lonMin: 70, lonMax: 105, color: '#8a8a6a', fadeLat: 3 },
-  // SE Asia — tropical
-  { latMin: -10, latMax: 25, lonMin: 90, lonMax: 155, color: '#3a7a30', fadeLat: 4 },
-  // China — temperate
-  { latMin: 22, latMax: 42, lonMin: 100, lonMax: 125, color: '#5a7a3a', fadeLat: 3 },
-  // N America — boreal/temperate
-  { latMin: 45, latMax: 63, lonMin: -170, lonMax: -50, color: '#4a6a3a', fadeLat: 4 },
+  { lat: 18, lon: 78, r: 12, rgb: [90, 138, 58] },
+  { lat: 25, lon: 82, r: 8, rgb: [85, 130, 55] },
+  // Himalayas / Tibet
+  { lat: 33, lon: 85, r: 10, rgb: [138, 138, 106] },
+  { lat: 35, lon: 95, r: 8, rgb: [132, 132, 100] },
+  // SE Asia tropical
+  { lat: 15, lon: 102, r: 12, rgb: [58, 122, 48] },
+  { lat: 5, lon: 110, r: 10, rgb: [55, 118, 45] },
+  // China temperate
+  { lat: 35, lon: 112, r: 12, rgb: [90, 122, 58] },
+  { lat: 28, lon: 115, r: 8, rgb: [80, 118, 50] },
+  // N America boreal
+  { lat: 55, lon: -100, r: 16, rgb: [74, 106, 58] },
+  { lat: 52, lon: -120, r: 12, rgb: [70, 100, 55] },
   // US temperate
-  { latMin: 30, latMax: 45, lonMin: -130, lonMax: -70, color: '#5a7a3a', fadeLat: 3 },
-  // US southwest — arid
-  { latMin: 25, latMax: 37, lonMin: -120, lonMax: -95, color: '#9a8050', fadeLat: 4 },
-  // Central America — tropical
-  { latMin: 5, latMax: 25, lonMin: -120, lonMax: -60, color: '#3a7a2a', fadeLat: 3 },
-  // Amazon — tropical rainforest
-  { latMin: -15, latMax: 5, lonMin: -80, lonMax: -35, color: '#2a6a20', fadeLat: 4 },
-  // Southern South America — pampas/patagonia
-  { latMin: -55, latMax: -15, lonMin: -80, lonMax: -35, color: '#7a8a48', fadeLat: 5 },
-  // Australia coast — green fringe (drawn first, interior overdraws center)
-  { latMin: -40, latMax: -10, lonMin: 110, lonMax: 160, color: '#6a8038', fadeLat: 3 },
-  // Australia interior — arid
-  { latMin: -33, latMax: -17, lonMin: 118, lonMax: 150, color: '#a08048', fadeLat: 4 },
+  { lat: 40, lon: -90, r: 14, rgb: [90, 122, 58] },
+  { lat: 38, lon: -78, r: 10, rgb: [85, 118, 55] },
+  // US southwest arid
+  { lat: 33, lon: -110, r: 10, rgb: [154, 128, 80] },
+  // Central America tropical
+  { lat: 15, lon: -88, r: 10, rgb: [58, 122, 42] },
+  { lat: 20, lon: -100, r: 8, rgb: [60, 118, 40] },
+  // Amazon rainforest
+  { lat: -3, lon: -60, r: 16, rgb: [42, 106, 32] },
+  { lat: -8, lon: -50, r: 12, rgb: [45, 100, 35] },
+  // Patagonia / southern SA
+  { lat: -35, lon: -65, r: 12, rgb: [122, 138, 72] },
+  { lat: -45, lon: -70, r: 10, rgb: [115, 130, 68] },
+  // Australia arid interior
+  { lat: -25, lon: 134, r: 14, rgb: [160, 128, 72] },
+  // Australia green coast
+  { lat: -34, lon: 150, r: 8, rgb: [106, 128, 56] },
+  { lat: -17, lon: 146, r: 6, rgb: [80, 118, 48] },
+  // Greenland
+  { lat: 72, lon: -42, r: 12, rgb: [138, 154, 144] },
 ];
+
+// Pre-parse biome point colors (done once)
+const _biomeRGB = BIOME_POINTS.map(bp => ({ ...bp, r2: bp.r * bp.r }));
+
+// Sample biome color at a lat/lon — weighted blend of nearby control points
+function sampleBiome(lat, lon) {
+  let rSum = 0, gSum = 0, bSum = 0, wSum = 0;
+  for (const bp of _biomeRGB) {
+    let dLon = lon - bp.lon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    const d2 = (lat - bp.lat) ** 2 + dLon * dLon;
+    if (d2 >= bp.r2 * 4) continue; // skip far-away points (2× radius cutoff)
+    const w = Math.max(0, 1 - Math.sqrt(d2) / (bp.r * 1.5));
+    const w2 = w * w; // quadratic falloff for smoother blending
+    rSum += bp.rgb[0] * w2;
+    gSum += bp.rgb[1] * w2;
+    bSum += bp.rgb[2] * w2;
+    wSum += w2;
+  }
+  if (wSum < 0.01) return null; // no nearby biome points — use base color
+  return [Math.round(rSum / wSum), Math.round(gSum / wSum), Math.round(bSum / wSum)];
+}
 
 // Draw all world coastline polygons (skip off-screen ones)
 function drawWorldCoastlines(ctx, drawW, drawH) {
@@ -326,6 +372,8 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
   // 2. Create clipping region from all visible land polygons
   ctx.save();
   ctx.beginPath();
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
   for (const { poly } of WORLD_POLYGONS) {
     for (const shift of [0, -360, 360]) {
       if (!polyVisible(poly, shift)) continue;
@@ -337,8 +385,6 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
         while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
         while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
       }
-      const vpW = viewport.east - viewport.west;
-      const vpH = viewport.north - viewport.south;
       poly.forEach((p, i) => {
         const x = ((p[1] + lonOffset - viewport.west) / vpW) * drawW;
         const y = ((viewport.north - p[0]) / vpH) * drawH;
@@ -350,66 +396,33 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
   }
   ctx.clip();
 
-  // 3. Paint biome zones with soft fades (lat vertical + lon horizontal)
-  const vpW = viewport.east - viewport.west;
-  const vpH = viewport.north - viewport.south;
-  const hFadeDeg = 3; // degrees of horizontal fade at zone edges
-  const hSteps = 6;   // number of fade strips per edge (performance-friendly)
+  // 3. Paint biome colors using sampled vertical gradient strips
+  const stripCount = Math.min(48, Math.max(16, Math.round(drawW / 20)));
+  const samplesPerStrip = Math.min(24, Math.max(8, Math.round(drawH / 30)));
+  const stripW = drawW / stripCount;
 
-  for (const zone of BIOME_ZONES) {
-    // Skip zones fully outside viewport
-    if (zone.latMax < viewport.south || zone.latMin > viewport.north) continue;
-    if (zone.lonMax < viewport.west || zone.lonMin > viewport.east) continue;
-
-    const x1 = ((zone.lonMin - viewport.west) / vpW) * drawW;
-    const x2 = ((zone.lonMax - viewport.west) / vpW) * drawW;
-    const yTop = ((viewport.north - zone.latMax) / vpH) * drawH;
-    const yBot = ((viewport.north - zone.latMin) / vpH) * drawH;
-    const height = yBot - yTop;
-    if (height <= 0) continue;
-
-    // Vertical gradient: transparent → color → color → transparent
-    const grad = ctx.createLinearGradient(0, yTop, 0, yBot);
-    const fadePx = (zone.fadeLat / vpH) * drawH;
-    const fadeRatio = fadePx > 0 && height > fadePx * 2
-      ? Math.min(fadePx / height, 0.4) : 0.3;
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(fadeRatio, zone.color);
-    grad.addColorStop(1 - fadeRatio, zone.color);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-
-    const hFadePx = (hFadeDeg / vpW) * drawW;
-    const innerX1 = x1 + hFadePx;
-    const innerX2 = x2 - hFadePx;
-
+  for (let i = 0; i < stripCount; i++) {
+    const xMid = (i + 0.5) / stripCount;
+    const lon = viewport.west + xMid * vpW;
+    // Sample biome color at several latitude points along this strip
+    const grad = ctx.createLinearGradient(0, 0, 0, drawH);
+    for (let j = 0; j <= samplesPerStrip; j++) {
+      const yFrac = j / samplesPerStrip;
+      const lat = viewport.north - yFrac * vpH;
+      const rgb = sampleBiome(lat, lon);
+      if (rgb) {
+        grad.addColorStop(yFrac, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+      } else {
+        grad.addColorStop(yFrac, 'rgba(0,0,0,0)');
+      }
+    }
     ctx.fillStyle = grad;
-    // Center region at full opacity
-    if (innerX2 > innerX1) {
-      ctx.fillRect(innerX1, yTop, innerX2 - innerX1, height);
-    }
-    // Left edge fade (few wide strips with decreasing alpha)
-    if (hFadePx > 1) {
-      const stripW = hFadePx / hSteps;
-      for (let i = 0; i < hSteps; i++) {
-        ctx.globalAlpha = (i + 0.5) / hSteps;
-        ctx.fillRect(x1 + i * stripW, yTop, stripW + 1, height);
-      }
-      ctx.globalAlpha = 1;
-    }
-    // Right edge fade
-    if (hFadePx > 1) {
-      const stripW = hFadePx / hSteps;
-      for (let i = 0; i < hSteps; i++) {
-        ctx.globalAlpha = 1 - (i + 0.5) / hSteps;
-        ctx.fillRect(innerX2 + i * stripW, yTop, stripW + 1, height);
-      }
-      ctx.globalAlpha = 1;
-    }
+    ctx.fillRect(Math.floor(i * stripW), 0, Math.ceil(stripW) + 1, drawH);
   }
 
   ctx.restore(); // remove clip
 
-  // 4. Re-draw coastline strokes on top so borders aren't covered
+  // 4. Re-draw coastline strokes on top
   ctx.strokeStyle = '#2a3a2a';
   ctx.lineWidth = 1.5;
   for (const { poly } of WORLD_POLYGONS) {
