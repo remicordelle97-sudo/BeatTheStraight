@@ -788,8 +788,9 @@ function enterGame() {
 function spawnShipState(ship, spawnLat, spawnLon) {
   const baseLat = spawnLat != null ? spawnLat : SIM_CONFIG.SPAWN_LAT;
   const baseLon = spawnLon != null ? spawnLon : SIM_CONFIG.SPAWN_LON;
-  const lat = baseLat + (Math.random() - 0.5) * 0.3;
-  const lon = baseLon + (Math.random() - 0.5) * 0.3;
+  const pos = randomWaterPos(baseLat - 0.15, baseLat + 0.15, baseLon - 0.15, baseLon + 0.15, 50);
+  const lat = pos.lat;
+  const lon = pos.lon;
   shipStates[ship.id] = {
     lat, lon, heading: 270, targetHeading: 270, speed: 0,
     health: ship.health, totalDamage: 0, totalMoneyLoss: 0, totalDelay: 0,
