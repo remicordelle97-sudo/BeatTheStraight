@@ -1729,6 +1729,7 @@ const OCEAN_NODES = [
   { id: 'andaman', lat: 8.0, lon: 96.0 },
   { id: 'malacca', lat: 2.5, lon: 101.0 },
   { id: 'singapore', lat: 1.3, lon: 104.0 },
+  { id: 'gulf_thai', lat: 7.5, lon: 103.0 },
   { id: 'natuna', lat: 3.0, lon: 108.0 },
   { id: 'scs_south', lat: 7.0, lon: 112.0 },
   { id: 'scs', lat: 12.0, lon: 114.0 },
@@ -1793,7 +1794,9 @@ const OCEAN_EDGES = [
   // Asia
   ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
   ['andaman', 'malacca'], ['malacca', 'singapore'],
+  ['singapore', 'gulf_thai'], ['gulf_thai', 'natuna'],
   ['singapore', 'natuna'], ['natuna', 'scs_south'], ['scs_south', 'scs'],
+  ['gulf_thai', 'scs_south'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
 
