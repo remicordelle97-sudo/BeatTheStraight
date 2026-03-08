@@ -201,7 +201,7 @@ function canvasToLatLon(cx, cy, drawW, drawH) {
 // ============================================
 
 // Check if a polygon's bounding box intersects the current viewport
-function polyVisible(points) {
+function polyVisible(points, lonShift = 0) {
   let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
   for (const p of points) {
     if (p[0] < minLat) minLat = p[0];
@@ -210,6 +210,8 @@ function polyVisible(points) {
     if (p[1] > maxLon) maxLon = p[1];
   }
   if (maxLat < viewport.south || minLat > viewport.north) return false;
+  minLon += lonShift;
+  maxLon += lonShift;
   // Handle longitude wrapping — adjust polygon lon range to viewport center
   const vpCenter = (viewport.west + viewport.east) / 2;
   let adjMinLon = minLon, adjMaxLon = maxLon;
@@ -226,14 +228,20 @@ function isGulfZoom() {
     viewport.west < GULF_BOUNDS.east && viewport.east > GULF_BOUNDS.west;
 }
 
-function drawCoastline(ctx, points, fillColor, drawW, drawH) {
+function drawCoastline(ctx, points, fillColor, drawW, drawH, lonShift = 0) {
   // Use a single consistent longitude offset for the entire polygon
   // to prevent vertices from wrapping differently and distorting the fill
   const vpCenter = (viewport.west + viewport.east) / 2;
-  const refLon = points[0][1];
-  let lonOffset = 0;
-  while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
-  while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+  let lonOffset;
+  if (lonShift !== 0) {
+    // Explicit shift requested (for wide polygons drawn at multiple offsets)
+    lonOffset = lonShift;
+  } else {
+    const refLon = points[0][1];
+    lonOffset = 0;
+    while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+    while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+  }
 
   const vpW = viewport.east - viewport.west;
   const vpH = viewport.north - viewport.south;
@@ -257,8 +265,11 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH) {
 // Draw all world coastline polygons (skip off-screen ones)
 function drawWorldCoastlines(ctx, drawW, drawH) {
   for (const { poly, color } of WORLD_POLYGONS) {
-    if (!polyVisible(poly)) continue;
-    drawCoastline(ctx, poly, color, drawW, drawH);
+    // Try drawing at multiple longitude offsets for wrapping support
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      drawCoastline(ctx, poly, color, drawW, drawH, shift);
+    }
   }
   // Canal water cuts — draw ocean-colored polygons on top of land to create passages
   drawCanalCuts(ctx, drawW, drawH);
