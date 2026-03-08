@@ -561,12 +561,15 @@ function drawTrail(ctx, trail, drawW, drawH, colorBase) {
   const len = trail.length;
   const base = colorBase || 'rgba(240, 160, 48,';
   ctx.lineWidth = 1.5;
+  const halfW = drawW / 2;
   for (let i = 1; i < len; i++) {
     const alpha = (i / len) * 0.45;
-    ctx.beginPath();
-    ctx.strokeStyle = `${base} ${alpha.toFixed(3)})`;
     const p0 = latLonToCanvas(trail[i - 1].lat, trail[i - 1].lon, drawW, drawH);
     const p1 = latLonToCanvas(trail[i].lat, trail[i].lon, drawW, drawH);
+    // Skip segments that wrap across the screen (longitude boundary)
+    if (Math.abs(p1.x - p0.x) > halfW) continue;
+    ctx.beginPath();
+    ctx.strokeStyle = `${base} ${alpha.toFixed(3)})`;
     ctx.moveTo(p0.x, p0.y);
     ctx.lineTo(p1.x, p1.y);
     ctx.stroke();
@@ -721,10 +724,12 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
 
       // Draw trail (smoke/exhaust)
       if (m.trail.length > 1) {
+        const halfW = drawW / 2;
         for (let j = 1; j < m.trail.length; j++) {
           const alpha = (j / m.trail.length) * 0.6;
           const p0 = latLonToCanvas(m.trail[j - 1].lat, m.trail[j - 1].lon, drawW, drawH);
           const p1 = latLonToCanvas(m.trail[j].lat, m.trail[j].lon, drawW, drawH);
+          if (Math.abs(p1.x - p0.x) > halfW) continue;
           ctx.beginPath();
           ctx.strokeStyle = `rgba(255, 140, 40, ${alpha})`;
           ctx.lineWidth = 2;
@@ -1110,10 +1115,12 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     p.trail.push({ lat: currentLat, lon: currentLon, time: now });
     p.trail = p.trail.filter(pt => now - pt.time < 3000);
     if (p.trail.length > 1) {
+      const halfW = drawW / 2;
       for (let j = 1; j < p.trail.length; j++) {
         const alpha = (j / p.trail.length) * 0.4;
         const p0 = latLonToCanvas(p.trail[j - 1].lat, p.trail[j - 1].lon, drawW, drawH);
         const p1 = latLonToCanvas(p.trail[j].lat, p.trail[j].lon, drawW, drawH);
+        if (Math.abs(p1.x - p0.x) > halfW) continue;
         ctx.beginPath();
         ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
         ctx.lineWidth = 1.5;
@@ -1540,17 +1547,21 @@ function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
   if (!waypoints || waypoints.length === 0) return;
 
   // Draw lines connecting ship → wp1 → wp2 → ...
-  ctx.beginPath();
   ctx.strokeStyle = 'rgba(240, 160, 48, 0.3)';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
-  const shipPos = latLonToCanvas(ship.lat, ship.lon, drawW, drawH);
-  ctx.moveTo(shipPos.x, shipPos.y);
+  const halfW = drawW / 2;
+  const allPts = [latLonToCanvas(ship.lat, ship.lon, drawW, drawH)];
   for (const wp of waypoints) {
-    const p = latLonToCanvas(wp.lat, wp.lon, drawW, drawH);
-    ctx.lineTo(p.x, p.y);
+    allPts.push(latLonToCanvas(wp.lat, wp.lon, drawW, drawH));
   }
-  ctx.stroke();
+  for (let i = 1; i < allPts.length; i++) {
+    if (Math.abs(allPts[i].x - allPts[i - 1].x) > halfW) continue;
+    ctx.beginPath();
+    ctx.moveTo(allPts[i - 1].x, allPts[i - 1].y);
+    ctx.lineTo(allPts[i].x, allPts[i].y);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
 
   // Draw waypoint markers
