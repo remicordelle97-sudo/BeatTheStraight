@@ -2809,10 +2809,10 @@ const OCEAN_NODES = [
   { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
   { id: 'gulf_uae_s', lat: 25.2, lon: 55.0 },  // south UAE approach
   { id: 'hormuz_app', lat: 26.3, lon: 55.5 },  // Hormuz approach from west
-  { id: 'hormuz', lat: 26.5, lon: 56.3 },
-  { id: 'hormuz_ch', lat: 26.3, lon: 56.8 },   // through the strait channel
-  { id: 'hormuz_e', lat: 26.0, lon: 57.3 },    // east exit of strait
-  { id: 'gulf_oman', lat: 25.5, lon: 58.5 },
+  { id: 'hormuz', lat: 26.55, lon: 56.25 },    // strait center — deep-water channel
+  { id: 'hormuz_ch', lat: 26.55, lon: 56.65 }, // through the strait — north of Musandam tip
+  { id: 'hormuz_e', lat: 25.8, lon: 57.2 },    // east exit — south of Musandam peninsula
+  { id: 'gulf_oman', lat: 25.3, lon: 58.0 },   // Gulf of Oman — clear of Musandam
   { id: 'oman_se', lat: 24.5, lon: 59.0 },
   { id: 'oman', lat: 24.0, lon: 60.0 },
   // Indian Ocean
@@ -3820,6 +3820,7 @@ function transitLoop(timestamp) {
   if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
     checkDangerZonesAllShips(elapsed);
+    checkAisFines(elapsed);
   }
 
   updateAmbientWar(elapsed);
@@ -4413,6 +4414,33 @@ function checkDangerZonesAllShips(elapsed) {
           outcome.damagePercent > 0 || outcome.moneyLoss > 0 ? 'danger' : outcome.delayHours < 0 ? 'success' : '');
         updateFleetPanel();
       }
+    }
+  }
+}
+
+// AIS compliance enforcement — worldwide, 5% chance per check (~1 min game-time intervals)
+const aisFineCooldowns = {};
+const AIS_FINE_INTERVAL = 60; // seconds of game time between checks per ship
+function checkAisFines(elapsed) {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me) return;
+  for (const ship of me.fleet) {
+    const state = shipStates[ship.id];
+    if (!state || state.destroyed || state.seized) continue;
+    const aisId = ship.aisId || 'FULL_BROADCAST';
+    if (aisId === 'FULL_BROADCAST' || aisId === 'full_broadcast') continue;
+    const lastCheck = aisFineCooldowns[ship.id] || 0;
+    if (elapsed - lastCheck < AIS_FINE_INTERVAL) continue;
+    aisFineCooldowns[ship.id] = elapsed;
+    if (Math.random() < 0.05) {
+      const ais = options?.aisOptions?.[aisId];
+      const fine = ais?.legalPenalty || (aisId === 'DARK' ? 500000 : 50000);
+      socket.emit('ais_fine', { shipId: ship.id, amount: fine }, (res) => {
+        if (res?.success) updateFleetPanel();
+      });
+      const modeLabel = aisId === 'DARK' ? 'AIS Dark' : 'Reduced AIS';
+      addTransitEvent('AIS VIOLATION',
+        `${ship.name}: Caught operating with ${modeLabel}. Fined ${formatMoney(fine)}.`, 'danger');
     }
   }
 }
