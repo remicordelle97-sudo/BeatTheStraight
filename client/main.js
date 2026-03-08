@@ -4332,92 +4332,47 @@ function checkDangerZonesAllShips(elapsed) {
         for (let w = 0; w < 3; w++) { cw += [0.5, 0.25, 0.25][w]; if (roll < cw) { oi = w; break; } }
         const outcome = evt.outcomes[oi];
         zoneCooldowns[cooldownKey] = elapsed;
-        // Defense reduces damage taken
-        const damageReduction = 1 - defLevel * 0.15;
-        state.totalDamage += outcome.damagePercent * damageReduction;
-        state.totalDelay += Math.max(0, outcome.delayHours);
-        state.totalMoneyLoss += outcome.moneyLoss;
-        if (outcome.delayHours >= 720) state.seized = true;
-        if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
-        campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
         const isHouthiEvent = eventId === 'houthi_missile' || eventId === 'houthi_drone';
         const isIranEvent = eventId === 'missile_alert' || eventId === 'drone_swarm';
-        const isMissileHit = (isIranEvent || isHouthiEvent) && outcome.damagePercent >= 0.15;
-        // Missile/drone hits stop the ship and clear waypoints
-        if (isMissileHit) {
-          state.speed = 0;
-          shipWaypoints[ship.id] = [];
-          if (shipAutopilot[ship.id]) shipAutopilot[ship.id].active = false;
+        const isMissileOrDrone = isIranEvent || isHouthiEvent;
+        // For missile/drone events: skip direct damage — spawn a visible missile at the ship
+        // and let the impact handler deal damage on proximity hit
+        if (!isMissileOrDrone) {
+          // Non-missile events (mines, seizure, pirates, etc.) apply damage directly
+          const damageReduction = 1 - defLevel * 0.15;
+          state.totalDamage += outcome.damagePercent * damageReduction;
+          state.totalDelay += Math.max(0, outcome.delayHours);
+          state.totalMoneyLoss += outcome.moneyLoss;
+          if (outcome.delayHours >= 720) state.seized = true;
+          if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
+          campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
         }
-        if (isIranEvent || isHouthiEvent) campaignStats.missileEvents++;
-        // Spawn missile animation for missile/drone events
+        if (isMissileOrDrone) campaignStats.missileEvents++;
+        // Spawn visible missile/plane aimed at the ship for missile/drone events
         if (isIranEvent) {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
-          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
-          const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
-          const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
           if (iranBases.length > 0) {
             const launcher = iranBases[Math.floor(Math.random() * iranBases.length)];
-            const roll = Math.random();
-            if (roll < 0.25) {
-              const shipTarget = scatterTarget(state.lat, state.lon);
-              spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
-            } else {
-              const target = pickMissileTarget(alliedBases, alliedCities);
-              if (target) {
-                if (Math.random() < 0.05) {
-                  const shipTarget = scatterTarget(state.lat, state.lon);
-                  spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
-                  addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
-                } else {
-                  spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
-                }
-              }
-            }
+            const shipTarget = scatterTarget(state.lat, state.lon);
+            spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
           }
           const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
-          if (iranAirBases.length > 0) {
+          if (iranAirBases.length > 0 && Math.random() < 0.4) {
             const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
-            const roll2 = Math.random();
-            if (roll2 < 0.25) {
-              spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
-            } else {
-              const target = pickMissileTarget(alliedBases, alliedCities);
-              if (target) {
-                if (Math.random() < 0.05) {
-                  spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
-                  addTransitEvent('AIRSTRIKE ERROR', 'An enemy fighter veered off course toward your vessel!', 'danger');
-                } else {
-                  spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
-                }
-              }
-            }
+            spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
           }
         }
-        // Houthi missile/drone animations from Yemen
         if (isHouthiEvent) {
           const hBases = MILITARY_BASES.filter(b => b.country === 'Houthi');
-          const coalBases = MILITARY_BASES.filter(b =>
-            (b.country === 'Saudi Arabia' || b.country === 'US') && b.lat < 22);
-          const coalCities = CITIES.filter(c =>
-            c.country === 'Saudi Arabia' || c.country === 'Djibouti');
           if (hBases.length > 0) {
             const launcher = hBases[Math.floor(Math.random() * hBases.length)];
-            if (Math.random() < 0.3) {
-              const shipTarget = scatterTarget(state.lat, state.lon);
-              spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
-            } else {
-              const target = pickMissileTarget(coalBases, coalCities);
-              if (target) {
-                spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
-              }
-            }
+            const shipTarget = scatterTarget(state.lat, state.lon);
+            spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
           }
           const hAir = MILITARY_BASES.filter(b => b.country === 'Houthi' && b.type === 'air');
-          if (hAir.length > 0 && Math.random() < 0.3) {
+          if (hAir.length > 0 && Math.random() < 0.4) {
             const airBase = hAir[Math.floor(Math.random() * hAir.length)];
-            const target = pickMissileTarget(coalBases, coalCities);
-            if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+            spawnPlane(airBase.id, airBase.lat, airBase.lon, state.lat, state.lon);
           }
         }
         let extra = '';

@@ -508,6 +508,21 @@ const PANAMA_CANAL = [
   [9.55, -80.1]                     // close
 ];
 
+// Strait of Hormuz — navigable channel between Qeshm/Iran coast (north) and Musandam (south)
+const HORMUZ_STRAIT = [
+  [26.6, 55.5],                     // west approach (south of Qeshm)
+  [26.6, 56.4],                     // past Qeshm & Larak
+  [26.6, 56.8],                     // through strait
+  [26.5, 57.2],                     // past Musandam tip
+  [26.0, 57.8],                     // east exit into Gulf of Oman
+  [25.5, 58.2],                     // well into Gulf of Oman
+  [25.5, 57.5],                     // south edge — return west
+  [25.8, 57.0],                     // south of Musandam
+  [26.2, 56.5],                     // south side of channel
+  [26.2, 55.5],                     // close west
+  [26.6, 55.5]                      // close
+];
+
 function drawCanalCuts(ctx, drawW, drawH) {
   const oceanColor = '#0a1520';
   if (polyVisible(SUEZ_CANAL)) {
@@ -515,6 +530,9 @@ function drawCanalCuts(ctx, drawW, drawH) {
   }
   if (polyVisible(PANAMA_CANAL)) {
     drawCanalWater(ctx, PANAMA_CANAL, oceanColor, drawW, drawH);
+  }
+  if (polyVisible(HORMUZ_STRAIT)) {
+    drawCanalWater(ctx, HORMUZ_STRAIT, oceanColor, drawW, drawH);
   }
 }
 
@@ -1799,6 +1817,7 @@ function isOnLand(lat, lon) {
   // Canal cuts — these areas are water even though they're inside land polygons
   if (pointInPolygon(lat, lon, SUEZ_CANAL)) return false;
   if (pointInPolygon(lat, lon, PANAMA_CANAL)) return false;
+  if (pointInPolygon(lat, lon, HORMUZ_STRAIT)) return false;
   // Check Gulf detail polygons first (higher precision)
   if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
       lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
