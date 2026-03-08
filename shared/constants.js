@@ -414,6 +414,17 @@ export const MILITARY_BASES = [
     lat: 25.12, lon: 56.33, color: '#44aa88', icon: 'anchor' },
   { id: 'musandam', name: 'Oman Radar Station', country: 'Oman', type: 'radar',
     lat: 26.15, lon: 56.25, color: '#44aa88', icon: 'radar' },
+  // Israel
+  { id: 'haifa_naval', name: 'Haifa Naval Base', country: 'Israel', type: 'naval',
+    lat: 32.82, lon: 34.98, color: '#4488cc', icon: 'anchor' },
+  { id: 'eilat_naval', name: 'Eilat Naval Base', country: 'Israel', type: 'naval',
+    lat: 29.55, lon: 34.95, color: '#4488cc', icon: 'anchor' },
+  { id: 'palmachim', name: 'Palmachim Air Base', country: 'Israel', type: 'air',
+    lat: 31.90, lon: 34.69, color: '#4488cc', icon: 'plane' },
+  { id: 'nevatim', name: 'Nevatim Air Base', country: 'Israel', type: 'air',
+    lat: 31.21, lon: 34.82, color: '#4488cc', icon: 'plane' },
+  { id: 'sdot_micha', name: 'Sdot Micha Missile Base', country: 'Israel', type: 'missile',
+    lat: 31.73, lon: 34.93, color: '#4488cc', icon: 'missile' },
 ];
 
 // Cities around the Persian Gulf (missile targets)

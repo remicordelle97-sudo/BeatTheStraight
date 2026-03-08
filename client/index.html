@@ -103,6 +103,12 @@
               <div class="modal-sub-title">INSURANCE</div>
               <div id="modal-insurance-list" class="option-grid"></div>
             </div>
+            <button id="modal-to-spawn" class="btn btn-primary dash-launch-btn">NEXT: CHOOSE LOCATION</button>
+          </div>
+          <div class="modal-step hidden" id="modal-step-spawn">
+            <div class="modal-step-title">3. SPAWN LOCATION</div>
+            <div class="modal-sub-title">Choose a terminal to deploy your ship near</div>
+            <div id="modal-spawn-list" class="option-grid"></div>
             <button id="modal-confirm-buy" class="btn btn-primary dash-launch-btn">CONFIRM PURCHASE</button>
           </div>
           <button id="modal-cancel" class="btn btn-small btn-ghost" style="width:100%;margin-top:8px;">CANCEL</button>
@@ -180,8 +186,10 @@
             <button id="scp-autopilot" class="btn btn-small btn-upgrade">AUTOPILOT</button>
           </div>
           <div id="scp-ap-dest" class="scp-ap-dest hidden">
-            <label class="scp-label">AP DESTINATION</label>
+            <label class="scp-label">AP LOAD AT</label>
             <select id="scp-ap-terminal"></select>
+            <label class="scp-label" style="margin-top:4px;">AP DROP OFF AT</label>
+            <select id="scp-ap-dropoff"></select>
           </div>
           <div id="scp-upgrade-info" class="scp-upgrade-info"></div>
         </div>
@@ -203,6 +211,7 @@
           <button class="speed-btn active" data-speed="1">1x</button>
           <button class="speed-btn" data-speed="2">2x</button>
           <button class="speed-btn" data-speed="4">4x</button>
+          <button class="speed-btn" data-speed="16">16x</button>
         </div>
       </div>
 

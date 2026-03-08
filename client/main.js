@@ -24,6 +24,7 @@ let joinMode = false;
 let modalShipTypeId = null;
 let modalAisId = null;
 let modalInsuranceId = null;
+let modalSpawnTerminalId = null;
 
 let gameSpeedMultiplier = 1;
 
@@ -470,22 +471,40 @@ function populateApTerminalSelect(ship) {
   // Pre-select current terminal if set
   const ap = shipAutopilot[ship.id];
   if (ap && ap.terminal) sel.value = ap.terminal.id;
+
+  // Populate dropoff selector
+  const dropSel = document.getElementById('scp-ap-dropoff');
+  dropSel.innerHTML = '';
+  const dropoffs = Object.values(DROPOFF_POINTS);
+  dropoffs.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.id;
+    opt.textContent = `${d.name} (${d.region})`;
+    dropSel.appendChild(opt);
+  });
+  if (ap && ap.dropoff) dropSel.value = ap.dropoff.id;
 }
 
 function getTerminalById(id) {
   return Object.values(OIL_TERMINALS).find(t => t.id === id);
 }
 
+function getDropoffById(id) {
+  return Object.values(DROPOFF_POINTS).find(d => d.id === id);
+}
+
 function engageAutopilot(ship) {
   const sel = document.getElementById('scp-ap-terminal');
   const terminal = getTerminalById(sel.value);
   if (!terminal) return;
-  shipAutopilot[ship.id] = { active: true, terminal };
+  const dropSel = document.getElementById('scp-ap-dropoff');
+  const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+  shipAutopilot[ship.id] = { active: true, terminal, dropoff };
   // Reset escape state and clear old waypoints so it re-routes
   const state = shipStates[ship.id];
   if (state) { state.apCoastEscapeTimer = 0; state.apCoastEscapeHeading = 0; }
   shipWaypoints[ship.id] = [];
-  addTransitEvent('AUTOPILOT ON', `${ship.name}: Route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+  addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
   refreshUpgradeButtons();
 }
 
@@ -526,7 +545,28 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   }
 });
 
-// Change autopilot destination while running
+// Shared reroute logic for autopilot destination changes
+function autopilotReroute(ship) {
+  const ap = shipAutopilot[ship.id];
+  if (!ap || !ap.active) return;
+  const state = shipStates[ship.id];
+  if (!state) return;
+  state.apCoastEscapeTimer = 0;
+  const cargo = shipCargo[ship.id];
+  let dest;
+  if (cargo && cargo.loaded) {
+    dest = { lat: ap.dropoff.lat, lon: ap.dropoff.lon };
+  } else {
+    dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
+  }
+  const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+  shipWaypoints[ship.id] = route;
+  if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
+  state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+  addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: ${ap.terminal.name} → ${ap.dropoff.name}`, 'success');
+}
+
+// Change autopilot load terminal while running
 document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
@@ -535,23 +575,19 @@ document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
   if (!terminal) return;
   ap.terminal = terminal;
-  const state = shipStates[ship.id];
-  if (state) {
-    state.apCoastEscapeTimer = 0;
-    // Immediately compute new route to updated destination
-    const cargo = shipCargo[ship.id];
-    let dest;
-    if (cargo && cargo.loaded) {
-      dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
-    } else {
-      dest = { lat: terminal.lat, lon: terminal.lon };
-    }
-    const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
-    shipWaypoints[ship.id] = route;
-    if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
-    state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
-  }
-  addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: New route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+  autopilotReroute(ship);
+});
+
+// Change autopilot dropoff while running
+document.getElementById('scp-ap-dropoff').addEventListener('change', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  const ap = shipAutopilot[ship.id];
+  if (!ship || !ap || !ap.active) return;
+  const dropoff = getDropoffById(document.getElementById('scp-ap-dropoff').value);
+  if (!dropoff) return;
+  ap.dropoff = dropoff;
+  autopilotReroute(ship);
 });
 
 function refreshUpgradeButtons() {
@@ -749,9 +785,11 @@ function enterGame() {
   requestAnimationFrame(transitLoop);
 }
 
-function spawnShipState(ship) {
-  const lat = SIM_CONFIG.SPAWN_LAT + (Math.random() - 0.5) * 0.3;
-  const lon = SIM_CONFIG.SPAWN_LON + (Math.random() - 0.5) * 0.3;
+function spawnShipState(ship, spawnLat, spawnLon) {
+  const baseLat = spawnLat != null ? spawnLat : SIM_CONFIG.SPAWN_LAT;
+  const baseLon = spawnLon != null ? spawnLon : SIM_CONFIG.SPAWN_LON;
+  const lat = baseLat + (Math.random() - 0.5) * 0.3;
+  const lon = baseLon + (Math.random() - 0.5) * 0.3;
   shipStates[ship.id] = {
     lat, lon, heading: 270, targetHeading: 270, speed: 0,
     health: ship.health, totalDamage: 0, totalMoneyLoss: 0, totalDelay: 0,
@@ -931,9 +969,10 @@ function openShipPurchaseModal() {
   if (!options) return;
   const modal = document.getElementById('ship-purchase-modal');
   modal.classList.remove('hidden');
-  modalShipTypeId = null; modalAisId = null; modalInsuranceId = null;
+  modalShipTypeId = null; modalAisId = null; modalInsuranceId = null; modalSpawnTerminalId = null;
   document.getElementById('modal-step-ship').classList.remove('hidden');
   document.getElementById('modal-step-config').classList.add('hidden');
+  document.getElementById('modal-step-spawn').classList.add('hidden');
 
   const me = gameState.players.find(p => p.id === myId);
   const shipList = document.getElementById('modal-ship-list');
@@ -1014,9 +1053,49 @@ function closeShipPurchaseModal() {
 
 document.getElementById('modal-cancel').addEventListener('click', closeShipPurchaseModal);
 
+// Step 2 → Step 3: show spawn location picker
+document.getElementById('modal-to-spawn').addEventListener('click', () => {
+  if (!modalAisId || !modalInsuranceId) {
+    showError('Select AIS and insurance'); return;
+  }
+  document.getElementById('modal-step-config').classList.add('hidden');
+  document.getElementById('modal-step-spawn').classList.remove('hidden');
+  // Populate spawn terminals based on selected ship's cargo type
+  const shipType = options.shipTypes[modalShipTypeId];
+  const cargoType = shipType?.cargoType || 'oil';
+  const terminals = Object.values(OIL_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  // Also include dropoff points as spawn locations
+  const dropoffs = Object.values(DROPOFF_POINTS);
+  const spawnList = document.getElementById('modal-spawn-list');
+  modalSpawnTerminalId = null;
+  spawnList.innerHTML = terminals.map(t => `
+    <div class="option-card" data-spawn-id="${t.id}" data-spawn-lat="${t.lat}" data-spawn-lon="${t.lon}">
+      <div class="option-name">${t.name}</div>
+      <div class="option-desc">${t.country} — ${t.capacity} terminal</div>
+    </div>`).join('') + dropoffs.map(d => `
+    <div class="option-card" data-spawn-id="${d.id}" data-spawn-lat="${d.lat}" data-spawn-lon="${d.lon}">
+      <div class="option-name">${d.name}</div>
+      <div class="option-desc">${d.region} — dropoff port</div>
+    </div>`).join('');
+  spawnList.querySelectorAll('.option-card').forEach(card => {
+    card.addEventListener('click', () => {
+      spawnList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      modalSpawnTerminalId = {
+        id: card.dataset.spawnId,
+        lat: parseFloat(card.dataset.spawnLat),
+        lon: parseFloat(card.dataset.spawnLon)
+      };
+    });
+  });
+});
+
 document.getElementById('modal-confirm-buy').addEventListener('click', () => {
   if (!modalShipTypeId || !modalAisId || !modalInsuranceId) {
     showError('Select AIS and insurance'); return;
+  }
+  if (!modalSpawnTerminalId) {
+    showError('Select a spawn location'); return;
   }
   socket.emit('buy_ship', {
     shipTypeId: modalShipTypeId, aisId: modalAisId, insuranceId: modalInsuranceId
@@ -1024,7 +1103,7 @@ document.getElementById('modal-confirm-buy').addEventListener('click', () => {
     if (res.success) {
       closeShipPurchaseModal();
       if (res.ship) {
-        spawnShipState(res.ship);
+        spawnShipState(res.ship, modalSpawnTerminalId.lat, modalSpawnTerminalId.lon);
         selectedShipId = res.ship.id;
         centerViewportOn(shipStates[res.ship.id].lat, shipStates[res.ship.id].lon);
       }
@@ -1681,14 +1760,14 @@ function transitLoop(timestamp) {
       // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
       const ap = shipAutopilot[ship.id];
       const apActive = ap && ap.active;
-      if (apActive && ap.terminal) {
+      if (apActive && ap.terminal && ap.dropoff) {
         const cargo = shipCargo[ship.id];
         const curWps = shipWaypoints[ship.id] || [];
         if (curWps.length === 0 && state.speed === 0) {
-          // Need new destination — compute routed waypoints
+          // If empty → head to load terminal; if loaded → head to dropoff
           let dest;
           if (cargo && cargo.loaded) {
-            dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
+            dest = { lat: ap.dropoff.lat, lon: ap.dropoff.lon };
           } else {
             dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
           }
@@ -1995,7 +2074,11 @@ function updateHUD() {
     const cargo = shipCargo[selectedShipId];
     const cargoEl = document.getElementById('hud-cargo-status');
     if (cargo?.delivered) { cargoEl.textContent = 'DELIVERED'; cargoEl.className = 'hud-cargo loaded'; }
-    else if (cargo?.loaded) { cargoEl.textContent = `LOADED - Head to ${DROPOFF_POINT.name}`; cargoEl.className = 'hud-cargo loading'; }
+    else if (cargo?.loaded) {
+      const ap = shipAutopilot[selectedShipId];
+      const dropName = (ap && ap.dropoff) ? ap.dropoff.name : DROPOFF_POINT.name;
+      cargoEl.textContent = `LOADED - Head to ${dropName}`; cargoEl.className = 'hud-cargo loading';
+    }
     else { cargoEl.textContent = 'NAVIGATE TO TERMINAL'; cargoEl.className = 'hud-cargo loading'; }
     document.getElementById('hud-progress').textContent = cargo?.delivered ? 'DONE' : cargo?.loaded ? 'LOADED' : 'EMPTY';
   } else {
@@ -2066,7 +2149,7 @@ function updateAmbientWar(elapsed) {
   const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
   const iranCities = CITIES.filter(c => c.country === 'Iran');
 
-  const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+  const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
   const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
   const alliedMissileBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && (b.type !== 'radar'));
   const alliedAirBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && b.type === 'air');
@@ -2188,7 +2271,7 @@ function checkDangerZonesAllShips(elapsed) {
         // Spawn missile animation for missile events
         if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
-          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
           const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
           const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
           if (iranBases.length > 0) {
