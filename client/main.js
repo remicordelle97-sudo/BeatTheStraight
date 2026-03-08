@@ -32,7 +32,7 @@ let gameSpeedMultiplier = 1;
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
   if (!gameState?.players) return null;
-  return getMe()
+  return gameState.players.find(p => p.id === myId)
     || (gameState.players.length === 1 ? gameState.players[0] : null);
 }
 
