@@ -1250,8 +1250,9 @@ const OCEAN_NODES = [
   { id: 'channel', lat: 50.0, lon: -2.0 },
   { id: 'dover', lat: 51.0, lon: 1.5 },
   { id: 'north_sea', lat: 58.0, lon: 3.0 },
-  { id: 'skagerrak', lat: 57.5, lon: 8.5 },
-  { id: 'baltic_south', lat: 55.0, lon: 14.0 },
+  { id: 'skagerrak', lat: 57.8, lon: 9.5 },
+  { id: 'kattegat', lat: 56.5, lon: 11.0 },
+  { id: 'baltic_south', lat: 55.0, lon: 16.0 },
   { id: 'baltic', lat: 60.0, lon: 25.0 },
   { id: 'primorsk_app', lat: 59.5, lon: 26.0 },
   // Africa
@@ -1315,7 +1316,8 @@ const OCEAN_EDGES = [
   // Europe
   ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
   ['dover', 'north_sea'],
-  ['north_sea', 'skagerrak'], ['skagerrak', 'baltic_south'],
+  ['north_sea', 'skagerrak'], ['skagerrak', 'kattegat'],
+  ['kattegat', 'baltic_south'],
   ['baltic_south', 'baltic'], ['baltic', 'primorsk_app'],
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
@@ -1693,13 +1695,13 @@ function updateNPCShips(dt, elapsed) {
       // When timer expires, check if target heading is still blocked
       if (npc.coastEscapeTimer <= 0) {
         const tgtRad = npc.targetHeading * Math.PI / 180;
-        if (isOnLand(npc.lat + Math.cos(tgtRad) * 0.25, npc.lon + Math.sin(tgtRad) * 0.25)) {
+        if (isOnLand(npc.lat + Math.cos(tgtRad) * 0.5, npc.lon + Math.sin(tgtRad) * 0.5)) {
           // Still blocked — find a new escape heading from current position
-          for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+          for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
             const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.25, npc.lon + Math.sin(tryRad) * 0.25)) {
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
               npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
-              npc.coastEscapeTimer = 3 + Math.random() * 2;
+              npc.coastEscapeTimer = 5 + Math.random() * 3;
               npc.wanderOffset = 0;
               break;
             }
@@ -1740,15 +1742,15 @@ function updateNPCShips(dt, elapsed) {
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
       // Proactive: check multiple distances ahead for early avoidance
-      const lookAheads = [0.05, 0.1, 0.15, 0.25];
+      const lookAheads = [0.1, 0.2, 0.35, 0.5];
       for (const la of lookAheads) {
         if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
           // Find a clear direction and enter coast escape mode
-          for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+          for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
             const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.25, npc.lon + Math.sin(tryRad) * 0.25)) {
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
               npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
-              npc.coastEscapeTimer = 3 + Math.random() * 2; // commit for 3-5 seconds
+              npc.coastEscapeTimer = 5 + Math.random() * 4; // commit for 5-9 seconds
               npc.wanderOffset = 0;
               break;
             }
@@ -1769,7 +1771,7 @@ function updateNPCShips(dt, elapsed) {
           npc.lat += Math.cos(tr) * probeDist * 0.6;
           // Enter coast escape: commit to this heading for a while
           npc.coastEscapeHeading = th;
-          npc.coastEscapeTimer = 4 + Math.random() * 3; // commit for 4-7 seconds
+          npc.coastEscapeTimer = 6 + Math.random() * 4; // commit for 6-10 seconds
           escaped = true; break;
         }
       }
@@ -1956,13 +1958,13 @@ function transitLoop(timestamp) {
               ? headingToTarget(state.lat, state.lon, wps[0].lat, wps[0].lon)
               : state.targetHeading;
             const resumeRad = resumeHeading * Math.PI / 180;
-            if (isOnLand(state.lat + Math.cos(resumeRad) * 0.25, state.lon + Math.sin(resumeRad) * 0.25)) {
+            if (isOnLand(state.lat + Math.cos(resumeRad) * 0.5, state.lon + Math.sin(resumeRad) * 0.5)) {
               // Still blocked — find a new escape heading
-              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+              for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.25, state.lon + Math.sin(tryRad) * 0.25)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                  state.apCoastEscapeTimer = 3 + Math.random() * 2;
+                  state.apCoastEscapeTimer = 5 + Math.random() * 3;
                   state.targetHeading = state.apCoastEscapeHeading;
                   break;
                 }
@@ -1972,13 +1974,13 @@ function transitLoop(timestamp) {
         } else {
           // Proactive lookahead: check ahead for land
           const headRad = state.heading * Math.PI / 180;
-          for (const la of [0.05, 0.1, 0.15, 0.25]) {
+          for (const la of [0.1, 0.2, 0.35, 0.5]) {
             if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
-              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+              for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.25, state.lon + Math.sin(tryRad) * 0.25)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                  state.apCoastEscapeTimer = 3 + Math.random() * 2;
+                  state.apCoastEscapeTimer = 5 + Math.random() * 4;
                   state.targetHeading = state.apCoastEscapeHeading;
                   break;
                 }
