@@ -573,6 +573,76 @@ function renderMobileControls(container) {
         <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
       </div>
     </div>`;
+
+  // Upgrades section
+  const me = gameState?.players.find(p => p.id === myId);
+  const cash = me?.cash || 0;
+  const dmg = state.totalDamage || 0;
+  const repairCost = dmg > 0 ? Math.round((ship.cost || 0) * dmg * 0.3) : 0;
+  const apState = shipAutopilot[ship.id];
+  const apActive = apState && apState.active;
+
+  html += `<div class="mobile-section-title" style="margin-top:8px;">UPGRADES</div>`;
+  html += `<div class="mobile-upgrade-grid">`;
+
+  // Repair
+  if (dmg > 0) {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="repair" ${cash < repairCost ? 'disabled' : ''}>REPAIR ${formatMoney(repairCost)}</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" disabled>REPAIR (OK)</button>`;
+  }
+
+  // Engine
+  if (ship.engineUpgrade) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" disabled>ENGINE UPGRADED</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="engine" ${cash < 25000000 ? 'disabled' : ''}>ENGINE +4kts ${formatMoney(25000000)}</button>`;
+  }
+
+  // Defense
+  if (ship.defenseUpgrade) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" disabled>DEFENSE UPGRADED</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="defense" ${cash < 20000000 ? 'disabled' : ''}>DEFENSE ${formatMoney(20000000)}</button>`;
+  }
+
+  // Autopilot
+  if (apActive) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" data-upgrade="autopilot">AUTOPILOT ON</button>`;
+  } else if (ship.hasAutopilot) {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot">AUTOPILOT OFF</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot" ${cash < 30000000 ? 'disabled' : ''}>AUTOPILOT ${formatMoney(30000000)}</button>`;
+  }
+  html += `</div>`;
+
+  // Autopilot route selectors (if owned)
+  if (ship.hasAutopilot || apActive) {
+    const cargoType = ship.cargoType || 'oil';
+    const isLng = cargoType === 'lng';
+    const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+    const imports = Object.values(IMPORT_TERMINALS);
+
+    html += `<div class="mobile-ctrl-row" style="margin-top:6px;">
+      <span class="mobile-ctrl-label">AP LOAD AT</span>
+      <select id="mobile-ap-terminal" class="mobile-select">`;
+    for (const t of exports) {
+      const sel = (apState?.terminal?.id === t.id) ? 'selected' : '';
+      html += `<option value="${t.id}" ${sel}>${t.name} — $${t.buyPrice || '?'}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
+    }
+    html += `</select></div>`;
+    html += `<div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">AP DROP AT</span>
+      <select id="mobile-ap-dropoff" class="mobile-select">`;
+    for (const t of imports) {
+      const sel = (apState?.dropoff?.id === t.id) ? 'selected' : '';
+      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : (t.sellPrice || '?');
+      html += `<option value="${t.id}" ${sel}>${t.name} — $${price}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
+    }
+    html += `</select></div>`;
+  }
+
+  html += `<div id="mobile-upgrade-info" class="scp-upgrade-info" style="margin-top:6px;"></div>`;
   container.innerHTML = html;
 
   // Speed controls
@@ -623,6 +693,86 @@ function renderMobileControls(container) {
       const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
       if (desktopBtn) desktopBtn.classList.add('active');
       renderMobileControls(container);
+    });
+  });
+
+  // Upgrades
+  container.querySelectorAll('.mobile-upgrade').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.upgrade;
+      if (!type || !selectedShipId) return;
+      const infoEl = document.getElementById('mobile-upgrade-info');
+      const sid = selectedShipId;
+
+      if (type === 'repair') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'repair' }, (res) => {
+          if (res?.success) {
+            const st = shipStates[sid];
+            if (st) st.totalDamage = 0;
+            addTransitEvent('SHIP REPAIRED', `Ship fully repaired.`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Repair failed.';
+        });
+      } else if (type === 'engine') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'engine' }, (res) => {
+          if (res?.success) {
+            const fresh = getSelectedShipData();
+            if (fresh && !fresh.engineUpgrade) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+            addTransitEvent('ENGINE UPGRADE', `Engine upgraded! +4 kts`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+        });
+      } else if (type === 'defense') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'defense' }, (res) => {
+          if (res?.success) {
+            const fresh = getSelectedShipData();
+            if (fresh) fresh.defenseUpgrade = 1;
+            addTransitEvent('DEFENSE UPGRADE', `Armed guards & hull armor installed!`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+        });
+      } else if (type === 'autopilot') {
+        const apSt = shipAutopilot[ship.id];
+        if (apSt && apSt.active) {
+          // Toggle off
+          apSt.active = false;
+          shipWaypoints[ship.id] = [];
+          const st = shipStates[ship.id];
+          if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
+          addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+          updateFleetPanel();
+          renderMobileControls(container);
+        } else if (ship.hasAutopilot) {
+          // Engage autopilot with selected terminals
+          const termSel = document.getElementById('mobile-ap-terminal');
+          const dropSel = document.getElementById('mobile-ap-dropoff');
+          const terminal = getTerminalById(termSel?.value);
+          const dropoff = getDropoffById(dropSel?.value) || DROPOFF_POINT;
+          if (terminal) {
+            shipAutopilot[ship.id] = { active: true, terminal, dropoff };
+            const st = shipStates[ship.id];
+            if (st) { st.apCoastEscapeTimer = 0; st.apCoastEscapeHeading = 0; }
+            shipWaypoints[ship.id] = [];
+            addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          }
+        } else {
+          // Buy autopilot
+          socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot' }, (res) => {
+            if (res?.success) {
+              const fresh = getSelectedShipData();
+              if (fresh) fresh.hasAutopilot = true;
+              addTransitEvent('AUTOPILOT INSTALLED', `Autopilot system installed on ${ship.name}.`, 'success');
+              updateFleetPanel();
+              renderMobileControls(container);
+            } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+          });
+        }
+      }
     });
   });
 }
@@ -1246,6 +1396,12 @@ function renderFleetManager() {
         </div>` : ''}
       </div>`;
   }).join('');
+
+  // Add close button at bottom for mobile
+  if (isMobile()) {
+    container.innerHTML += `<button id="fm-close-bottom" class="btn btn-primary" style="width:100%;margin-top:12px;min-height:48px;font-size:14px;">CLOSE</button>`;
+    document.getElementById('fm-close-bottom')?.addEventListener('click', closeFleetManager);
+  }
 
   // Populate autopilot selects
   me.fleet.forEach(ship => {
