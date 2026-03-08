@@ -1725,6 +1725,7 @@ const OCEAN_NODES = [
   { id: 'panama_p', lat: 8.0, lon: -79.6 },
   { id: 'brazil', lat: -23.0, lon: -42.0 },
   { id: 'alaska', lat: 59.0, lon: -148.0 },
+  { id: 'alaska_pws', lat: 60.3, lon: -147.0 },  // Prince William Sound approach for Valdez
   { id: 'pac_n', lat: 45.0, lon: -155.0 },
   // Asia Pacific
   { id: 'andaman', lat: 8.0, lon: 96.0 },
@@ -1796,7 +1797,7 @@ const OCEAN_EDGES = [
   ['panama_c', 'panama_p'],
   ['atl_s', 'brazil'], ['brazil', 'cape'],
   // Pacific — full circumnavigation routes
-  ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
+  ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['alaska', 'alaska_pws'], ['pac_n', 'japan'],
   // Asia — Malacca Strait corridor (north entrance → mid-strait → south exit)
   ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
   ['andaman', 'malacca_n'], ['malacca_n', 'malacca'], ['malacca', 'malacca_se'],
@@ -2205,7 +2206,8 @@ function updateNPCShips(dt, elapsed) {
 
     // Skip land avoidance when very close to destination (terminals are near coast)
     const npcDest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
-    const nearDest = npcDest && distanceDeg(npc.lat, npc.lon, npcDest.lat, npcDest.lon) < 0.4;
+    const nearDestR = (npcDest && npcDest.loadRadius) ? Math.max(0.5, npcDest.loadRadius * 4) : 0.5;
+    const nearDest = npcDest && distanceDeg(npc.lat, npc.lon, npcDest.lat, npcDest.lon) < nearDestR;
 
     // Land avoidance
     if (!isOnLand(newLat, newLon) || nearDest) {
@@ -2494,7 +2496,8 @@ function transitLoop(timestamp) {
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
       // Skip land check when very close to waypoint destination (terminals near coast)
       const nextWpDest = (shipWaypoints[ship.id] || [])[0];
-      const nearWpDest = nextWpDest && distanceDeg(state.lat, state.lon, nextWpDest.lat, nextWpDest.lon) < 0.4;
+      const wpDestR = (nextWpDest && nextWpDest.loadRadius) ? Math.max(0.5, nextWpDest.loadRadius * 4) : 0.5;
+      const nearWpDest = nextWpDest && distanceDeg(state.lat, state.lon, nextWpDest.lat, nextWpDest.lon) < wpDestR;
       if (!isOnLand(newLat, newLon) || nearWpDest) { state.lon = newLon; state.lat = newLat; }
       else if (apActive) {
         // Autopilot hit land: same approach as NPC — probe for clear direction, nudge, commit
