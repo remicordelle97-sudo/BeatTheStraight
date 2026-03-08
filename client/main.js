@@ -1612,8 +1612,8 @@ const OCEAN_NODES = [
   { id: 'med_c', lat: 36.0, lon: 15.0 },
   { id: 'sicily_ch', lat: 38.0, lon: 12.0 },
   { id: 'med_w', lat: 38.0, lon: 3.0 },
-  { id: 'gib_strait', lat: 35.95, lon: -5.5 },
-  { id: 'gibraltar', lat: 36.0, lon: -6.0 },
+  { id: 'gib_strait', lat: 35.97, lon: -5.4 },
+  { id: 'gibraltar', lat: 36.1, lon: -6.2 },
   { id: 'biscay', lat: 45.0, lon: -8.0 },
   { id: 'channel', lat: 50.0, lon: -2.0 },
   { id: 'dover', lat: 51.0, lon: 1.5 },
@@ -1650,9 +1650,10 @@ const OCEAN_NODES = [
   { id: 'pac_n', lat: 45.0, lon: -155.0 },
   // Asia Pacific
   { id: 'andaman', lat: 8.0, lon: 96.0 },
-  { id: 'malacca', lat: 4.0, lon: 99.5 },
+  { id: 'malacca', lat: 2.5, lon: 101.0 },
   { id: 'singapore', lat: 1.3, lon: 104.0 },
-  { id: 'scs_south', lat: 5.0, lon: 110.0 },
+  { id: 'natuna', lat: 3.0, lon: 108.0 },
+  { id: 'scs_south', lat: 7.0, lon: 112.0 },
   { id: 'scs', lat: 12.0, lon: 114.0 },
   { id: 'ecs', lat: 30.0, lon: 123.0 },
   { id: 'korea', lat: 34.0, lon: 129.5 },
@@ -1712,7 +1713,7 @@ const OCEAN_EDGES = [
   // Asia
   ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
   ['andaman', 'malacca'], ['malacca', 'singapore'],
-  ['singapore', 'scs_south'], ['scs_south', 'scs'],
+  ['singapore', 'natuna'], ['natuna', 'scs_south'], ['scs_south', 'scs'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
 
@@ -2111,24 +2112,30 @@ function updateNPCShips(dt, elapsed) {
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
 
+    // Skip land avoidance when very close to destination (terminals are near coast)
+    const npcDest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+    const nearDest = npcDest && distanceDeg(npc.lat, npc.lon, npcDest.lat, npcDest.lon) < 0.4;
+
     // Land avoidance
-    if (!isOnLand(newLat, newLon)) {
+    if (!isOnLand(newLat, newLon) || nearDest) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
-      // Proactive: check multiple distances ahead for early avoidance
-      const lookAheads = [0.1, 0.2, 0.35, 0.5];
-      for (const la of lookAheads) {
-        if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
-          // Find a clear direction and enter coast escape mode
-          for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
-            const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
-              npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
-              npc.coastEscapeTimer = 5 + Math.random() * 4; // commit for 5-9 seconds
-              npc.wanderOffset = 0;
-              break;
+      // Proactive: check multiple distances ahead for early avoidance (skip if near dest)
+      if (!nearDest) {
+        const lookAheads = [0.1, 0.2, 0.35, 0.5];
+        for (const la of lookAheads) {
+          if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
+            // Find a clear direction and enter coast escape mode
+            for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
+              const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+              if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
+                npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
+                npc.coastEscapeTimer = 5 + Math.random() * 4; // commit for 5-9 seconds
+                npc.wanderOffset = 0;
+                break;
+              }
             }
+            break;
           }
-          break;
         }
       }
     } else {
@@ -2394,7 +2401,10 @@ function transitLoop(timestamp) {
       const headingRad = state.heading * Math.PI / 180;
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
-      if (!isOnLand(newLat, newLon)) { state.lon = newLon; state.lat = newLat; }
+      // Skip land check when very close to waypoint destination (terminals near coast)
+      const nextWpDest = (shipWaypoints[ship.id] || [])[0];
+      const nearWpDest = nextWpDest && distanceDeg(state.lat, state.lon, nextWpDest.lat, nextWpDest.lon) < 0.4;
+      if (!isOnLand(newLat, newLon) || nearWpDest) { state.lon = newLon; state.lat = newLat; }
       else if (apActive) {
         // Autopilot hit land: same approach as NPC — probe for clear direction, nudge, commit
         const probeDist = 0.08;
