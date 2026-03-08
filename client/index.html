@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Beat The Strait - Strait of Hormuz Simulator</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -231,6 +231,20 @@
 
       <div id="hud-compass">
         <canvas id="compass-canvas" width="100" height="100"></canvas>
+      </div>
+
+      <!-- Mobile bottom tab bar -->
+      <div id="mobile-tab-bar">
+        <button class="mobile-tab active" data-tab="map">MAP</button>
+        <button class="mobile-tab" data-tab="fleet">FLEET</button>
+        <button class="mobile-tab" data-tab="controls">CTRL</button>
+        <button class="mobile-tab" data-tab="log">LOG</button>
+        <button class="mobile-tab" data-tab="settings">SET</button>
+      </div>
+
+      <!-- Mobile drawer panel -->
+      <div id="mobile-drawer" class="mobile-drawer-hidden">
+        <div id="mobile-drawer-content"></div>
       </div>
     </div>
 
