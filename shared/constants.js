@@ -489,6 +489,96 @@ export const DANGER_ZONES = [
     events: ['sandstorm', 'submarine', 'navy_escort'],
     baseProbability: 0.08,
     label: 'DEEP WATER'
+  },
+  // --- Houthi / Red Sea danger zones ---
+  {
+    id: 'bab_el_mandeb',
+    name: 'Bab el-Mandeb Strait',
+    color: 'rgba(200, 60, 30, 0.12)',
+    borderColor: 'rgba(200, 60, 30, 0.35)',
+    bounds: { north: 13.0, south: 12.2, west: 43.0, east: 43.8 },
+    events: ['houthi_missile', 'houthi_drone', 'pirate_skiff'],
+    baseProbability: 0.18,
+    label: 'BAB EL-MANDEB',
+    region: 'red_sea'
+  },
+  {
+    id: 'southern_red_sea',
+    name: 'Southern Red Sea',
+    color: 'rgba(180, 50, 30, 0.08)',
+    borderColor: 'rgba(180, 50, 30, 0.25)',
+    bounds: { north: 16.0, south: 13.0, west: 41.5, east: 43.5 },
+    events: ['houthi_missile', 'houthi_drone'],
+    baseProbability: 0.12,
+    label: 'HOUTHI MISSILE RANGE',
+    region: 'red_sea'
+  },
+  {
+    id: 'central_red_sea',
+    name: 'Central Red Sea',
+    color: 'rgba(160, 40, 30, 0.06)',
+    borderColor: 'rgba(160, 40, 30, 0.20)',
+    bounds: { north: 22.0, south: 16.0, west: 36.0, east: 42.0 },
+    events: ['houthi_missile', 'houthi_drone'],
+    baseProbability: 0.06,
+    label: 'RED SEA RISK ZONE',
+    region: 'red_sea'
+  },
+  {
+    id: 'suez_approach',
+    name: 'Suez Approach',
+    color: 'rgba(200, 200, 50, 0.08)',
+    borderColor: 'rgba(200, 200, 50, 0.20)',
+    bounds: { north: 30.5, south: 27.0, west: 32.5, east: 34.5 },
+    events: ['houthi_drone', 'pirate_skiff'],
+    baseProbability: 0.04,
+    label: 'SUEZ APPROACH',
+    region: 'red_sea'
+  },
+  // --- Pirate zones at major chokepoints ---
+  {
+    id: 'malacca_pirates',
+    name: 'Malacca Strait Pirates',
+    color: 'rgba(200, 100, 50, 0.08)',
+    borderColor: 'rgba(200, 100, 50, 0.20)',
+    bounds: { north: 4.0, south: 1.0, west: 100.0, east: 104.5 },
+    events: ['pirate_skiff'],
+    baseProbability: 0.06,
+    label: 'PIRATE RISK',
+    region: 'malacca'
+  },
+  {
+    id: 'somalia_pirates',
+    name: 'Gulf of Aden / Somalia',
+    color: 'rgba(200, 100, 50, 0.10)',
+    borderColor: 'rgba(200, 100, 50, 0.25)',
+    bounds: { north: 15.0, south: 10.0, west: 43.5, east: 52.0 },
+    events: ['pirate_skiff'],
+    baseProbability: 0.10,
+    label: 'SOMALI PIRATE ZONE',
+    region: 'somalia'
+  },
+  {
+    id: 'guinea_pirates',
+    name: 'Gulf of Guinea Pirates',
+    color: 'rgba(200, 100, 50, 0.08)',
+    borderColor: 'rgba(200, 100, 50, 0.20)',
+    bounds: { north: 6.0, south: 1.0, west: -1.0, east: 8.0 },
+    events: ['pirate_skiff'],
+    baseProbability: 0.08,
+    label: 'GULF OF GUINEA RISK',
+    region: 'guinea'
+  },
+  {
+    id: 'singapore_pirates',
+    name: 'Singapore Strait Pirates',
+    color: 'rgba(200, 100, 50, 0.06)',
+    borderColor: 'rgba(200, 100, 50, 0.18)',
+    bounds: { north: 1.5, south: 1.0, west: 103.5, east: 104.5 },
+    events: ['pirate_skiff'],
+    baseProbability: 0.05,
+    label: 'PIRATE RISK',
+    region: 'singapore'
   }
 ];
 
@@ -536,6 +626,23 @@ export const MILITARY_BASES = [
     lat: 31.21, lon: 34.82, color: '#4488cc', icon: 'plane' },
   { id: 'sdot_micha', name: 'Sdot Micha Missile Base', country: 'Israel', type: 'missile',
     lat: 31.73, lon: 34.93, color: '#4488cc', icon: 'missile' },
+  // Houthi (Ansar Allah) bases in Yemen
+  { id: 'hodeidah', name: 'Hodeidah Coastal Base', country: 'Houthi', type: 'missile',
+    lat: 14.80, lon: 42.95, color: '#cc6633', icon: 'missile' },
+  { id: 'sanaa_base', name: "Sana'a Military HQ", country: 'Houthi', type: 'missile',
+    lat: 15.37, lon: 44.19, color: '#cc6633', icon: 'missile' },
+  { id: 'saada', name: 'Saada IRGC Proxy Base', country: 'Houthi', type: 'missile',
+    lat: 16.94, lon: 43.76, color: '#cc6633', icon: 'missile' },
+  { id: 'dhamar', name: 'Dhamar Drone Launch', country: 'Houthi', type: 'air',
+    lat: 14.55, lon: 44.40, color: '#cc6633', icon: 'plane' },
+  // Saudi/Coalition bases opposing Houthis
+  { id: 'king_khalid', name: 'King Khalid Air Base', country: 'Saudi Arabia', type: 'air',
+    lat: 18.30, lon: 42.80, color: '#44aa88', icon: 'plane' },
+  { id: 'jizan_naval', name: 'Jizan Naval Base', country: 'Saudi Arabia', type: 'naval',
+    lat: 16.90, lon: 42.55, color: '#44aa88', icon: 'anchor' },
+  // Djibouti (US/French base)
+  { id: 'camp_lemonnier', name: 'Camp Lemonnier', country: 'US', type: 'naval',
+    lat: 11.55, lon: 43.15, color: '#4488cc', icon: 'anchor' },
 ];
 
 // Cities around the Persian Gulf (missile targets)
@@ -555,6 +662,14 @@ export const CITIES = [
   { id: 'kuwait_city', name: 'Kuwait City', country: 'Kuwait', lat: 29.38, lon: 47.99 },
   { id: 'fujairah_city', name: 'Fujairah', country: 'UAE', lat: 25.13, lon: 56.33 },
   { id: 'ras_al_khaimah', name: 'Ras Al Khaimah', country: 'UAE', lat: 25.79, lon: 55.94 },
+  // Houthi-held cities (targets for coalition strikes)
+  { id: 'sanaa', name: "Sana'a", country: 'Houthi', lat: 15.37, lon: 44.21 },
+  { id: 'hodeidah_city', name: 'Hodeidah', country: 'Houthi', lat: 14.80, lon: 42.97 },
+  { id: 'saada_city', name: 'Saada', country: 'Houthi', lat: 16.94, lon: 43.76 },
+  // Saudi/Coalition cities (targets for Houthi strikes)
+  { id: 'jeddah', name: 'Jeddah', country: 'Saudi Arabia', lat: 21.49, lon: 39.19 },
+  { id: 'jizan_city', name: 'Jizan', country: 'Saudi Arabia', lat: 16.89, lon: 42.55 },
+  { id: 'djibouti_city', name: 'Djibouti City', country: 'Djibouti', lat: 11.59, lon: 43.15 },
 ];
 
 // Key geographic points
@@ -850,6 +965,29 @@ export const EVENTS = [
       { text: 'Stand down order received, crisis averted', damagePercent: 0, delayHours: 2, moneyLoss: 0 },
       { text: 'Missile strike! Friendly fire incident!', damagePercent: 0.7, delayHours: 96, moneyLoss: 0.5 },
       { text: 'Warning shots across bow, forced to stop', damagePercent: 0.05, delayHours: 6, moneyLoss: 0 }
+    ]
+  },
+  // Houthi events (Red Sea / Bab el-Mandeb)
+  {
+    id: 'houthi_missile',
+    name: 'Houthi Anti-Ship Missile',
+    description: 'Radar warning — incoming Houthi anti-ship ballistic missile!',
+    probability: 0.10,
+    outcomes: [
+      { text: 'Missile intercepted by coalition warship', damagePercent: 0, delayHours: 0, moneyLoss: 0 },
+      { text: 'Direct hit! Massive damage!', damagePercent: 0.85, delayHours: 144, moneyLoss: 0.7 },
+      { text: 'Near miss, shrapnel peppers hull', damagePercent: 0.20, delayHours: 8, moneyLoss: 0.08 }
+    ]
+  },
+  {
+    id: 'houthi_drone',
+    name: 'Houthi Drone Attack',
+    description: 'Multiple one-way attack drones inbound from the Yemeni coast.',
+    probability: 0.12,
+    outcomes: [
+      { text: 'Drones shot down by CIWS', damagePercent: 0, delayHours: 0, moneyLoss: 0 },
+      { text: 'Drone strikes superstructure!', damagePercent: 0.35, delayHours: 24, moneyLoss: 0.15 },
+      { text: 'Multiple hits! Fire on deck!', damagePercent: 0.65, delayHours: 72, moneyLoss: 0.4 }
     ]
   }
 ];

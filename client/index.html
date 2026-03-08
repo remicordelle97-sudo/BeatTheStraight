@@ -75,7 +75,7 @@
       <div class="planning-dashboard">
         <div class="dash-header">
           <div class="dash-header-left">
-            <span class="risk-badge" id="plan-risk">MODERATE</span>
+            <span class="risk-badge clickable" id="plan-risk" title="Click to open Situation Monitor">MODERATE</span>
             <span class="dash-oil">OIL $<span id="plan-oil-price">0</span>/bbl</span>
           </div>
           <div class="dash-header-right">
@@ -164,6 +164,17 @@
             <button id="fm-close" class="btn btn-small btn-ghost" style="position:absolute;right:8px;top:6px;">&times;</button>
           </div>
           <div id="fm-ship-list" class="fm-ship-list"></div>
+        </div>
+      </div>
+
+      <!-- Situation Monitor Modal -->
+      <div id="situation-monitor-modal" class="modal-overlay hidden">
+        <div class="modal-panel sitmon-panel">
+          <div class="modal-header">
+            SITUATION MONITOR
+            <button id="sitmon-close" class="btn btn-small btn-ghost" style="position:absolute;right:8px;top:6px;">&times;</button>
+          </div>
+          <div id="sitmon-body" class="sitmon-body"></div>
         </div>
       </div>
 
