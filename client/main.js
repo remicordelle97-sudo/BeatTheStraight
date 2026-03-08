@@ -1224,6 +1224,7 @@ const OCEAN_NODES = [
   { id: 'gibraltar', lat: 36.0, lon: -6.0 },
   { id: 'biscay', lat: 45.0, lon: -8.0 },
   { id: 'channel', lat: 50.0, lon: -2.0 },
+  { id: 'dover', lat: 51.0, lon: 1.5 },
   { id: 'north_sea', lat: 58.0, lon: 3.0 },
   { id: 'baltic', lat: 60.0, lon: 25.0 },
   { id: 'primorsk_app', lat: 59.5, lon: 26.0 },
@@ -1279,7 +1280,8 @@ const OCEAN_EDGES = [
   // Mediterranean
   ['med_e', 'med_c'], ['med_c', 'gibraltar'],
   // Europe
-  ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'north_sea'],
+  ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
+  ['dover', 'north_sea'],
   ['north_sea', 'baltic'], ['baltic', 'primorsk_app'],
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
