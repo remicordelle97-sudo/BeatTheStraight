@@ -373,7 +373,8 @@ document.getElementById('scp-close').addEventListener('click', closeShipControlP
 document.getElementById('scp-speed-down').addEventListener('click', () => {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const state = shipStates[selectedShipId];
-  state.speed = Math.max(0, state.speed - 1);
+  if (state.destroyed || state.seized) return;
+  state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
   document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
 });
 
@@ -381,7 +382,8 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
-  state.speed = Math.min(20, state.speed + 1);
+  if (state.destroyed || state.seized) return;
+  state.speed = Math.min(20, Math.round(state.speed || 0) + 1);
   const ratedSpeed = ship?.speed || 16;
   const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
   document.getElementById('scp-speed-value').textContent = label;
@@ -389,32 +391,34 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
 
 document.querySelectorAll('.scp-ais-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (!selectedShipId || !options) return;
+    if (!selectedShipId || !options?.aisOptions) return;
     const aisKey = btn.dataset.ais;
+    if (!aisKey) return;
     const aisOpt = options.aisOptions[aisKey];
-    if (aisOpt) {
-      const ship = getSelectedShipData();
-      if (ship) { ship.aisId = aisKey; ship.aisName = aisOpt.name; }
-      document.querySelectorAll('.scp-ais-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
-    }
+    if (!aisOpt) return;
+    const ship = getSelectedShipData();
+    if (!ship) return;
+    ship.aisId = aisKey; ship.aisName = aisOpt.name;
+    document.querySelectorAll('.scp-ais-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
   });
 });
 
 // Insurance buttons
 document.querySelectorAll('.scp-ins-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (!selectedShipId || !options) return;
+    if (!selectedShipId || !options?.insuranceOptions) return;
     const insKey = btn.dataset.ins;
+    if (!insKey) return;
     const insOpt = options.insuranceOptions[insKey];
-    if (insOpt) {
-      const ship = getSelectedShipData();
-      if (ship) { ship.insuranceId = insKey; ship.insuranceName = insOpt.name; }
-      document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name} (weekly)`, '');
-    }
+    if (!insOpt) return;
+    const ship = getSelectedShipData();
+    if (!ship) return;
+    ship.insuranceId = insKey; ship.insuranceName = insOpt.name;
+    document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name} (weekly)`, '');
   });
 });
 
@@ -433,20 +437,24 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   const state = shipStates[selectedShipId];
   const ship = getSelectedShipData();
   if (!state || !ship) return;
-  if (state.totalDamage <= 0) {
+  if (state.destroyed || state.seized) return;
+  if (!state.totalDamage || state.totalDamage <= 0) {
     document.getElementById('scp-upgrade-info').textContent = 'Ship is at full health.';
     return;
   }
-  const repairCost = Math.round(ship.cost * state.totalDamage * 0.3);
+  const repairCost = Math.round((ship.cost || 0) * state.totalDamage * 0.3);
+  if (repairCost <= 0) return;
   const me = gameState?.players.find(p => p.id === myId);
   if (!me || me.cash < repairCost) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(repairCost)} to repair.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'repair', cost: repairCost }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
     if (res?.success) {
-      state.totalDamage = 0;
-      addTransitEvent('SHIP REPAIRED', `${ship.name} fully repaired for ${formatMoney(repairCost)}.`, 'success');
+      const st = shipStates[sid];
+      if (st) st.totalDamage = 0;
+      addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
       updateFleetPanel();
       refreshUpgradeButtons();
     }
@@ -468,11 +476,13 @@ document.getElementById('scp-engine').addEventListener('click', () => {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for engine upgrade.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'engine', cost }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost }, (res) => {
     if (res?.success) {
-      ship.engineUpgrade = 1;
-      ship.speed += 4;
-      addTransitEvent('ENGINE UPGRADE', `${ship.name}: Engine upgraded! +4 kts`, 'success');
+      const fresh = getSelectedShipData();
+      if (fresh && !fresh.engineUpgrade) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+      addTransitEvent('ENGINE UPGRADE', `Engine upgraded! +4 kts`, 'success');
+      updateFleetPanel();
       refreshUpgradeButtons();
     }
   });
@@ -493,10 +503,13 @@ document.getElementById('scp-defense').addEventListener('click', () => {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(DEFENSE_COST)} for defense.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'defense', cost: DEFENSE_COST }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
     if (res?.success) {
-      ship.defenseUpgrade = 1;
-      addTransitEvent('DEFENSE UPGRADE', `${ship.name}: Armed guards & hull armor installed!`, 'success');
+      const fresh = getSelectedShipData();
+      if (fresh) fresh.defenseUpgrade = 1;
+      addTransitEvent('DEFENSE UPGRADE', `Armed guards & hull armor installed!`, 'success');
+      updateFleetPanel();
       refreshUpgradeButtons();
     }
   });
@@ -584,15 +597,17 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
   if (!ship || !state) return;
+  if (state.destroyed || state.seized) return;
 
   const ap = shipAutopilot[ship.id];
   if (ap && ap.active) {
     // Toggle off — stop ship and clear waypoints
     ap.active = false;
     shipWaypoints[ship.id] = [];
-    const state = shipStates[ship.id];
-    if (state) { state.speed = 0; state.apCoastEscapeTimer = 0; }
+    const st = shipStates[ship.id];
+    if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+    updateFleetPanel();
     refreshUpgradeButtons();
     return;
   }
@@ -604,11 +619,14 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
       document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for autopilot.`;
       return;
     }
-    socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'autopilot', cost }, (res) => {
+    const sid = selectedShipId;
+    socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost }, (res) => {
       if (res?.success) {
-        ship.hasAutopilot = true;
-        populateApTerminalSelect(ship);
-        engageAutopilot(ship);
+        const fresh = getSelectedShipData();
+        if (!fresh) return;
+        fresh.hasAutopilot = true;
+        populateApTerminalSelect(fresh);
+        engageAutopilot(fresh);
       }
     });
   } else {
@@ -618,8 +636,10 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
 
 // Shared reroute logic for autopilot destination changes
 function autopilotReroute(ship) {
+  if (!ship || !ship.id) return;
   const ap = shipAutopilot[ship.id];
   if (!ap || !ap.active) return;
+  if (!ap.terminal || !ap.dropoff) return;
   const state = shipStates[ship.id];
   if (!state) return;
   state.apCoastEscapeTimer = 0;
@@ -630,10 +650,15 @@ function autopilotReroute(ship) {
   } else {
     dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
   }
+  if (dest.lat == null || dest.lon == null) return;
   const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
   shipWaypoints[ship.id] = route;
   if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
-  state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+  if (route.length > 0) {
+    state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+  } else {
+    state.targetHeading = headingToTarget(state.lat, state.lon, dest.lat, dest.lon);
+  }
   addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: ${ap.terminal.name} → ${ap.dropoff.name}`, 'success');
 }
 
@@ -845,72 +870,92 @@ function renderFleetManager() {
     }
   });
 
+  // Helper: safe speed label update
+  function updateFmSpeedLabel(sid, st) {
+    const el = document.getElementById(`fm-spd-${sid}`);
+    if (!el) return;
+    const s = getShipData(sid);
+    const rated = s?.speed || 16;
+    const spd = st.speed || 0;
+    el.textContent = spd > rated ? `${spd} kts ⚠` : `${spd} kts`;
+  }
+
+  // Helper: check ship is alive and manageable
+  function fmShipAlive(sid) {
+    const st = shipStates[sid];
+    if (!st || st.destroyed || st.seized) return false;
+    return true;
+  }
+
   // Wire up event handlers
   container.querySelectorAll('.fm-spd-down').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const st = shipStates[sid];
-      if (!st) return;
-      st.speed = Math.max(0, st.speed - 1);
-      const s = getShipData(sid);
-      const rated = s?.speed || 16;
-      document.getElementById(`fm-spd-${sid}`).textContent = st.speed > rated ? `${st.speed} kts ⚠` : `${st.speed} kts`;
+      st.speed = Math.max(0, Math.round(st.speed || 0) - 1);
+      updateFmSpeedLabel(sid, st);
     });
   });
 
   container.querySelectorAll('.fm-spd-up').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const st = shipStates[sid];
-      if (!st) return;
-      st.speed = Math.min(20, st.speed + 1);
-      const s = getShipData(sid);
-      const rated = s?.speed || 16;
-      document.getElementById(`fm-spd-${sid}`).textContent = st.speed > rated ? `${st.speed} kts ⚠` : `${st.speed} kts`;
+      st.speed = Math.min(20, Math.round(st.speed || 0) + 1);
+      updateFmSpeedLabel(sid, st);
     });
   });
 
   container.querySelectorAll('.fm-ais-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const aisKey = btn.dataset.ais;
+      if (!aisKey) return;
       const aisOpt = options?.aisOptions?.[aisKey];
       const s = getShipData(sid);
-      if (s && aisOpt) {
-        s.aisId = aisKey;
-        s.aisName = aisOpt.name;
-        container.querySelectorAll(`.fm-ais-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      }
+      if (!s || !aisOpt) return;
+      s.aisId = aisKey;
+      s.aisName = aisOpt.name;
+      container.querySelectorAll(`.fm-ais-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
     });
   });
 
   container.querySelectorAll('.fm-ins-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const insKey = btn.dataset.ins;
+      if (!insKey) return;
       const insOpt = options?.insuranceOptions?.[insKey];
       const s = getShipData(sid);
-      if (s && insOpt) {
-        s.insuranceId = insKey;
-        s.insuranceName = insOpt.name;
-        container.querySelectorAll(`.fm-ins-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      }
+      if (!s || !insOpt) return;
+      s.insuranceId = insKey;
+      s.insuranceName = insOpt.name;
+      container.querySelectorAll(`.fm-ins-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
     });
   });
 
   container.querySelectorAll('.fm-repair-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const st = shipStates[sid];
       const s = getShipData(sid);
-      if (!st || !s || st.totalDamage <= 0) return;
-      const repairCost = Math.round(s.cost * st.totalDamage * 0.3);
+      if (!st || !s) return;
+      if (!st.totalDamage || st.totalDamage <= 0) return;
+      const repairCost = Math.round((s.cost || 0) * st.totalDamage * 0.3);
+      if (repairCost <= 0) return;
       const me2 = gameState?.players.find(p => p.id === myId);
       if (!me2 || me2.cash < repairCost) return;
+      btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
         if (res?.success) { st.totalDamage = 0; renderFleetManager(); updateFleetPanel(); }
+        else { btn.disabled = false; }
       });
     });
   });
@@ -918,12 +963,19 @@ function renderFleetManager() {
   container.querySelectorAll('.fm-engine-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       if (!s || s.engineUpgrade) return;
       const me2 = gameState?.players.find(p => p.id === myId);
       if (!me2 || me2.cash < 25000000) return;
+      btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost: 25000000 }, (res) => {
-        if (res?.success) { s.engineUpgrade = 1; s.speed += 4; renderFleetManager(); }
+        if (res?.success) {
+          // Re-fetch ship data in case game_update replaced the object
+          const fresh = getShipData(sid);
+          if (fresh) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+          renderFleetManager(); updateFleetPanel();
+        } else { btn.disabled = false; }
       });
     });
   });
@@ -931,12 +983,18 @@ function renderFleetManager() {
   container.querySelectorAll('.fm-def-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       if (!s || s.defenseUpgrade) return;
       const me2 = gameState?.players.find(p => p.id === myId);
       if (!me2 || me2.cash < DEFENSE_COST) return;
+      btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
-        if (res?.success) { s.defenseUpgrade = 1; renderFleetManager(); }
+        if (res?.success) {
+          const fresh = getShipData(sid);
+          if (fresh) fresh.defenseUpgrade = 1;
+          renderFleetManager(); updateFleetPanel();
+        } else { btn.disabled = false; }
       });
     });
   });
@@ -944,6 +1002,7 @@ function renderFleetManager() {
   container.querySelectorAll('.fm-ap-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       const st = shipStates[sid];
       if (!s || !st) return;
@@ -953,17 +1012,19 @@ function renderFleetManager() {
         shipWaypoints[s.id] = [];
         st.speed = 0;
         st.apCoastEscapeTimer = 0;
-        renderFleetManager();
+        renderFleetManager(); updateFleetPanel();
         return;
       }
       if (!s.hasAutopilot) {
         const me2 = gameState?.players.find(p => p.id === myId);
         if (!me2 || me2.cash < 30000000) return;
+        btn.disabled = true;
         socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 30000000 }, (res) => {
           if (res?.success) {
-            s.hasAutopilot = true;
-            renderFleetManager();
-          }
+            const fresh = getShipData(sid);
+            if (fresh) fresh.hasAutopilot = true;
+            renderFleetManager(); updateFleetPanel();
+          } else { btn.disabled = false; }
         });
       } else {
         // Engage autopilot using the selects in this row
@@ -978,7 +1039,7 @@ function renderFleetManager() {
         st.apCoastEscapeHeading = 0;
         shipWaypoints[s.id] = [];
         if (st.speed === 0) st.speed = Math.round(s.speed || 14);
-        renderFleetManager();
+        renderFleetManager(); updateFleetPanel();
       }
     });
   });
@@ -986,10 +1047,13 @@ function renderFleetManager() {
   container.querySelectorAll('.fm-ap-reroute').forEach(btn => {
     btn.addEventListener('click', () => {
       const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       if (!s) return;
       const ap = shipAutopilot[s.id];
       if (!ap || !ap.active) return;
+      const st = shipStates[sid];
+      if (!st) return;
       const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
       const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
       if (!termSel || !dropSel) return;
