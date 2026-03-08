@@ -735,6 +735,322 @@ function refreshUpgradeButtons() {
 }
 
 // ============================================
+// FLEET MANAGER MODAL
+// ============================================
+function openFleetManager() {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me || me.fleet.length === 0) return;
+  closeShipControlPanel();
+  document.getElementById('fleet-manager-modal').classList.remove('hidden');
+  renderFleetManager();
+}
+
+function closeFleetManager() {
+  document.getElementById('fleet-manager-modal').classList.add('hidden');
+}
+
+document.getElementById('fm-close').addEventListener('click', closeFleetManager);
+document.getElementById('fleet-manager-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'fleet-manager-modal') closeFleetManager();
+});
+document.getElementById('btn-manage-all').addEventListener('click', openFleetManager);
+
+function renderFleetManager() {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me) return;
+  const cash = me.cash || 0;
+  const container = document.getElementById('fm-ship-list');
+
+  container.innerHTML = me.fleet.map(ship => {
+    const state = shipStates[ship.id];
+    const cargo = shipCargo[ship.id];
+    const destroyed = state?.destroyed || state?.seized;
+    const hp = state ? Math.round((state.health - state.totalDamage) * 100) : Math.round(ship.health * 100);
+    const cargoText = destroyed ? 'LOST' : cargo?.delivered ? 'DELIVERED' : cargo?.loaded ? 'LOADED' : 'EMPTY';
+    const cargoClass = destroyed ? 'stat-bad' : cargo?.delivered ? 'stat-good' : cargo?.loaded ? 'stat-warn' : 'stat-warn';
+    const spd = state ? state.speed : 0;
+    const ratedSpeed = ship.speed || 16;
+    const spdLabel = spd > ratedSpeed ? `${spd} kts ⚠` : `${spd} kts`;
+    const aisId = ship.aisId || 'FULL_BROADCAST';
+    const insId = ship.insuranceId || 'FULL_WAR_RISK';
+    const ap = shipAutopilot[ship.id];
+    const apActive = ap && ap.active;
+
+    return `
+      <div class="fm-ship-row ${destroyed ? 'destroyed' : ''}" data-fm-ship="${ship.id}">
+        <div class="fm-ship-header">
+          <span class="fm-ship-name">${ship.name}</span>
+          <div class="fm-ship-badges">
+            <span class="stat">${(ship.cargoType || 'oil').toUpperCase()}</span>
+            <span class="stat">${(ship.capacity / 1000).toFixed(0)}K</span>
+            <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
+            <span class="stat ${cargoClass}">${cargoText}</span>
+          </div>
+        </div>
+        <div class="fm-controls">
+          <div class="fm-control-group">
+            <div class="fm-control-label">SPEED</div>
+            <div class="fm-speed-row">
+              <button class="btn btn-small fm-spd-down" data-sid="${ship.id}">-</button>
+              <span class="fm-speed-val" id="fm-spd-${ship.id}">${spdLabel}</span>
+              <button class="btn btn-small fm-spd-up" data-sid="${ship.id}">+</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">AIS</div>
+            <div class="fm-btn-group">
+              <button class="btn btn-small fm-ais-btn ${aisId === 'FULL_BROADCAST' ? 'active' : ''}" data-sid="${ship.id}" data-ais="FULL_BROADCAST">FULL</button>
+              <button class="btn btn-small fm-ais-btn ${aisId === 'REDUCED' ? 'active' : ''}" data-sid="${ship.id}" data-ais="REDUCED">RED</button>
+              <button class="btn btn-small fm-ais-btn ${aisId === 'DARK' ? 'active' : ''}" data-sid="${ship.id}" data-ais="DARK">DARK</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">INSURANCE</div>
+            <div class="fm-btn-group">
+              <button class="btn btn-small fm-ins-btn ${insId === 'FULL_WAR_RISK' ? 'active' : ''}" data-sid="${ship.id}" data-ins="FULL_WAR_RISK">WAR</button>
+              <button class="btn btn-small fm-ins-btn ${insId === 'STANDARD_MARINE' ? 'active' : ''}" data-sid="${ship.id}" data-ins="STANDARD_MARINE">STD</button>
+              <button class="btn btn-small fm-ins-btn ${insId === 'NONE' ? 'active' : ''}" data-sid="${ship.id}" data-ins="NONE">NONE</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">UPGRADES</div>
+            <div class="fm-upgrades">
+              ${state && state.totalDamage > 0 ? `<button class="btn btn-small fm-repair-btn" data-sid="${ship.id}">REPAIR</button>` : ''}
+              ${!ship.engineUpgrade ? `<button class="btn btn-small fm-engine-btn" data-sid="${ship.id}" ${cash < 25000000 ? 'disabled' : ''}>ENG</button>` : '<button class="btn btn-small owned" disabled>ENG</button>'}
+              ${!ship.defenseUpgrade ? `<button class="btn btn-small fm-def-btn" data-sid="${ship.id}" ${cash < 20000000 ? 'disabled' : ''}>DEF</button>` : '<button class="btn btn-small owned" disabled>DEF</button>'}
+              <button class="btn btn-small fm-ap-btn ${apActive ? 'owned' : ''}" data-sid="${ship.id}">${apActive ? 'AP ON' : ship.hasAutopilot ? 'AP OFF' : 'AP'}</button>
+            </div>
+          </div>
+        </div>
+        ${apActive || ship.hasAutopilot ? `
+        <div class="fm-ap-row" style="margin-top:6px;">
+          <span class="fm-control-label" style="margin-right:4px;">AP:</span>
+          <select class="fm-ap-terminal" data-sid="${ship.id}"></select>
+          <span style="color:var(--text-muted);font-size:9px;">→</span>
+          <select class="fm-ap-dropoff" data-sid="${ship.id}"></select>
+          <button class="btn btn-small fm-ap-reroute" data-sid="${ship.id}">SET</button>
+        </div>` : ''}
+      </div>`;
+  }).join('');
+
+  // Populate autopilot selects
+  me.fleet.forEach(ship => {
+    const ap = shipAutopilot[ship.id];
+    const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${ship.id}"]`);
+    const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${ship.id}"]`);
+    if (termSel && dropSel) {
+      populateFmApSelect(termSel, dropSel, ship);
+      if (ap && ap.terminal) termSel.value = ap.terminal.id;
+      if (ap && ap.dropoff) dropSel.value = ap.dropoff.id;
+    }
+  });
+
+  // Wire up event handlers
+  container.querySelectorAll('.fm-spd-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const st = shipStates[sid];
+      if (!st) return;
+      st.speed = Math.max(0, st.speed - 1);
+      const s = getShipData(sid);
+      const rated = s?.speed || 16;
+      document.getElementById(`fm-spd-${sid}`).textContent = st.speed > rated ? `${st.speed} kts ⚠` : `${st.speed} kts`;
+    });
+  });
+
+  container.querySelectorAll('.fm-spd-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const st = shipStates[sid];
+      if (!st) return;
+      st.speed = Math.min(20, st.speed + 1);
+      const s = getShipData(sid);
+      const rated = s?.speed || 16;
+      document.getElementById(`fm-spd-${sid}`).textContent = st.speed > rated ? `${st.speed} kts ⚠` : `${st.speed} kts`;
+    });
+  });
+
+  container.querySelectorAll('.fm-ais-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const aisKey = btn.dataset.ais;
+      const aisOpt = options?.aisOptions?.[aisKey];
+      const s = getShipData(sid);
+      if (s && aisOpt) {
+        s.aisId = aisKey;
+        s.aisName = aisOpt.name;
+        container.querySelectorAll(`.fm-ais-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+    });
+  });
+
+  container.querySelectorAll('.fm-ins-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const insKey = btn.dataset.ins;
+      const insOpt = options?.insuranceOptions?.[insKey];
+      const s = getShipData(sid);
+      if (s && insOpt) {
+        s.insuranceId = insKey;
+        s.insuranceName = insOpt.name;
+        container.querySelectorAll(`.fm-ins-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+    });
+  });
+
+  container.querySelectorAll('.fm-repair-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const st = shipStates[sid];
+      const s = getShipData(sid);
+      if (!st || !s || st.totalDamage <= 0) return;
+      const repairCost = Math.round(s.cost * st.totalDamage * 0.3);
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < repairCost) return;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
+        if (res?.success) { st.totalDamage = 0; renderFleetManager(); updateFleetPanel(); }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-engine-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const s = getShipData(sid);
+      if (!s || s.engineUpgrade) return;
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < 25000000) return;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost: 25000000 }, (res) => {
+        if (res?.success) { s.engineUpgrade = 1; s.speed += 4; renderFleetManager(); }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-def-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const s = getShipData(sid);
+      if (!s || s.defenseUpgrade) return;
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < DEFENSE_COST) return;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
+        if (res?.success) { s.defenseUpgrade = 1; renderFleetManager(); }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-ap-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const s = getShipData(sid);
+      const st = shipStates[sid];
+      if (!s || !st) return;
+      const ap = shipAutopilot[s.id];
+      if (ap && ap.active) {
+        ap.active = false;
+        shipWaypoints[s.id] = [];
+        st.speed = 0;
+        st.apCoastEscapeTimer = 0;
+        renderFleetManager();
+        return;
+      }
+      if (!s.hasAutopilot) {
+        const me2 = gameState?.players.find(p => p.id === myId);
+        if (!me2 || me2.cash < 30000000) return;
+        socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 30000000 }, (res) => {
+          if (res?.success) {
+            s.hasAutopilot = true;
+            renderFleetManager();
+          }
+        });
+      } else {
+        // Engage autopilot using the selects in this row
+        const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
+        const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
+        if (!termSel || !dropSel) return;
+        const terminal = getTerminalById(termSel.value);
+        const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+        if (!terminal) return;
+        shipAutopilot[s.id] = { active: true, terminal, dropoff };
+        st.apCoastEscapeTimer = 0;
+        st.apCoastEscapeHeading = 0;
+        shipWaypoints[s.id] = [];
+        if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        renderFleetManager();
+      }
+    });
+  });
+
+  container.querySelectorAll('.fm-ap-reroute').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      const s = getShipData(sid);
+      if (!s) return;
+      const ap = shipAutopilot[s.id];
+      if (!ap || !ap.active) return;
+      const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
+      const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
+      if (!termSel || !dropSel) return;
+      const terminal = getTerminalById(termSel.value);
+      const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+      if (terminal) ap.terminal = terminal;
+      if (dropoff) ap.dropoff = dropoff;
+      autopilotReroute(s);
+    });
+  });
+}
+
+function getShipData(shipId) {
+  const me = gameState?.players.find(p => p.id === myId);
+  return me?.fleet.find(s => s.id === shipId);
+}
+
+function populateFmApSelect(termSel, dropSel, ship) {
+  termSel.innerHTML = '';
+  const cargoType = ship.cargoType || 'oil';
+  const isLng = cargoType === 'lng';
+  const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  const byRegion = {};
+  for (const t of exports) {
+    const region = t.region || 'other';
+    if (!byRegion[region]) byRegion[region] = [];
+    byRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(byRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      grp.appendChild(opt);
+    }
+    termSel.appendChild(grp);
+  }
+  dropSel.innerHTML = '';
+  const imports = Object.values(IMPORT_TERMINALS);
+  const impByRegion = {};
+  for (const t of imports) {
+    const region = t.region || 'other';
+    if (!impByRegion[region]) impByRegion[region] = [];
+    impByRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(impByRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      grp.appendChild(opt);
+    }
+    dropSel.appendChild(grp);
+  }
+}
+
+// ============================================
 // TITLE SCREEN
 // ============================================
 document.getElementById('btn-create').addEventListener('click', () => {
