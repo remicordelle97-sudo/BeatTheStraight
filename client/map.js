@@ -1402,6 +1402,28 @@ function drawMap(canvas, options = {}) {
   const drawW = w;
   const drawH = h;
 
+  // Correct viewport aspect ratio to match screen dimensions
+  // This prevents map distortion on portrait (mobile) screens
+  {
+    const screenAspect = drawW / drawH;
+    const vpLonRange = viewport.east - viewport.west;
+    const vpLatRange = viewport.north - viewport.south;
+    const vpAspect = vpLonRange / vpLatRange;
+    if (Math.abs(screenAspect - vpAspect) > 0.01) {
+      const lonCenter = (viewport.west + viewport.east) / 2;
+      const latCenter = (viewport.north + viewport.south) / 2;
+      if (screenAspect > vpAspect) {
+        const newLonRange = vpLatRange * screenAspect;
+        viewport.west = lonCenter - newLonRange / 2;
+        viewport.east = lonCenter + newLonRange / 2;
+      } else {
+        const newLatRange = vpLonRange / screenAspect;
+        viewport.south = latCenter - newLatRange / 2;
+        viewport.north = latCenter + newLatRange / 2;
+      }
+    }
+  }
+
   // Ocean
   ctx.fillStyle = '#0a1520';
   ctx.fillRect(0, 0, drawW, drawH);

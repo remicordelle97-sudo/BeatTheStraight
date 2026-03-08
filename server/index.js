@@ -8,6 +8,8 @@ import {
   SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
   TIME_OPTIONS, GAME_PHASES, OIL_TERMINALS
 } from '../shared/constants.js';
+import { register, login, getProfile, verifyToken, savePlayerState } from './auth.js';
+import { stmts } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,6 +20,39 @@ const io = new Server(httpServer, {
   cors: { origin: '*' }
 });
 
+// JSON body parsing for REST auth endpoints
+app.use(express.json());
+
+// REST auth endpoints
+app.post('/api/register', async (req, res) => {
+  const { username, password } = req.body;
+  const result = await register(username, password);
+  res.json(result);
+});
+
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  const result = await login(username, password);
+  res.json(result);
+});
+
+app.get('/api/profile', (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token' });
+  }
+  const decoded = verifyToken(auth.slice(7));
+  if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+  const profile = getProfile(decoded.userId);
+  if (!profile) return res.status(404).json({ error: 'User not found' });
+  res.json(profile);
+});
+
+app.get('/api/leaderboard', (req, res) => {
+  const rows = stmts.getLeaderboard.all();
+  res.json(rows);
+});
+
 // Serve built static files
 app.use(express.static(join(__dirname, '..', 'dist')));
 app.get('*', (req, res, next) => {
@@ -26,24 +61,86 @@ app.get('*', (req, res, next) => {
 });
 
 const games = new Map();
-const socketMap = new Map();
+const socketMap = new Map(); // socket.id -> { gameId, playerName, dbUserId }
+
+// Helper: persist player state to DB if they're logged in
+function persistPlayer(socketId) {
+  const info = socketMap.get(socketId);
+  if (!info || !info.dbUserId) return;
+  const game = games.get(info.gameId);
+  if (!game) return;
+  const player = game.players[socketId];
+  if (!player) return;
+  try {
+    savePlayerState(info.dbUserId, player);
+  } catch (e) {
+    console.error('Failed to persist player state:', e.message);
+  }
+}
 
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  socket.on('create_game', ({ playerName }, callback) => {
+  // Authenticate socket with JWT token
+  socket.on('auth', ({ token }, callback) => {
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      callback?.({ success: false, error: 'Invalid token' });
+      return;
+    }
+    const profile = getProfile(decoded.userId);
+    if (!profile) {
+      callback?.({ success: false, error: 'User not found' });
+      return;
+    }
+    // Store dbUserId on the socket's info
+    const existing = socketMap.get(socket.id);
+    if (existing) {
+      existing.dbUserId = decoded.userId;
+    }
+    socket.dbUserId = decoded.userId;
+    callback?.({ success: true, user: profile });
+  });
+
+  socket.on('create_game', ({ playerName, token }, callback) => {
     const gameId = generateGameId();
     const game = new GameState(gameId, socket.id);
-    game.addPlayer(socket.id, playerName);
+
+    // If authenticated, load persistent fleet/cash
+    let dbUserId = null;
+    if (token) {
+      const decoded = verifyToken(token);
+      if (decoded) {
+        dbUserId = decoded.userId;
+        const profile = getProfile(decoded.userId);
+        if (profile) {
+          playerName = profile.username;
+          const player = game.addPlayer(socket.id, playerName);
+          player.cash = profile.cash;
+          player.fleet = profile.fleet;
+          player.totalProfit = profile.totalProfit;
+          player.totalLosses = profile.totalLosses;
+          player.successfulTransits = profile.successfulTransits;
+          player.failedTransits = profile.failedTransits;
+        } else {
+          game.addPlayer(socket.id, playerName);
+        }
+      } else {
+        game.addPlayer(socket.id, playerName);
+      }
+    } else {
+      game.addPlayer(socket.id, playerName);
+    }
+
     games.set(gameId, game);
-    socketMap.set(socket.id, { gameId, playerName });
+    socketMap.set(socket.id, { gameId, playerName, dbUserId });
     socket.join(gameId);
 
     callback({ success: true, gameId, game: game.serialize() });
     console.log(`Game ${gameId} created by ${playerName}`);
   });
 
-  socket.on('join_game', ({ gameId, playerName }, callback) => {
+  socket.on('join_game', ({ gameId, playerName, token }, callback) => {
     const game = games.get(gameId.toUpperCase());
     if (!game) {
       callback({ success: false, error: 'Game not found' });
@@ -54,8 +151,32 @@ io.on('connection', (socket) => {
       return;
     }
 
-    game.addPlayer(socket.id, playerName);
-    socketMap.set(socket.id, { gameId: game.id, playerName });
+    let dbUserId = null;
+    if (token) {
+      const decoded = verifyToken(token);
+      if (decoded) {
+        dbUserId = decoded.userId;
+        const profile = getProfile(decoded.userId);
+        if (profile) {
+          playerName = profile.username;
+          const player = game.addPlayer(socket.id, playerName);
+          player.cash = profile.cash;
+          player.fleet = profile.fleet;
+          player.totalProfit = profile.totalProfit;
+          player.totalLosses = profile.totalLosses;
+          player.successfulTransits = profile.successfulTransits;
+          player.failedTransits = profile.failedTransits;
+        } else {
+          game.addPlayer(socket.id, playerName);
+        }
+      } else {
+        game.addPlayer(socket.id, playerName);
+      }
+    } else {
+      game.addPlayer(socket.id, playerName);
+    }
+
+    socketMap.set(socket.id, { gameId: game.id, playerName, dbUserId });
     socket.join(game.id);
 
     io.to(game.id).emit('game_update', game.serialize());
@@ -79,8 +200,6 @@ io.on('connection', (socket) => {
     console.log(`Game ${game.id} started`);
   });
 
-  // Player submits their plan (ship, AIS, insurance, time selections)
-  // In the new flow, the client runs the transit simulation locally
   socket.on('submit_plan', (plan, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -101,7 +220,6 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
-  // Client sends transit results after completing the live simulation
   socket.on('transit_complete', (data, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
@@ -110,6 +228,7 @@ io.on('connection', (socket) => {
 
     const updatedGame = game.applyTransitResult(socket.id, data);
     if (updatedGame) {
+      persistPlayer(socket.id);
       io.to(game.id).emit('game_update', updatedGame);
       callback?.({ success: true, game: updatedGame });
     } else {
@@ -129,6 +248,7 @@ io.on('connection', (socket) => {
       return;
     }
 
+    persistPlayer(socket.id);
     socket.emit('game_update', game.serialize());
     callback?.({ success: true, ship });
   });
@@ -145,6 +265,7 @@ io.on('connection', (socket) => {
       return;
     }
 
+    persistPlayer(socket.id);
     socket.emit('game_update', game.serialize());
     callback?.({ success: true, ...result });
   });
@@ -157,6 +278,7 @@ io.on('connection', (socket) => {
     const player = game.players[socket.id];
     if (!player) { callback?.({ success: false }); return; }
     player.cash = (player.cash || 0) + (revenue || 0);
+    persistPlayer(socket.id);
     io.to(game.id).emit('game_update', game.serialize());
     callback?.({ success: true });
   });
@@ -179,6 +301,7 @@ io.on('connection', (socket) => {
       player.fleet = player.fleet.filter(s => s.id !== shipId);
     }
     player.failedTransits = (player.failedTransits || 0) + 1;
+    persistPlayer(socket.id);
     io.to(game.id).emit('game_update', game.serialize());
     callback?.({ success: true, insurancePayout });
   });
@@ -190,6 +313,7 @@ io.on('connection', (socket) => {
     if (!game) { callback?.({ success: false }); return; }
     const result = game.upgradeShip(socket.id, shipId, type);
     if (!result) { callback?.({ success: false, error: 'Upgrade failed' }); return; }
+    persistPlayer(socket.id);
     io.to(game.id).emit('game_update', game.serialize());
     callback?.({ success: true });
   });
@@ -207,6 +331,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const info = socketMap.get(socket.id);
     if (info) {
+      // Persist before removing from game
+      persistPlayer(socket.id);
       const game = games.get(info.gameId);
       if (game) {
         game.removePlayer(socket.id);
