@@ -1307,3 +1307,42 @@ h1 {
   float: right;
   margin-top: 1px;
 }
+
+/* Spawn region dropdowns */
+.spawn-region {
+  margin-bottom: 4px;
+}
+.spawn-region-header {
+  padding: 8px 10px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 12px;
+  color: var(--primary);
+  user-select: none;
+}
+.spawn-region-header:hover {
+  background: var(--bg-card-hover);
+}
+.spawn-region-toggle {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+}
+.spawn-region-count {
+  color: var(--text-muted);
+  font-weight: normal;
+  font-size: 10px;
+}
+.spawn-region-body {
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 3px;
+}
+.spawn-region-body.hidden {
+  display: none;
+}

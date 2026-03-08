@@ -1,6 +1,7 @@
 // World map renderer with pan/zoom (detailed Persian Gulf region)
 import {
-  MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES
+  MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
+  DEFAULT_VIEWPORT, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES
 } from '../shared/constants.js';
 import { WORLD_POLYGONS, CHOKEPOINTS, SHIPPING_ROUTES } from './world-coastlines.js';
 
@@ -179,7 +180,12 @@ const QATAR = [
 // COORDINATE CONVERSION
 // ============================================
 function latLonToCanvas(lat, lon, drawW, drawH) {
-  const x = ((lon - viewport.west) / (viewport.east - viewport.west)) * drawW;
+  // Wrap lon to be closest to viewport center for correct display
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  let adjustedLon = lon;
+  while (adjustedLon - vpCenter > 180) adjustedLon -= 360;
+  while (adjustedLon - vpCenter < -180) adjustedLon += 360;
+  const x = ((adjustedLon - viewport.west) / (viewport.east - viewport.west)) * drawW;
   const y = ((viewport.north - lat) / (viewport.north - viewport.south)) * drawH;
   return { x, y };
 }
@@ -203,8 +209,13 @@ function polyVisible(points) {
     if (p[1] < minLon) minLon = p[1];
     if (p[1] > maxLon) maxLon = p[1];
   }
-  return !(maxLat < viewport.south || minLat > viewport.north ||
-           maxLon < viewport.west || minLon > viewport.east);
+  if (maxLat < viewport.south || minLat > viewport.north) return false;
+  // Handle longitude wrapping — adjust polygon lon range to viewport center
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  let adjMinLon = minLon, adjMaxLon = maxLon;
+  while (adjMinLon - vpCenter > 180) { adjMinLon -= 360; adjMaxLon -= 360; }
+  while (adjMaxLon - vpCenter < -180) { adjMinLon += 360; adjMaxLon += 360; }
+  return !(adjMaxLon < viewport.west || adjMinLon > viewport.east);
 }
 
 // Check if viewport is zoomed into the Persian Gulf detail region
@@ -360,76 +371,68 @@ function drawDangerZones(ctx, drawW, drawH, lbl = {}) {
 }
 
 function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
+  // Draw ALL terminals (export + import) with distinct styling
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const { x, y } = latLonToCanvas(terminal.lat, terminal.lon, drawW, drawH);
-
-    // Skip if off screen
     if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) continue;
 
     const isSelected = selectedTerminalId === terminal.id;
     const isLng = terminal.cargoType === 'lng';
-    const baseColor = isLng ? '#4090e0' : '#40c070';
+    const isImport = terminal.role === 'import';
 
-    // Terminal icon (diamond)
-    const sz = isSelected ? 8 : 6;
-    ctx.beginPath();
-    ctx.moveTo(x, y - sz);
-    ctx.lineTo(x + sz, y);
-    ctx.lineTo(x, y + sz);
-    ctx.lineTo(x - sz, y);
-    ctx.closePath();
-    ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Color: export = green/blue, import = orange/gold
+    const baseColor = isImport ? '#f0a030' : (isLng ? '#4090e0' : '#40c070');
 
-    // Label
-    if (lbl.terminalNames !== false) {
+    if (isImport) {
+      // Import terminal — square icon
+      const sz = isSelected ? 8 : 6;
+      ctx.fillStyle = isSelected ? '#fff' : baseColor;
+      ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - sz, y - sz, sz * 2, sz * 2);
+
+      if (lbl.terminalNames !== false) {
+        ctx.fillStyle = isSelected ? '#fff' : baseColor;
+        ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
+        ctx.textAlign = 'left';
+        ctx.fillText(terminal.name, x + sz + 4, y - 2);
+        ctx.fillStyle = '#a0a8c0';
+        ctx.font = '9px Courier New';
+        const sellP = isLng ? (terminal.lngSellPrice || terminal.sellPrice || '') : (terminal.sellPrice || '');
+        ctx.fillText(`SELL $${sellP}`, x + sz + 4, y + 9);
+      }
+    } else {
+      // Export terminal — diamond icon
+      const sz = isSelected ? 8 : 6;
+      ctx.beginPath();
+      ctx.moveTo(x, y - sz);
+      ctx.lineTo(x + sz, y);
+      ctx.lineTo(x, y + sz);
+      ctx.lineTo(x - sz, y);
+      ctx.closePath();
       ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
-      ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
-      ctx.textAlign = 'left';
-      ctx.fillText(terminal.name, x + sz + 4, y - 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      if (lbl.terminalNames !== false) {
+        ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
+        ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
+        ctx.textAlign = 'left';
+        ctx.fillText(terminal.name, x + sz + 4, y - 2);
+        ctx.fillStyle = '#a0a8c0';
+        ctx.font = '9px Courier New';
+        ctx.fillText(`BUY $${terminal.buyPrice || ''}`, x + sz + 4, y + 9);
+      }
     }
     ctx.textAlign = 'left';
   }
 }
 
 function drawDropoffPoint(ctx, drawW, drawH) {
-  // Draw all global dropoff points
-  for (const dp of Object.values(DROPOFF_POINTS)) {
-    const { x, y } = latLonToCanvas(dp.lat, dp.lon, drawW, drawH);
-    if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) continue;
-
-    // Radius circle
-    const radiusPx = ((dp.radius || 0.3) / (viewport.east - viewport.west)) * drawW;
-    ctx.beginPath();
-    ctx.arc(x, y, radiusPx, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(240, 160, 48, 0.08)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(240, 160, 48, 0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Icon (anchor / square marker)
-    const sz = 7;
-    ctx.fillStyle = '#f0a030';
-    ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - sz, y - sz, sz * 2, sz * 2);
-
-    // Label
-    ctx.fillStyle = '#f0a030';
-    ctx.font = 'bold 10px Courier New';
-    ctx.textAlign = 'left';
-    ctx.fillText(dp.name, x + sz + 4, y - 2);
-    ctx.fillStyle = '#a0a8c0';
-    ctx.font = '9px Courier New';
-    ctx.fillText('DROPOFF', x + sz + 4, y + 9);
-  }
+  // Legacy — no longer draws separate dropoffs since they're now in OIL_TERMINALS
 }
 
 function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
