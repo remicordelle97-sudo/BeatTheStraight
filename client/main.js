@@ -1728,7 +1728,9 @@ const OCEAN_NODES = [
   { id: 'pac_n', lat: 45.0, lon: -155.0 },
   // Asia Pacific
   { id: 'andaman', lat: 8.0, lon: 96.0 },
-  { id: 'malacca', lat: 2.5, lon: 101.0 },
+  { id: 'malacca_n', lat: 5.5, lon: 97.5 },   // north entrance — off NW Sumatra tip
+  { id: 'malacca', lat: 2.5, lon: 100.0 },     // mid-strait — shifted west to stay in water
+  { id: 'malacca_se', lat: 0.5, lon: 103.5 },  // south exit — open water south of Singapore
   { id: 'singapore', lat: 1.3, lon: 104.0 },
   { id: 'gulf_thai', lat: 7.5, lon: 103.0 },
   { id: 'natuna', lat: 3.0, lon: 108.0 },
@@ -1795,12 +1797,14 @@ const OCEAN_EDGES = [
   ['atl_s', 'brazil'], ['brazil', 'cape'],
   // Pacific — full circumnavigation routes
   ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
-  // Asia
+  // Asia — Malacca Strait corridor (north entrance → mid-strait → south exit)
   ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
-  ['andaman', 'malacca'], ['malacca', 'singapore'],
+  ['andaman', 'malacca_n'], ['malacca_n', 'malacca'], ['malacca', 'malacca_se'],
+  ['malacca_se', 'singapore'],
+  // East connections — bypass Malacca for SCS traffic
   ['singapore', 'gulf_thai'], ['gulf_thai', 'natuna'],
   ['singapore', 'natuna'], ['natuna', 'scs_south'], ['scs_south', 'scs'],
-  ['gulf_thai', 'scs_south'],
+  ['gulf_thai', 'scs_south'], ['malacca_se', 'natuna'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
 
