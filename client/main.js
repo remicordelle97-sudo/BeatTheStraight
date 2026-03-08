@@ -48,8 +48,21 @@ let campaignStats = {
   shipsLost: 0,
   totalDamageTaken: 0,
   missileEvents: 0,
+  attackLog: [],        // {time, region, type, description}
+  regionIntensity: {},  // region -> {level, lastChange}
 };
 let campaignEnded = false;
+
+// Region intensity definitions (used by situation monitor + mobile sitrep)
+const REGION_INTENSITY_LEVELS = ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'];
+const REGION_DEFINITIONS = {
+  gulf: { name: 'Persian Gulf', baseLevel: 3 },
+  red_sea: { name: 'Red Sea / Bab el-Mandeb', baseLevel: 2 },
+  somalia: { name: 'Gulf of Aden / Somalia', baseLevel: 1 },
+  malacca: { name: 'Malacca Strait', baseLevel: 0 },
+  singapore: { name: 'Singapore Strait', baseLevel: 0 },
+  guinea: { name: 'Gulf of Guinea', baseLevel: 1 },
+};
 
 // Multi-ship state
 let shipStates = {};
@@ -468,8 +481,66 @@ function renderMobileDrawer(tabName, container) {
     case 'controls': renderMobileControls(container); break;
     case 'log': renderMobileLog(container); break;
     case 'settings': renderMobileSettings(container); break;
+    case 'sitrep': renderMobileSitrep(container); break;
     default: container.innerHTML = '';
   }
+}
+
+function renderMobileSitrep(container) {
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
+  const rl = gameState?.riskLevel || 'LOW';
+  const levels = ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'];
+  const levelIdx = levels.indexOf(rl);
+
+  // Threat dial SVG
+  const dialColors = ['#40c070', '#f0a030', '#e04040', '#800000'];
+  const dialColor = dialColors[levelIdx] || dialColors[0];
+  const dialAngle = -90 + (levelIdx / 3) * 180; // -90 to 90 degrees
+  const dialRad = dialAngle * Math.PI / 180;
+
+  let html = `<div class="mobile-section-title">THREAT LEVEL</div>`;
+  html += `<div style="text-align:center;margin:8px 0 12px;">
+    <svg width="140" height="85" viewBox="0 0 140 85">
+      <!-- Dial arc segments -->
+      <path d="M 15 75 A 55 55 0 0 1 50 22" stroke="#40c070" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <path d="M 50 22 A 55 55 0 0 1 90 22" stroke="#f0a030" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <path d="M 90 22 A 55 55 0 0 1 125 75" stroke="#e04040" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <!-- Needle -->
+      <line x1="70" y1="75" x2="${70 + Math.cos(dialRad) * 45}" y2="${75 + Math.sin(dialRad) * 45}" stroke="${dialColor}" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="70" cy="75" r="5" fill="${dialColor}"/>
+      <!-- Label -->
+      <text x="70" y="12" text-anchor="middle" fill="${dialColor}" font-family="Courier New" font-size="11" font-weight="bold">${risk.name.toUpperCase()}</text>
+    </svg>
+  </div>`;
+
+  // Quick stats
+  const recentAttacks = campaignStats.attackLog.filter(a => Date.now() - a.time < 24 * 60 * 1000); // last ~24 game minutes
+  html += `<div style="display:flex;justify-content:space-around;margin-bottom:12px;">
+    <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--danger);">${campaignStats.missileEvents || 0}</div><div style="font-size:9px;color:var(--text-muted);">MISSILES</div></div>
+    <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--primary);">${recentAttacks.length}</div><div style="font-size:9px;color:var(--text-muted);">RECENT</div></div>
+    <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div><div style="font-size:9px;color:var(--text-muted);">OIL/BBL</div></div>
+  </div>`;
+
+  // Region intensity cards
+  html += `<div class="mobile-section-title">REGIONAL THREAT</div>`;
+  for (const [id, def] of Object.entries(REGION_DEFINITIONS)) {
+    const ri = campaignStats.regionIntensity[id];
+    if (!ri) continue;
+    const threatClass = ri.level >= 2 ? 'sitmon-stat-bad' : ri.level === 1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok';
+    html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(42,48,80,0.3);">
+      <span style="font-size:11px;">${def.name}</span>
+      <span class="${threatClass}" style="font-size:10px;font-weight:bold;">${ri.levelName}</span>
+    </div>`;
+  }
+
+  // View full monitor button
+  html += `<button class="btn btn-small btn-primary" style="width:100%;margin-top:12px;" id="mobile-open-sitmon">OPEN FULL MONITOR</button>`;
+
+  container.innerHTML = html;
+
+  document.getElementById('mobile-open-sitmon')?.addEventListener('click', () => {
+    openSituationMonitor();
+  });
 }
 
 function renderMobileFleet(container) {
@@ -817,11 +888,6 @@ function renderMobileSettings(container) {
     <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
   </div>`;
 
-  html += `<div class="mobile-section-title" style="margin-top:12px;">CHOKEPOINTS</div>`;
-  for (const cp of CHOKEPOINTS) {
-    html += `<button class="chokepoint-btn mobile-cp-btn" style="width:100%;margin-bottom:4px;" data-cp="${cp.shortName}">${cp.shortName}</button>`;
-  }
-
   container.innerHTML = html;
 
   container.querySelectorAll('.mobile-label-toggle').forEach(cb => {
@@ -843,20 +909,6 @@ function renderMobileSettings(container) {
     });
   });
 
-  container.querySelectorAll('.mobile-cp-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const cp = CHOKEPOINTS.find(c => c.shortName === btn.dataset.cp);
-      if (cp) {
-        viewport = { ...cp.viewport };
-        setViewport(viewport);
-        // Switch to map view
-        document.getElementById('mobile-drawer').classList.add('mobile-drawer-hidden');
-        mobileActiveTab = 'map';
-        document.querySelectorAll('.mobile-tab').forEach(t => t.classList.remove('active'));
-        document.querySelector('.mobile-tab[data-tab="map"]').classList.add('active');
-      }
-    });
-  });
 }
 
 // ============================================
@@ -1339,13 +1391,14 @@ function renderSituationMonitor() {
   const container = document.getElementById('sitmon-body');
   const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
   const rl = gameState?.riskLevel || 'LOW';
+  const levels = ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'];
+  const levelIdx = levels.indexOf(rl);
 
-  // Group danger zones by region
+  // War zone definitions with dynamic intensity
   const warZones = [
     {
       name: 'PERSIAN GULF / STRAIT OF HORMUZ',
       region: 'gulf',
-      threat: rl === 'CRITICAL' ? 'HIGH' : rl === 'HIGH' ? 'HIGH' : rl === 'MODERATE' ? 'MODERATE' : 'LOW',
       belligerents: 'Iran (IRGC) vs US/Coalition',
       zones: DANGER_ZONES.filter(z => !z.region || z.region === 'gulf'),
       risks: ['Anti-ship missiles', 'Drone swarms', 'Mine fields', 'IRGC patrol boats', 'Ship seizure'],
@@ -1354,7 +1407,6 @@ function renderSituationMonitor() {
     {
       name: 'RED SEA / BAB EL-MANDEB',
       region: 'red_sea',
-      threat: rl === 'CRITICAL' ? 'HIGH' : rl === 'HIGH' ? 'MODERATE' : 'LOW',
       belligerents: 'Ansar Allah (Houthi) vs Saudi/US Coalition',
       zones: DANGER_ZONES.filter(z => z.region === 'red_sea'),
       risks: ['Houthi anti-ship missiles', 'One-way attack drones', 'Pirate skiffs', 'Mine risk near Bab el-Mandeb'],
@@ -1363,7 +1415,6 @@ function renderSituationMonitor() {
     {
       name: 'GULF OF ADEN / SOMALIA',
       region: 'somalia',
-      threat: 'MODERATE',
       belligerents: 'Somali pirate networks',
       zones: DANGER_ZONES.filter(z => z.region === 'somalia'),
       risks: ['Armed pirate boarding', 'Ransom demands', 'Crew hostage situations'],
@@ -1372,7 +1423,6 @@ function renderSituationMonitor() {
     {
       name: 'MALACCA & SINGAPORE STRAITS',
       region: 'malacca',
-      threat: 'LOW',
       belligerents: 'Criminal pirate groups',
       zones: DANGER_ZONES.filter(z => z.region === 'malacca' || z.region === 'singapore'),
       risks: ['Piracy', 'Robbery at anchor', 'Opportunistic boarding'],
@@ -1381,7 +1431,6 @@ function renderSituationMonitor() {
     {
       name: 'GULF OF GUINEA',
       region: 'guinea',
-      threat: 'MODERATE',
       belligerents: 'Nigerian pirate syndicates',
       zones: DANGER_ZONES.filter(z => z.region === 'guinea'),
       risks: ['Armed robbery', 'Kidnap for ransom', 'Hijacking'],
@@ -1391,40 +1440,85 @@ function renderSituationMonitor() {
 
   let html = '';
 
-  // Global status banner
-  html += `<div class="sitmon-zone" style="border-color:${rl === 'CRITICAL' ? '#800' : rl === 'HIGH' ? 'var(--danger)' : 'var(--primary)'};">
-    <div class="sitmon-zone-header">
-      <span class="sitmon-zone-name">GLOBAL THREAT LEVEL</span>
-      <span class="sitmon-zone-threat sitmon-threat-${rl === 'CRITICAL' || rl === 'HIGH' ? 'high' : rl === 'MODERATE' ? 'moderate' : 'low'}">${risk.name.toUpperCase()}</span>
-    </div>
-    <div class="sitmon-zone-details">
-      <div class="sitmon-row"><span class="sitmon-row-label">Oil Price Multiplier</span><span class="sitmon-row-value">${risk.oilPriceMultiplier}x</span></div>
-      <div class="sitmon-row"><span class="sitmon-row-label">Event Frequency</span><span class="sitmon-row-value ${risk.eventFrequency > 0.3 ? 'sitmon-stat-bad' : risk.eventFrequency > 0.1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok'}">${(risk.eventFrequency * 100).toFixed(0)}%</span></div>
-      <div class="sitmon-row"><span class="sitmon-row-label">Missile Events (Session)</span><span class="sitmon-row-value">${campaignStats.missileEvents || 0}</span></div>
-      <div class="sitmon-row"><span class="sitmon-row-label">Total Damage Taken</span><span class="sitmon-row-value">${Math.round((campaignStats.totalDamageTaken || 0) * 100)}%</span></div>
+  // --- Threat Dial + Stats Header ---
+  const dialColors = ['#40c070', '#f0a030', '#e04040', '#800000'];
+  const dialColor = dialColors[levelIdx] || dialColors[0];
+  const dialAngle = -90 + (levelIdx / 3) * 180;
+  const dialRad = dialAngle * Math.PI / 180;
+
+  const recentAttacks = campaignStats.attackLog.filter(a => Date.now() - a.time < 24 * 60 * 1000);
+  const totalAttacks = campaignStats.attackLog.length;
+
+  html += `<div class="sitmon-zone" style="border-color:${dialColor};">
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+      <div class="sitmon-dial-container">
+        <svg width="140" height="85" viewBox="0 0 140 85">
+          <path d="M 15 75 A 55 55 0 0 1 50 22" stroke="#40c070" stroke-width="8" fill="none" stroke-linecap="round"/>
+          <path d="M 50 22 A 55 55 0 0 1 90 22" stroke="#f0a030" stroke-width="8" fill="none" stroke-linecap="round"/>
+          <path d="M 90 22 A 55 55 0 0 1 125 75" stroke="#e04040" stroke-width="8" fill="none" stroke-linecap="round"/>
+          <line x1="70" y1="75" x2="${70 + Math.cos(dialRad) * 45}" y2="${75 + Math.sin(dialRad) * 45}" stroke="${dialColor}" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="70" cy="75" r="5" fill="${dialColor}"/>
+          <text x="70" y="12" text-anchor="middle" fill="${dialColor}" font-family="Courier New" font-size="11" font-weight="bold">${risk.name.toUpperCase()}</text>
+        </svg>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div class="sitmon-stats-grid">
+          <div class="sitmon-stat-card">
+            <div class="sitmon-stat-number sitmon-stat-bad">${campaignStats.missileEvents || 0}</div>
+            <div class="sitmon-stat-label">MISSILE STRIKES</div>
+          </div>
+          <div class="sitmon-stat-card">
+            <div class="sitmon-stat-number sitmon-stat-warn">${recentAttacks.length}</div>
+            <div class="sitmon-stat-label">RECENT ATTACKS</div>
+          </div>
+          <div class="sitmon-stat-card">
+            <div class="sitmon-stat-number" style="color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div>
+            <div class="sitmon-stat-label">OIL PRICE/BBL</div>
+          </div>
+          <div class="sitmon-stat-card">
+            <div class="sitmon-stat-number" style="color:${(campaignStats.totalDamageTaken || 0) > 0.3 ? 'var(--danger)' : 'var(--success)'};">${Math.round((campaignStats.totalDamageTaken || 0) * 100)}%</div>
+            <div class="sitmon-stat-label">FLEET DAMAGE</div>
+          </div>
+        </div>
+        <div class="sitmon-zone-details" style="margin-top:4px;">
+          <div class="sitmon-row"><span class="sitmon-row-label">Oil Price Multiplier</span><span class="sitmon-row-value">${risk.oilPriceMultiplier}x</span></div>
+          <div class="sitmon-row"><span class="sitmon-row-label">Event Frequency</span><span class="sitmon-row-value ${risk.eventFrequency > 0.3 ? 'sitmon-stat-bad' : risk.eventFrequency > 0.1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok'}">${(risk.eventFrequency * 100).toFixed(0)}%</span></div>
+        </div>
+      </div>
     </div>
   </div>`;
 
+  // --- Two-column layout: Regions + Attack Log ---
+  html += `<div class="sitmon-columns">`;
+
+  // LEFT COLUMN: Conflict zones + fleet exposure
+  html += `<div>`;
   html += `<div class="sitmon-section-title">ACTIVE CONFLICT ZONES</div>`;
 
   for (const wz of warZones) {
-    const threatClass = wz.threat === 'HIGH' ? 'high' : wz.threat === 'MODERATE' ? 'moderate' : 'low';
+    const ri = campaignStats.regionIntensity[wz.region];
+    const threat = ri ? ri.levelName : 'LOW';
+    const threatClass = threat === 'CRITICAL' || threat === 'HIGH' ? 'high' : threat === 'MODERATE' ? 'moderate' : 'low';
     const zoneCount = wz.zones.length;
+    const timeSinceChange = ri ? Math.round((Date.now() - ri.lastChange) / 1000) : 0;
+    const changeAgo = timeSinceChange < 60 ? `${timeSinceChange}s ago` : `${Math.round(timeSinceChange / 60)}m ago`;
+
     html += `<div class="sitmon-zone">
       <div class="sitmon-zone-header">
         <span class="sitmon-zone-name">${wz.name}</span>
-        <span class="sitmon-zone-threat sitmon-threat-${threatClass}">${wz.threat}</span>
+        <span class="sitmon-zone-threat sitmon-threat-${threatClass}">${threat}</span>
       </div>
       <div class="sitmon-zone-details">
         <div class="sitmon-row"><span class="sitmon-row-label">Belligerents</span><span class="sitmon-row-value">${wz.belligerents}</span></div>
         <div class="sitmon-row"><span class="sitmon-row-label">Active Zones</span><span class="sitmon-row-value">${zoneCount}</span></div>
+        <div class="sitmon-row"><span class="sitmon-row-label">Last Change</span><span class="sitmon-row-value">${changeAgo}</span></div>
         <div class="sitmon-row"><span class="sitmon-row-label">Risks</span><span class="sitmon-row-value" style="text-align:right;max-width:60%;">${wz.risks.join(', ')}</span></div>
         <div style="margin-top:6px;font-size:10px;color:var(--text-muted);line-height:1.4;">${wz.description}</div>
       </div>
     </div>`;
   }
 
-  // Player ship exposure
+  // Fleet exposure
   const me = gameState?.players.find(p => p.id === myId);
   if (me && me.fleet.length > 0) {
     html += `<div class="sitmon-section-title">YOUR FLEET EXPOSURE</div>`;
@@ -1447,6 +1541,52 @@ function renderSituationMonitor() {
       </div>`;
     }
   }
+  html += `</div>`;
+
+  // RIGHT COLUMN: Attack log + region intensity
+  html += `<div>`;
+
+  // Region intensity summary
+  html += `<div class="sitmon-section-title">REGIONAL INTENSITY</div>`;
+  html += `<div class="sitmon-zone">`;
+  for (const [id, def] of Object.entries(REGION_DEFINITIONS)) {
+    const ri = campaignStats.regionIntensity[id];
+    if (!ri) continue;
+    const barWidth = ((ri.level + 1) / 4) * 100;
+    const barColor = ri.level >= 3 ? '#800' : ri.level >= 2 ? 'var(--danger)' : ri.level >= 1 ? 'var(--primary)' : 'var(--success)';
+    html += `<div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">
+        <span>${def.name}</span>
+        <span style="color:${barColor};font-weight:bold;">${ri.levelName}</span>
+      </div>
+      <div style="background:rgba(42,48,80,0.4);height:6px;border-radius:3px;overflow:hidden;">
+        <div style="width:${barWidth}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.5s;"></div>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Attack log
+  html += `<div class="sitmon-section-title">ATTACK LOG (${totalAttacks} total, ${recentAttacks.length} recent)</div>`;
+  html += `<div class="sitmon-zone sitmon-attack-log">`;
+  if (campaignStats.attackLog.length === 0) {
+    html += `<div style="color:var(--text-muted);font-size:11px;padding:8px;">No attacks recorded yet.</div>`;
+  } else {
+    const displayLog = [...campaignStats.attackLog].reverse().slice(0, 30);
+    for (const entry of displayLog) {
+      const ago = Math.round((Date.now() - entry.time) / 1000);
+      const timeStr = ago < 60 ? `${ago}s` : `${Math.round(ago / 60)}m`;
+      html += `<div class="sitmon-attack-item">
+        <span class="sitmon-attack-time">${timeStr} ago</span>
+        <span class="sitmon-attack-type">${entry.type}</span>
+        <span class="sitmon-attack-region">${entry.region}</span>
+      </div>`;
+    }
+  }
+  html += `</div>`;
+  html += `</div>`;
+
+  html += `</div>`; // close sitmon-columns
 
   container.innerHTML = html;
 }
@@ -2015,7 +2155,9 @@ function enterGame() {
   zoneCooldowns = {};
   lastEventCheck = 0;
   campaignEnded = false;
-  campaignStats = { totalProfit: 0, totalRevenue: 0, totalCosts: 0, deliveries: 0, shipsBought: 0, shipsLost: 0, totalDamageTaken: 0, missileEvents: 0 };
+  campaignStats = { totalProfit: 0, totalRevenue: 0, totalCosts: 0, deliveries: 0, shipsBought: 0, shipsLost: 0, totalDamageTaken: 0, missileEvents: 0, attackLog: [], regionIntensity: {} };
+  initRegionIntensity();
+  lastRegionIntensityCheck = 0;
 
 
   const me = gameState.players.find(p => p.id === myId);
@@ -3457,6 +3599,7 @@ function transitLoop(timestamp) {
   }
 
   updateAmbientWar(elapsed);
+  updateRegionIntensity(elapsed);
 
   updateHUD();
 
@@ -3851,6 +3994,72 @@ function updateAmbientWar(elapsed) {
 }
 
 // ============================================
+// REGION INTENSITY SYSTEM
+// ============================================
+let lastRegionIntensityCheck = 0;
+const REGION_INTENSITY_INTERVAL = 30; // check every 30 seconds of game time
+
+function initRegionIntensity() {
+  for (const [id, def] of Object.entries(REGION_DEFINITIONS)) {
+    campaignStats.regionIntensity[id] = {
+      level: def.baseLevel,
+      levelName: REGION_INTENSITY_LEVELS[def.baseLevel],
+      lastChange: Date.now(),
+    };
+  }
+}
+
+function updateRegionIntensity(elapsed) {
+  if (elapsed - lastRegionIntensityCheck < REGION_INTENSITY_INTERVAL) return;
+  lastRegionIntensityCheck = elapsed;
+
+  for (const [id, def] of Object.entries(REGION_DEFINITIONS)) {
+    const ri = campaignStats.regionIntensity[id];
+    if (!ri) continue;
+
+    // Small chance to escalate or de-escalate each check
+    const roll = Math.random();
+    let newLevel = ri.level;
+
+    if (roll < 0.08) {
+      // 8% chance to escalate
+      newLevel = Math.min(3, ri.level + 1);
+    } else if (roll < 0.14) {
+      // 6% chance to de-escalate
+      newLevel = Math.max(0, ri.level - 1);
+    }
+
+    if (newLevel !== ri.level) {
+      const oldName = REGION_INTENSITY_LEVELS[ri.level];
+      const newName = REGION_INTENSITY_LEVELS[newLevel];
+      ri.level = newLevel;
+      ri.levelName = newName;
+      ri.lastChange = Date.now();
+
+      const escalated = newLevel > ri.level - (newLevel - ri.level) ? true : false;
+      const direction = newLevel > (newLevel - 1) ? 'ESCALATION' : 'DE-ESCALATION';
+      const msgType = newLevel >= 2 ? 'danger' : newLevel === 1 ? '' : 'success';
+
+      addTransitEvent(
+        `INTEL: ${def.name}`,
+        `Threat level changed: ${oldName} → ${newName}`,
+        msgType
+      );
+
+      // Update danger zone probabilities for this region
+      for (const zone of DANGER_ZONES) {
+        const zoneRegion = zone.region || 'gulf';
+        if (zoneRegion === id) {
+          // Scale probability based on intensity level
+          const scale = [0.3, 0.6, 1.0, 1.5][newLevel];
+          zone._currentProbability = zone.baseProbability * scale;
+        }
+      }
+    }
+  }
+}
+
+// ============================================
 // DANGER ZONES (all ships)
 // ============================================
 function checkDangerZonesAllShips(elapsed) {
@@ -3874,7 +4083,8 @@ function checkDangerZonesAllShips(elapsed) {
       const defLevel = ship.defenseUpgrade || 0;
       const defReduction = 1 - defLevel * 0.2; // 20% reduction per level
       const nightMult = getNightDetectionMultiplier(state.lon);
-      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
+      const zoneProbability = zone._currentProbability || zone.baseProbability;
+      let prob = zoneProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
       if (Math.random() < prob) {
         const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
         const evt = EVENTS.find(e => e.id === eventId);
@@ -3996,6 +4206,15 @@ function addTransitEvent(name, text, type) {
   }
   // Also store for mobile log
   mobileEventLog.push({ name, text, type });
+  // Track in attack log for situation monitor
+  if (type === 'danger') {
+    const region = name.toLowerCase().includes('houthi') ? 'red_sea'
+      : name.toLowerCase().includes('pirate') ? 'piracy'
+      : 'gulf';
+    campaignStats.attackLog.push({ time: Date.now(), region, type: name, description: text });
+    // Keep last 100 entries
+    if (campaignStats.attackLog.length > 100) campaignStats.attackLog.shift();
+  }
   if (mobileEventLog.length > 50) mobileEventLog.shift();
   // Live-update mobile log if visible
   if (isMobile() && mobileActiveTab === 'log') {
