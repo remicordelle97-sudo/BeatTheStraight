@@ -1256,6 +1256,7 @@ const OCEAN_NODES = [
   { id: 'w_africa', lat: 4.0, lon: 3.0 },
   { id: 'e_africa', lat: 0.0, lon: 45.0 },
   { id: 'angola', lat: -8.0, lon: 12.0 },
+  { id: 'namibia', lat: -22.0, lon: 10.0 },
   { id: 'mozambique', lat: -15.0, lon: 42.0 },
   { id: 'cape', lat: -34.5, lon: 18.5 },
   // Atlantic
@@ -1315,7 +1316,7 @@ const OCEAN_EDGES = [
   // West Africa
   ['guinea', 'w_africa'], ['w_africa', 'angola'],
   ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
-  ['angola', 'cape'], ['angola', 'atl_s'],
+  ['angola', 'namibia'], ['namibia', 'cape'], ['angola', 'atl_s'],
   // Americas (route around Florida via florida_str)
   ['us_east', 'florida_east'], ['florida_east', 'florida_str'],
   ['florida_str', 'us_gulf'],
