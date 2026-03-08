@@ -29,6 +29,13 @@ let modalSpawnTerminalId = null;
 
 let gameSpeedMultiplier = 1;
 
+// Find current player in game state — tries ID match, falls back to single-player
+function getMe() {
+  if (!gameState?.players) return null;
+  return getMe()
+    || (gameState.players.length === 1 ? gameState.players[0] : null);
+}
+
 // Get live terminal price from server state, falling back to static base price
 function getLivePrice(terminal) {
   if (gameState && gameState.terminalPrices && gameState.terminalPrices[terminal.id]) {
@@ -625,8 +632,9 @@ function renderMobileSitrep(container) {
 }
 
 function renderMobileFleet(container) {
-  const me = gameState?.players.find(p => p.id === myId);
-  if (!me) { container.innerHTML = '<div class="muted">No game data</div>'; return; }
+  // Try exact ID match first, then fallback to single-player (first player)
+  const me = getMe();
+  if (!me) { container.innerHTML = '<div class="muted">Connecting...</div>'; return; }
 
   let html = `<div class="mobile-section-title">FLEET — ${formatMoney(me.cash || 0)}</div>`;
   if (me.fleet.length === 0) {
@@ -719,7 +727,7 @@ function renderMobileControls(container) {
 
 
   // Upgrades section
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   const cash = me?.cash || 0;
   const dmg = state.totalDamage || 0;
   const repairCost = dmg > 0 ? Math.round((ship.cost || 0) * dmg * 0.3) : 0;
@@ -1093,7 +1101,7 @@ let shipControlOpen = false;
 
 function getSelectedShipData() {
   if (!gameState || !selectedShipId) return null;
-  const me = gameState.players.find(p => p.id === myId);
+  const me = getMe();
   return me?.fleet.find(s => s.id === selectedShipId) || null;
 }
 
@@ -1194,7 +1202,7 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   }
   const repairCost = Math.round((ship.cost || 0) * state.totalDamage * 0.3);
   if (repairCost <= 0) return;
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me || me.cash < repairCost) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(repairCost)} to repair.`;
     return;
@@ -1226,7 +1234,7 @@ document.getElementById('scp-engine').addEventListener('click', () => {
     return;
   }
   const cost = 25000000;
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me || me.cash < cost) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for engine upgrade.`;
     return;
@@ -1253,7 +1261,7 @@ document.getElementById('scp-defense').addEventListener('click', () => {
     document.getElementById('scp-upgrade-info').textContent = 'Defense already upgraded.';
     return;
   }
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me || me.cash < DEFENSE_COST) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(DEFENSE_COST)} for defense.`;
     return;
@@ -1369,7 +1377,7 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
 
   if (!ship.hasAutopilot) {
     const cost = 30000000;
-    const me = gameState?.players.find(p => p.id === myId);
+    const me = getMe();
     if (!me || me.cash < cost) {
       document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for autopilot.`;
       return;
@@ -1449,7 +1457,7 @@ function refreshUpgradeButtons() {
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   if (!ship || !state) return;
 
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   const cash = me?.cash || 0;
 
   // Repair
@@ -1521,7 +1529,7 @@ function refreshUpgradeButtons() {
 // FLEET MANAGER MODAL
 // ============================================
 function openFleetManager() {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me || me.fleet.length === 0) return;
   closeShipControlPanel();
   document.getElementById('fleet-manager-modal').classList.remove('hidden');
@@ -1717,7 +1725,7 @@ function renderSituationMonitor() {
   }
 
   // Fleet exposure
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (me && me.fleet.length > 0) {
     html += `<div class="sitmon-section-title">YOUR FLEET EXPOSURE</div>`;
     for (const ship of me.fleet) {
@@ -1790,7 +1798,7 @@ function renderSituationMonitor() {
 }
 
 function renderFleetManager() {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me) return;
   const cash = me.cash || 0;
   const container = document.getElementById('fm-ship-list');
@@ -1967,7 +1975,7 @@ function renderFleetManager() {
       if (!st.totalDamage || st.totalDamage <= 0) return;
       const repairCost = Math.round((s.cost || 0) * st.totalDamage * 0.3);
       if (repairCost <= 0) return;
-      const me2 = gameState?.players.find(p => p.id === myId);
+      const me2 = getMe();
       if (!me2 || me2.cash < repairCost) return;
       btn.disabled = true;
       const currentHealth = Math.max(0.01, (st.health || 1) - st.totalDamage);
@@ -1992,7 +2000,7 @@ function renderFleetManager() {
       if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       if (!s || s.engineUpgrade) return;
-      const me2 = gameState?.players.find(p => p.id === myId);
+      const me2 = getMe();
       if (!me2 || me2.cash < 25000000) return;
       btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost: 25000000 }, (res) => {
@@ -2012,7 +2020,7 @@ function renderFleetManager() {
       if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
       if (!s || s.defenseUpgrade) return;
-      const me2 = gameState?.players.find(p => p.id === myId);
+      const me2 = getMe();
       if (!me2 || me2.cash < DEFENSE_COST) return;
       btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
@@ -2042,7 +2050,7 @@ function renderFleetManager() {
         return;
       }
       if (!s.hasAutopilot) {
-        const me2 = gameState?.players.find(p => p.id === myId);
+        const me2 = getMe();
         if (!me2 || me2.cash < 30000000) return;
         btn.disabled = true;
         socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 30000000 }, (res) => {
@@ -2103,7 +2111,7 @@ function renderFleetManager() {
 }
 
 function getShipData(shipId) {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   return me?.fleet.find(s => s.id === shipId);
 }
 
@@ -2360,7 +2368,7 @@ function enterGame() {
   lastRegionIntensityCheck = 0;
 
 
-  const me = gameState.players.find(p => p.id === myId);
+  const me = getMe();
   if (me) {
     for (const ship of me.fleet) {
       if (!shipStates[ship.id]) spawnShipState(ship);
@@ -2469,7 +2477,7 @@ setImpactHandler((impactLat, impactLon, type) => {
 // FLEET PANEL (top-left, always visible during transit)
 // ============================================
 function updateFleetPanel() {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me) return;
 
   const cashEl = document.getElementById('plan-cash');
@@ -2576,7 +2584,7 @@ function openShipPurchaseModal() {
   const configStep = document.getElementById('modal-step-config');
   if (configStep) configStep.classList.add('hidden');
 
-  const me = gameState.players.find(p => p.id === myId);
+  const me = getMe();
   const shipList = document.getElementById('modal-ship-list');
   shipList.innerHTML = Object.entries(options.shipTypes).map(([key, s]) => `
     <div class="option-card" data-type-key="${key}">
@@ -3495,7 +3503,7 @@ function transitLoop(timestamp) {
   const elapsed = (timestamp - simStartTime) / 1000;
   simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
 
   // Update each player ship
   if (me) {
@@ -3795,7 +3803,7 @@ function transitLoop(timestamp) {
                 `Received ${formatMoney(res.insurancePayout)} insurance payout for ${ship.name}.`, 'success');
             }
             // Remove from local fleet
-            const me = gameState?.players.find(p => p.id === myId);
+            const me = getMe();
             if (me) {
               me.fleet = me.fleet.filter(s => s.id !== ship.id);
             }
@@ -3926,7 +3934,7 @@ function updateHUD() {
 // ============================================
 function showCampaignReport() {
   transitActive = false;
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   const cash = me?.cash || 0;
   const fleetSize = me?.fleet.length || 0;
 
@@ -4293,7 +4301,7 @@ function updateRegionIntensity(elapsed) {
 // DANGER ZONES (all ships)
 // ============================================
 function checkDangerZonesAllShips(elapsed) {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me) return;
   const risk = RISK_LEVELS[gameState.riskLevel];
 
@@ -4427,7 +4435,7 @@ function checkDangerZonesAllShips(elapsed) {
 const aisFineCooldowns = {};
 const AIS_FINE_INTERVAL = 60; // seconds of game time between checks per ship
 function checkAisFines(elapsed) {
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (!me) return;
   for (const ship of me.fleet) {
     const state = shipStates[ship.id];
@@ -4574,7 +4582,7 @@ function showChokepointPopup(cp, screenX, screenY) {
   }).length;
 
   // Ships near chokepoint
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   const shipsNear = me ? me.fleet.filter(s => {
     const st = shipStates[s.id];
     if (!st) return false;
@@ -4679,7 +4687,7 @@ mapCanvas.addEventListener('click', (e) => {
   const mobile = isMobile();
 
   // Check ship click first (higher priority than terminals)
-  const me = gameState?.players.find(p => p.id === myId);
+  const me = getMe();
   if (me) {
     for (const ship of me.fleet) {
       const state = shipStates[ship.id];
@@ -4747,14 +4755,47 @@ function angleDiff(from, to) { let diff = to - from; while (diff > 180) diff -= 
 // ============================================
 // SOCKET EVENTS
 // ============================================
-socket.on('connect', () => { myId = socket.id; });
+socket.on('connect', () => {
+  const oldId = myId;
+  myId = socket.id;
+  // If we were in a game, rejoin after reconnection
+  if (oldId && oldId !== myId && gameState) {
+    const oldMe = gameState.players.find(p => p.id === oldId);
+    const playerName = oldMe?.name || authUser?.username || 'Captain';
+    socket.emit('rejoin_game', {
+      gameId: gameState.id,
+      playerName,
+      token: authToken || undefined
+    }, (res) => {
+      if (res?.success) {
+        gameState = res.game;
+        if (transitActive) {
+          updateFleetPanel();
+          if (mobileActiveTab === 'fleet') {
+            const dc = document.getElementById('mobile-drawer-content');
+            if (dc) renderMobileFleet(dc);
+          }
+        }
+      }
+    });
+    // Re-auth socket if logged in
+    if (authToken) socket.emit('auth', { token: authToken });
+  }
+});
 
 socket.on('game_update', (state) => {
   gameState = state;
   if (state.players.length > 0 && state.players[0].id === myId) isHost = true;
   const activeScreen = document.querySelector('.screen.active');
   if (activeScreen?.id === 'screen-lobby') renderLobby();
-  if (transitActive) updateFleetPanel();
+  if (transitActive) {
+    updateFleetPanel();
+    // Refresh mobile fleet drawer if it's currently open
+    if (mobileActiveTab === 'fleet') {
+      const dc = document.getElementById('mobile-drawer-content');
+      if (dc) renderMobileFleet(dc);
+    }
+  }
 });
 
 socket.on('phase_change', ({ phase }) => {
