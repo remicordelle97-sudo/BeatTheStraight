@@ -1112,6 +1112,141 @@ const NPC_SPAWN_ZONES = [
   { latMin: 7.0, latMax: 10.0, lonMin: -81.0, lonMax: -78.0 },     // Panama Canal
 ];
 
+// ============================================
+// OCEAN WAYPOINT GRAPH — NPC route planning
+// ============================================
+// Waypoints at key ocean locations; NPCs navigate through these to avoid land
+const OCEAN_NODES = [
+  // Persian Gulf / Indian Ocean
+  { id: 'gulf', lat: 27.0, lon: 50.0 },
+  { id: 'hormuz', lat: 26.5, lon: 56.5 },
+  { id: 'oman', lat: 24.0, lon: 60.0 },
+  { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
+  { id: 'india_w', lat: 15.0, lon: 70.0 },
+  { id: 'india_s', lat: 7.0, lon: 78.0 },
+  // Red Sea / Suez
+  { id: 'bab', lat: 12.5, lon: 43.5 },
+  { id: 'red_sea', lat: 20.0, lon: 38.5 },
+  { id: 'suez_s', lat: 30.0, lon: 32.5 },
+  { id: 'suez_n', lat: 31.5, lon: 32.2 },
+  // Mediterranean / Europe
+  { id: 'med_e', lat: 34.0, lon: 28.0 },
+  { id: 'med_c', lat: 36.0, lon: 15.0 },
+  { id: 'gibraltar', lat: 36.0, lon: -6.0 },
+  { id: 'biscay', lat: 45.0, lon: -8.0 },
+  { id: 'channel', lat: 50.0, lon: -2.0 },
+  { id: 'north_sea', lat: 58.0, lon: 3.0 },
+  { id: 'baltic', lat: 60.0, lon: 25.0 },
+  // Africa
+  { id: 'w_africa', lat: 4.0, lon: 3.0 },
+  { id: 'e_africa', lat: 0.0, lon: 45.0 },
+  { id: 'mozambique', lat: -15.0, lon: 42.0 },
+  { id: 'cape', lat: -34.5, lon: 18.5 },
+  // Atlantic
+  { id: 'atl_n', lat: 40.0, lon: -35.0 },
+  { id: 'atl_s', lat: -10.0, lon: -20.0 },
+  // Americas
+  { id: 'us_east', lat: 38.0, lon: -72.0 },
+  { id: 'us_gulf', lat: 28.0, lon: -90.0 },
+  { id: 'caribbean', lat: 15.0, lon: -70.0 },
+  { id: 'venezuela', lat: 11.0, lon: -66.0 },
+  { id: 'panama_c', lat: 9.3, lon: -79.8 },
+  { id: 'panama_p', lat: 8.5, lon: -80.0 },
+  { id: 'brazil', lat: -23.0, lon: -42.0 },
+  { id: 'alaska', lat: 59.0, lon: -148.0 },
+  { id: 'pac_n', lat: 45.0, lon: -155.0 },
+  // Asia Pacific
+  { id: 'malacca', lat: 4.0, lon: 96.0 },
+  { id: 'singapore', lat: 1.3, lon: 103.5 },
+  { id: 'scs', lat: 12.0, lon: 112.0 },
+  { id: 'ecs', lat: 30.0, lon: 123.0 },
+  { id: 'japan', lat: 35.0, lon: 140.0 },
+];
+
+// Adjacency — pairs of connected waypoint IDs
+const OCEAN_EDGES = [
+  // Gulf exits
+  ['gulf', 'hormuz'], ['hormuz', 'oman'],
+  // Indian Ocean
+  ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
+  // Red Sea route
+  ['arabian_sea', 'bab'], ['bab', 'red_sea'], ['red_sea', 'suez_s'],
+  ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
+  // East Africa
+  ['bab', 'e_africa'], ['e_africa', 'mozambique'], ['mozambique', 'cape'],
+  ['e_africa', 'arabian_sea'],
+  // Mediterranean
+  ['med_e', 'med_c'], ['med_c', 'gibraltar'],
+  // Europe
+  ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'north_sea'],
+  ['north_sea', 'baltic'],
+  // Atlantic crossings
+  ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
+  ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'],
+  // West Africa
+  ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
+  ['w_africa', 'cape'],
+  // Americas
+  ['us_east', 'us_gulf'], ['us_east', 'caribbean'], ['caribbean', 'us_gulf'],
+  ['caribbean', 'venezuela'], ['caribbean', 'panama_c'],
+  ['panama_c', 'panama_p'],
+  ['atl_s', 'brazil'], ['brazil', 'cape'],
+  // Pacific
+  ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
+  // Asia
+  ['india_s', 'malacca'], ['malacca', 'singapore'], ['singapore', 'scs'],
+  ['scs', 'ecs'], ['ecs', 'japan'],
+];
+
+// Build adjacency list
+const OCEAN_ADJ = {};
+for (const n of OCEAN_NODES) OCEAN_ADJ[n.id] = [];
+for (const [a, b] of OCEAN_EDGES) {
+  OCEAN_ADJ[a].push(b);
+  OCEAN_ADJ[b].push(a);
+}
+
+// Find nearest waypoint to a lat/lon
+function nearestWaypoint(lat, lon) {
+  let best = OCEAN_NODES[0], bestD = Infinity;
+  for (const n of OCEAN_NODES) {
+    const d = (n.lat - lat) ** 2 + (n.lon - lon) ** 2;
+    if (d < bestD) { bestD = d; best = n; }
+  }
+  return best;
+}
+
+// BFS shortest path between two waypoint IDs
+function bfsRoute(startId, endId) {
+  if (startId === endId) return [];
+  const visited = new Set([startId]);
+  const queue = [[startId]];
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const curr = path[path.length - 1];
+    for (const next of (OCEAN_ADJ[curr] || [])) {
+      if (next === endId) return [...path.slice(1), next]; // exclude start
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push([...path, next]);
+      }
+    }
+  }
+  return []; // no path found
+}
+
+// Compute waypoint route from (lat,lon) to (lat,lon)
+function computeOceanRoute(fromLat, fromLon, toLat, toLon) {
+  const startNode = nearestWaypoint(fromLat, fromLon);
+  const endNode = nearestWaypoint(toLat, toLon);
+  // If close enough, just go direct
+  if (distanceDeg(fromLat, fromLon, toLat, toLon) < 5) return [];
+  const nodeIds = bfsRoute(startNode.id, endNode.id);
+  const nodeMap = {};
+  for (const n of OCEAN_NODES) nodeMap[n.id] = n;
+  return nodeIds.map(id => ({ lat: nodeMap[id].lat, lon: nodeMap[id].lon }));
+}
+
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
   // Pick a terminal matching the ship's cargo type
@@ -1145,6 +1280,8 @@ function createNPCTanker(staggered) {
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
     coastEscapeTimer: 0, coastEscapeHeading: 0,
     trail: [],
+    route: [],     // waypoint route [{lat,lon}, ...]
+    routeIdx: 0,   // current waypoint index
   };
 
   // Place based on state
@@ -1157,18 +1294,25 @@ function createNPCTanker(staggered) {
     npc.lat = dp.lat; npc.lon = dp.lon; npc.speed = 0;
     npc.loadTimer = 8 + Math.random() * 12;
   } else if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-    // Place somewhere along a shipping lane
     const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, terminal.lat, terminal.lon);
+    npc.route = computeOceanRoute(npc.lat, npc.lon, terminal.lat, terminal.lon);
+    npc.route.push({ lat: terminal.lat, lon: terminal.lon });
+    npc.routeIdx = 0;
+    const wp = npc.route[0];
+    npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
     npc.targetHeading = npc.heading;
   } else {
-    // HEADING_TO_DROPOFF — place somewhere along route to dropoff
+    // HEADING_TO_DROPOFF
     const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
+    npc.route = computeOceanRoute(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
+    npc.route.push({ lat: dropoff.lat, lon: dropoff.lon });
+    npc.routeIdx = 0;
+    const wp = npc.route[0];
+    npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
     npc.targetHeading = npc.heading;
   }
   return npc;
@@ -1255,11 +1399,13 @@ function updateNPCShips(dt, elapsed) {
             npc.speed = npc.baseSpeed || 13;
             npc.state = npc.savedState || NPC_STATE.HEADING_TO_TERMINAL;
             npc._cautionChecked = false;
-            if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
-            } else {
-              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
-            }
+            // Recompute route from current position
+            const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+            npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
+            npc.route.push({ lat: dest.lat, lon: dest.lon });
+            npc.routeIdx = 0;
+            const wp = npc.route[0];
+            npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
           }
         }
         continue;
@@ -1273,7 +1419,11 @@ function updateNPCShips(dt, elapsed) {
         npc.speed = npc.baseSpeed || 13;
         if (npc.state === NPC_STATE.LOADING) {
           npc.state = NPC_STATE.HEADING_TO_DROPOFF;
-          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
+          npc.route = computeOceanRoute(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
+          npc.route.push({ lat: npc.dropoff.lat, lon: npc.dropoff.lon });
+          npc.routeIdx = 0;
+          const wp = npc.route[0];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
         } else {
           // Pick new terminal and new dropoff for return trip
           const allT = Object.values(OIL_TERMINALS);
@@ -1281,7 +1431,11 @@ function updateNPCShips(dt, elapsed) {
           npc.targetTerminal = matching[Math.floor(Math.random() * matching.length)];
           npc.dropoff = randomDropoff();
           npc.state = NPC_STATE.HEADING_TO_TERMINAL;
-          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+          npc.route = computeOceanRoute(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+          npc.route.push({ lat: npc.targetTerminal.lat, lon: npc.targetTerminal.lon });
+          npc.routeIdx = 0;
+          const wp = npc.route[0];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
         }
         npc.wanderOffset = 0;
         npc._cautionChecked = false; // re-evaluate caution on new leg
@@ -1315,19 +1469,38 @@ function updateNPCShips(dt, elapsed) {
       }
     }
 
-    // Moving states — check arrival
-    if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-      const t = npc.targetTerminal;
-      if (distanceDeg(npc.lat, npc.lon, t.lat, t.lon) < (t.loadRadius || 0.15)) {
-        npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 25; npc.speed = 0; continue;
+    // Moving states — follow waypoint route, check arrival
+    if (npc.state === NPC_STATE.HEADING_TO_TERMINAL || npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
+      // Check arrival at final destination
+      const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+      const arriveR = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? (dest.loadRadius || 0.15) : (dest.radius || 0.3);
+      if (distanceDeg(npc.lat, npc.lon, dest.lat, dest.lon) < arriveR) {
+        if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+          npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 25;
+        } else {
+          npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12;
+        }
+        npc.speed = 0; continue;
       }
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, t.lat, t.lon);
-    } else if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
-      const dp = npc.dropoff;
-      if (distanceDeg(npc.lat, npc.lon, dp.lat, dp.lon) < (dp.radius || 0.3)) {
-        npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12; npc.speed = 0; continue;
+      // Follow waypoint route — advance to next waypoint when close
+      if (npc.route && npc.route.length > 0 && npc.routeIdx < npc.route.length) {
+        const wp = npc.route[npc.routeIdx];
+        const wpDist = distanceDeg(npc.lat, npc.lon, wp.lat, wp.lon);
+        if (wpDist < 1.5) {
+          // Reached this waypoint, advance to next
+          npc.routeIdx++;
+        }
+        if (npc.routeIdx < npc.route.length) {
+          const nextWp = npc.route[npc.routeIdx];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, nextWp.lat, nextWp.lon);
+        } else {
+          // Past all waypoints, head directly to destination
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, dest.lat, dest.lon);
+        }
+      } else {
+        // No route — head directly (fallback for short distances)
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, dest.lat, dest.lon);
       }
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, dp.lat, dp.lon);
     }
 
     // Coast escape mode: after hitting land, commit to escape heading
