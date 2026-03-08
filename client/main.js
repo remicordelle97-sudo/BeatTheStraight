@@ -867,28 +867,33 @@ function renderMobileControls(container) {
           } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
         });
       } else if (type === 'autopilot') {
-        const apSt = shipAutopilot[ship.id];
+        // Re-read ship data at click time (not stale closure)
+        const currentShip = getSelectedShipData();
+        const currentState = shipStates[sid];
+        if (!currentShip || !currentState) return;
+        if (currentState.destroyed || currentState.seized) return;
+        const apSt = shipAutopilot[sid];
         if (apSt && apSt.active) {
           // Toggle off
           apSt.active = false;
-          shipWaypoints[ship.id] = [];
-          const st = shipStates[ship.id];
-          if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
-          addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+          shipWaypoints[sid] = [];
+          currentState.speed = 0;
+          currentState.apCoastEscapeTimer = 0;
+          addTransitEvent('AUTOPILOT OFF', `${currentShip.name}: Autopilot disengaged.`, '');
           updateFleetPanel();
           renderMobileControls(container);
-        } else if (ship.hasAutopilot) {
+        } else if (currentShip.hasAutopilot) {
           // Engage autopilot with selected terminals
           const termSel = document.getElementById('mobile-ap-terminal');
           const dropSel = document.getElementById('mobile-ap-dropoff');
           const terminal = getTerminalById(termSel?.value);
           const dropoff = getDropoffById(dropSel?.value) || DROPOFF_POINT;
           if (terminal) {
-            shipAutopilot[ship.id] = { active: true, terminal, dropoff };
-            const st = shipStates[ship.id];
-            if (st) { st.apCoastEscapeTimer = 0; st.apCoastEscapeHeading = 0; }
-            shipWaypoints[ship.id] = [];
-            addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
+            shipAutopilot[sid] = { active: true, terminal, dropoff };
+            currentState.apCoastEscapeTimer = 0;
+            currentState.apCoastEscapeHeading = 0;
+            shipWaypoints[sid] = [];
+            addTransitEvent('AUTOPILOT ON', `${currentShip.name}: ${terminal.name} → ${dropoff.name}`, 'success');
             updateFleetPanel();
             renderMobileControls(container);
           }
@@ -898,7 +903,7 @@ function renderMobileControls(container) {
             if (res?.success) {
               const fresh = getSelectedShipData();
               if (fresh) fresh.hasAutopilot = true;
-              addTransitEvent('AUTOPILOT INSTALLED', `Autopilot system installed on ${ship.name}.`, 'success');
+              addTransitEvent('AUTOPILOT INSTALLED', `Autopilot system installed.`, 'success');
               updateFleetPanel();
               renderMobileControls(container);
             } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
@@ -3492,6 +3497,7 @@ function transitLoop(timestamp) {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
 
+      try {
       // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
       const ap = shipAutopilot[ship.id];
       const apActive = ap && ap.active;
@@ -3501,11 +3507,15 @@ function transitLoop(timestamp) {
         if (curWps.length === 0 && state.speed === 0) {
           // If empty → head to load terminal; if loaded → head to dropoff
           const destT = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
-          const dest = { lat: destT.lat, lon: destT.lon };
-          const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destT?.loadRadius || 0.15);
-          shipWaypoints[ship.id] = route;
-          state.speed = Math.round(ship.speed || 14);
-          state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+          if (destT && destT.lat != null && destT.lon != null) {
+            const dest = { lat: destT.lat, lon: destT.lon };
+            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destT?.loadRadius || 0.15);
+            shipWaypoints[ship.id] = route;
+            state.speed = Math.round(ship.speed || 14);
+            if (route.length > 0) {
+              state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+            }
+          }
         }
       }
 
@@ -3538,11 +3548,15 @@ function transitLoop(timestamp) {
             // Stuck — recompute route from current position
             const cargo = shipCargo[ship.id];
             const destTerminal2 = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
-            const dest = { lat: destTerminal2.lat, lon: destTerminal2.lon };
-            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destTerminal2?.loadRadius || 0.15);
-            shipWaypoints[ship.id] = route;
-            state.apCoastEscapeTimer = 0;
-            state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+            if (destTerminal2 && destTerminal2.lat != null && destTerminal2.lon != null) {
+              const dest = { lat: destTerminal2.lat, lon: destTerminal2.lon };
+              const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destTerminal2?.loadRadius || 0.15);
+              shipWaypoints[ship.id] = route;
+              state.apCoastEscapeTimer = 0;
+              if (route.length > 0) {
+                state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+              }
+            }
           }
           state.progressTimer = 0;
           state.progressLat = state.lat;
@@ -3784,6 +3798,9 @@ function transitLoop(timestamp) {
           }
         });
         updateFleetPanel();
+      }
+      } catch (e) {
+        console.error(`Transit loop error for ship ${ship.id}:`, e);
       }
     }
   }
