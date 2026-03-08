@@ -58,6 +58,15 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS profit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    profit REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_profit_log_user_date ON profit_log(user_id, created_at);
 `);
 
 // Prepared statements
@@ -117,7 +126,21 @@ const stmts = {
   getLeaderboard: db.prepare(`
     SELECT id, username, cash, total_profit, total_losses,
       successful_transits, failed_transits
-    FROM users ORDER BY cash DESC LIMIT 20
+    FROM users ORDER BY total_profit DESC LIMIT 20
+  `),
+
+  logProfit: db.prepare(`
+    INSERT INTO profit_log (user_id, profit) VALUES (?, ?)
+  `),
+
+  getLeaderboardSince: db.prepare(`
+    SELECT u.id, u.username, u.cash, COALESCE(SUM(pl.profit), 0) AS period_profit,
+      u.successful_transits, u.failed_transits
+    FROM users u
+    LEFT JOIN profit_log pl ON pl.user_id = u.id AND pl.created_at >= ?
+    GROUP BY u.id
+    ORDER BY period_profit DESC
+    LIMIT 20
   `),
 };
 

@@ -42,14 +42,12 @@
 
         <!-- Main menu buttons (shown AFTER login or guest) -->
         <div class="menu-buttons hidden" id="menu-buttons">
-          <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
-          <button id="btn-join" class="btn btn-secondary btn-large">JOIN GAME</button>
+          <button id="btn-create" class="btn btn-primary btn-large">PLAY</button>
         </div>
 
-        <!-- Game name/code input area -->
+        <!-- Game name input area -->
         <div id="name-input-area" class="hidden">
           <input type="text" id="input-name" class="input" placeholder="Captain Name" maxlength="20">
-          <input type="text" id="input-game-id" class="input hidden" placeholder="Game Code" maxlength="6">
           <button id="btn-confirm" class="btn btn-primary">CONFIRM</button>
           <button id="btn-back" class="btn btn-ghost">BACK</button>
         </div>
@@ -62,7 +60,6 @@
       <div class="panel-center">
         <div class="screen-header">
           <h2>GAME LOBBY</h2>
-          <div class="game-code">Code: <span id="lobby-code"></span></div>
         </div>
         <div class="player-list" id="lobby-players"></div>
         <button id="btn-start" class="btn btn-primary btn-large hidden">START GAME</button>
@@ -268,13 +265,40 @@
       <!-- Settings Menu -->
       <button id="settings-btn" title="Settings">&#9881;</button>
       <div id="settings-panel" class="hidden">
-        <div class="settings-title">MAP LABELS</div>
-        <label class="settings-toggle"><input type="checkbox" id="toggle-city-names" checked> City names</label>
-        <label class="settings-toggle"><input type="checkbox" id="toggle-country-names" checked> Country names</label>
-        <label class="settings-toggle"><input type="checkbox" id="toggle-base-names" checked> Military installation names</label>
-        <label class="settings-toggle"><input type="checkbox" id="toggle-terminal-names" checked> Terminal names</label>
-        <label class="settings-toggle"><input type="checkbox" id="toggle-water-labels" checked> Water body labels</label>
+        <!-- Top-level menu -->
+        <div id="settings-menu" class="settings-menu">
+          <button class="settings-menu-item" data-section="leaderboard">LEADERBOARD</button>
+          <button class="settings-menu-item" data-section="visual">VISUAL OPTIONS</button>
+          <button class="settings-menu-item" id="settings-logout-btn">LOGOUT</button>
+        </div>
 
+        <!-- Leaderboard sub-panel -->
+        <div id="settings-leaderboard" class="settings-section hidden">
+          <button class="settings-back-btn" data-back="menu">&larr; BACK</button>
+          <div class="settings-title">LEADERBOARD</div>
+          <div class="settings-lb-tabs">
+            <button class="settings-lb-tab active" data-period="week">1 WEEK</button>
+            <button class="settings-lb-tab" data-period="month">1 MONTH</button>
+            <button class="settings-lb-tab" data-period="year">1 YEAR</button>
+            <button class="settings-lb-tab" data-period="all">ALL TIME</button>
+          </div>
+          <div id="settings-lb-list" class="settings-lb-list">
+            <div class="muted" style="padding:8px;font-size:11px;">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Visual Options sub-panel -->
+        <div id="settings-visual" class="settings-section hidden">
+          <button class="settings-back-btn" data-back="menu">&larr; BACK</button>
+          <div class="settings-title">MAP LABELS</div>
+          <label class="settings-toggle"><input type="checkbox" id="toggle-city-names" checked> City names</label>
+          <label class="settings-toggle"><input type="checkbox" id="toggle-country-names" checked> Country names</label>
+          <label class="settings-toggle"><input type="checkbox" id="toggle-base-names" checked> Military installation names</label>
+          <label class="settings-toggle"><input type="checkbox" id="toggle-terminal-names" checked> Terminal names</label>
+          <label class="settings-toggle"><input type="checkbox" id="toggle-water-labels" checked> Water body labels</label>
+        </div>
+
+        <!-- Game Speed always visible at bottom -->
         <div class="settings-divider"></div>
         <div class="settings-title">GAME SPEED</div>
         <div class="settings-speed-buttons">

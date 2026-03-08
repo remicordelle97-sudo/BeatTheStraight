@@ -270,13 +270,6 @@ h1 {
   margin-bottom: 4px;
 }
 
-.game-code {
-  color: var(--primary);
-  font-size: 28px;
-  font-weight: bold;
-  letter-spacing: 4px;
-}
-
 /* Lobby */
 .player-list {
   display: flex;
@@ -1314,6 +1307,95 @@ h1 {
 .settings-toggle:hover { color: var(--text); }
 .settings-toggle input { cursor: pointer; accent-color: var(--primary); }
 
+/* Settings menu items */
+.settings-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 1px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.settings-menu-item:hover {
+  background: rgba(240, 160, 48, 0.1);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.settings-section.hidden { display: none; }
+
+.settings-back-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  cursor: pointer;
+  padding: 2px 0 8px;
+  letter-spacing: 1px;
+}
+.settings-back-btn:hover { color: var(--primary); }
+
+/* Leaderboard tabs */
+.settings-lb-tabs {
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.settings-lb-tab {
+  flex: 1;
+  padding: 5px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-family: 'Courier New', monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.5px;
+}
+.settings-lb-tab:hover { color: var(--text); background: rgba(240, 160, 48, 0.1); }
+.settings-lb-tab.active { color: #000; background: var(--primary); }
+
+/* Leaderboard list */
+.settings-lb-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.settings-lb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.settings-lb-row:first-child { border-top: 1px solid var(--border); }
+.settings-lb-rank {
+  color: var(--primary);
+  font-weight: bold;
+  width: 22px;
+  flex-shrink: 0;
+}
+.settings-lb-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.settings-lb-profit { color: var(--success); font-weight: bold; flex-shrink: 0; }
+
 /* ============================================
    FLEET MANAGER MODAL
    ============================================ */
@@ -1802,10 +1884,6 @@ h1 {
     padding: 20px 16px;
     max-width: 95vw;
     width: 95%;
-  }
-
-  .game-code {
-    font-size: 22px;
   }
 
   .screen-header h2 {
