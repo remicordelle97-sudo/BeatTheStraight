@@ -2807,10 +2807,11 @@ const OCEAN_NODES = [
   { id: 'hormuz_app', lat: 26.3, lon: 55.5 },  // Hormuz approach from west
   { id: 'hormuz', lat: 26.55, lon: 56.25 },    // strait center — deep-water channel
   { id: 'hormuz_ch', lat: 26.55, lon: 56.65 }, // through the strait — north of Musandam tip
-  { id: 'hormuz_e', lat: 25.8, lon: 57.2 },    // east exit — south of Musandam peninsula
-  { id: 'gulf_oman', lat: 25.3, lon: 58.0 },   // Gulf of Oman — clear of Musandam
-  { id: 'oman_se', lat: 24.5, lon: 59.0 },
-  { id: 'oman', lat: 24.0, lon: 60.0 },
+  { id: 'hormuz_ne', lat: 26.3, lon: 57.5 },   // NE of Musandam — clears peninsula [26.2, 57.3]
+  { id: 'hormuz_e', lat: 25.5, lon: 58.0 },    // east exit — well offshore Oman coast
+  { id: 'gulf_oman', lat: 24.5, lon: 58.5 },   // Gulf of Oman — open water
+  { id: 'oman_se', lat: 24.0, lon: 59.5 },
+  { id: 'oman', lat: 23.0, lon: 60.5 },
   // Indian Ocean
   { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
   { id: 'mumbai_app', lat: 18.5, lon: 71.0 },
@@ -2901,7 +2902,7 @@ const OCEAN_EDGES = [
   ['gulf_uae', 'hormuz_app'], ['gulf_uae_s', 'hormuz_app'],
   ['gulf_das', 'gulf_uae_s'], ['gulf_qatar_e', 'gulf_uae_s'],
   ['hormuz_app', 'hormuz'], ['hormuz', 'hormuz_ch'],
-  ['hormuz_ch', 'hormuz_e'],
+  ['hormuz_ch', 'hormuz_ne'], ['hormuz_ne', 'hormuz_e'],
   // Strait of Hormuz to Gulf of Oman
   ['hormuz_e', 'gulf_oman'], ['gulf_oman', 'oman_se'],
   ['oman_se', 'oman'],
@@ -3572,6 +3573,7 @@ function transitLoop(timestamp) {
       // Autopilot land avoidance — same proven approach as NPC ships:
       // commit to escape heading when coast detected, ignore waypoints until clear
       if (apActive && state.speed > 0) {
+        const hasRouteWps = (shipWaypoints[ship.id] || []).length > 0;
         if (state.apCoastEscapeTimer > 0) {
           // Committed to escape heading — steer toward it, ignore waypoints
           state.apCoastEscapeTimer -= dt;
@@ -3588,13 +3590,15 @@ function transitLoop(timestamp) {
               ? headingToTarget(state.lat, state.lon, wps[0].lat, wps[0].lon)
               : state.targetHeading;
             const resumeRad = resumeHeading * Math.PI / 180;
-            if (isOnLand(state.lat + Math.cos(resumeRad) * 0.5, state.lon + Math.sin(resumeRad) * 0.5)) {
+            const recheckDist = hasRouteWps ? 0.2 : 0.5;
+            if (isOnLand(state.lat + Math.cos(resumeRad) * recheckDist, state.lon + Math.sin(resumeRad) * recheckDist)) {
               // Still blocked — find a new escape heading
+              const recheckEscape = hasRouteWps ? 2 + Math.random() * 2 : 5 + Math.random() * 3;
               for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * recheckDist, state.lon + Math.sin(tryRad) * recheckDist)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                  state.apCoastEscapeTimer = 5 + Math.random() * 3;
+                  state.apCoastEscapeTimer = recheckEscape;
                   state.targetHeading = state.apCoastEscapeHeading;
                   break;
                 }
@@ -3603,14 +3607,18 @@ function transitLoop(timestamp) {
           }
         } else {
           // Proactive lookahead: check ahead for land
+          // Use shorter lookahead when following route waypoints (trusted path)
           const headRad = state.heading * Math.PI / 180;
-          for (const la of [0.1, 0.2, 0.35, 0.5]) {
+          const lookDistances = hasRouteWps ? [0.05, 0.1, 0.15] : [0.1, 0.2, 0.35, 0.5];
+          const escapeCheckDist = hasRouteWps ? 0.2 : 0.5;
+          const escapeTime = hasRouteWps ? 2 + Math.random() * 2 : 5 + Math.random() * 4;
+          for (const la of lookDistances) {
             if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
               for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * escapeCheckDist, state.lon + Math.sin(tryRad) * escapeCheckDist)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                  state.apCoastEscapeTimer = 5 + Math.random() * 4;
+                  state.apCoastEscapeTimer = escapeTime;
                   state.targetHeading = state.apCoastEscapeHeading;
                   break;
                 }
