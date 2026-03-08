@@ -1627,10 +1627,13 @@ const OCEAN_NODES = [
   // Africa
   { id: 'guinea', lat: 4.0, lon: -5.0 },
   { id: 'w_africa', lat: 4.0, lon: 3.0 },
+  { id: 'cameroon', lat: 3.5, lon: 9.5 },
+  { id: 'gabon', lat: -1.0, lon: 8.5 },
   { id: 'e_africa', lat: 0.0, lon: 45.0 },
   { id: 'angola', lat: -8.0, lon: 12.0 },
   { id: 'namibia', lat: -22.0, lon: 10.0 },
   { id: 'mozambique', lat: -15.0, lon: 42.0 },
+  { id: 'madagascar_s', lat: -25.0, lon: 47.0 },
   { id: 'cape', lat: -34.5, lon: 18.5 },
   // Atlantic
   { id: 'atl_n', lat: 40.0, lon: -35.0 },
@@ -1679,8 +1682,7 @@ const OCEAN_EDGES = [
   ['red_sea_n', 'suez_app'], ['suez_app', 'suez_s'],
   ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
   // East Africa
-  ['bab', 'e_africa'], ['e_africa', 'mozambique'], ['mozambique', 'cape'],
-  ['e_africa', 'arabian_sea'],
+  ['bab', 'e_africa'], ['e_africa', 'arabian_sea'],
   // Mediterranean
   ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
   ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
@@ -1695,10 +1697,14 @@ const OCEAN_EDGES = [
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
   ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'],
-  // West Africa
-  ['guinea', 'w_africa'], ['w_africa', 'angola'],
+  // West Africa — coastal route avoids cutting across land
+  ['guinea', 'w_africa'], ['w_africa', 'cameroon'], ['cameroon', 'gabon'],
+  ['gabon', 'angola'], ['angola', 'namibia'], ['namibia', 'cape'],
   ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
-  ['angola', 'namibia'], ['namibia', 'cape'], ['angola', 'atl_s'],
+  ['angola', 'atl_s'],
+  // East Africa — Cape route to Indian Ocean
+  ['cape', 'madagascar_s'], ['madagascar_s', 'mozambique'],
+  ['mozambique', 'e_africa'],
   // Americas (route around Florida via florida_str)
   ['us_east', 'florida_east'], ['florida_east', 'florida_str'],
   ['florida_str', 'us_gulf'],
