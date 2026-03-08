@@ -31,7 +31,7 @@ export const SIM_CONFIG = {
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
-  NPC_COUNT: 20,             // number of NPC traffic ships (global routes)
+  NPC_COUNT: 40,             // number of NPC traffic ships (global routes)
   MILITARY_COUNT: 4,         // number of military ships
   SPAWN_LAT: 25.3,          // Gulf of Oman spawn point (open water)
   SPAWN_LON: 58.8,
@@ -123,6 +123,117 @@ export const OIL_TERMINALS = {
     loadingBonus: 1.20,
     description: 'World\'s largest LNG export facility. Only LNG carriers can load here.',
     loadRadius: 0.15
+  },
+  // Americas
+  HOUSTON: {
+    id: 'houston',
+    name: 'Houston Ship Channel',
+    country: 'USA',
+    cargoType: 'oil',
+    lat: 29.35,
+    lon: -94.77,
+    capacity: 'Large',
+    loadingBonus: 0.90,
+    description: 'Largest US petroleum port. Hub of Gulf Coast refining.',
+    loadRadius: 0.15
+  },
+  LOOP: {
+    id: 'loop',
+    name: 'Louisiana Offshore Oil Port',
+    country: 'USA',
+    cargoType: 'oil',
+    lat: 28.88,
+    lon: -90.03,
+    capacity: 'Large',
+    loadingBonus: 0.95,
+    description: 'Only US deepwater port for VLCCs. Handles 15% of US imports.',
+    loadRadius: 0.15
+  },
+  CORPUS_CHRISTI: {
+    id: 'corpus_christi',
+    name: 'Corpus Christi',
+    country: 'USA',
+    cargoType: 'oil',
+    lat: 27.81,
+    lon: -97.07,
+    capacity: 'Large',
+    loadingBonus: 0.90,
+    description: 'Fastest growing US crude export port. Eagle Ford shale hub.',
+    loadRadius: 0.15
+  },
+  JOSE: {
+    id: 'jose',
+    name: 'Jose Terminal',
+    country: 'Venezuela',
+    cargoType: 'oil',
+    lat: 10.17,
+    lon: -64.75,
+    capacity: 'Large',
+    loadingBonus: 1.25,
+    description: 'Venezuela\'s main crude and heavy oil export terminal.',
+    loadRadius: 0.15
+  },
+  ANGRA_DOS_REIS: {
+    id: 'angra_dos_reis',
+    name: 'Angra dos Reis',
+    country: 'Brazil',
+    cargoType: 'oil',
+    lat: -23.01,
+    lon: -44.32,
+    capacity: 'Large',
+    loadingBonus: 1.10,
+    description: 'Petrobras terminal serving pre-salt deepwater oil fields.',
+    loadRadius: 0.15
+  },
+  VALDEZ: {
+    id: 'valdez',
+    name: 'Valdez Marine Terminal',
+    country: 'USA',
+    cargoType: 'oil',
+    lat: 61.13,
+    lon: -146.35,
+    capacity: 'Medium',
+    loadingBonus: 0.85,
+    description: 'Trans-Alaska Pipeline terminus. North Slope crude exports.',
+    loadRadius: 0.15
+  },
+  // West Africa
+  BONNY: {
+    id: 'bonny',
+    name: 'Bonny Island Terminal',
+    country: 'Nigeria',
+    cargoType: 'oil',
+    lat: 4.42,
+    lon: 7.15,
+    capacity: 'Large',
+    loadingBonus: 1.15,
+    description: 'Nigeria\'s largest oil and LNG export terminal.',
+    loadRadius: 0.15
+  },
+  LUANDA: {
+    id: 'luanda',
+    name: 'Luanda Terminal',
+    country: 'Angola',
+    cargoType: 'oil',
+    lat: -8.80,
+    lon: 13.24,
+    capacity: 'Large',
+    loadingBonus: 1.20,
+    description: 'Major Angolan crude oil export hub.',
+    loadRadius: 0.15
+  },
+  // North Sea / Russia
+  PRIMORSK: {
+    id: 'primorsk',
+    name: 'Primorsk Terminal',
+    country: 'Russia',
+    cargoType: 'oil',
+    lat: 60.35,
+    lon: 28.68,
+    capacity: 'Large',
+    loadingBonus: 1.15,
+    description: 'Russia\'s largest Baltic Sea oil export terminal.',
+    loadRadius: 0.15
   }
 };
 
@@ -190,6 +301,33 @@ export const DROPOFF_POINTS = {
     radius: 0.3,
     region: 'singapore',
     description: 'World\'s busiest transshipment port and oil trading hub.'
+  },
+  HOUSTON_DROPOFF: {
+    id: 'houston_dropoff',
+    name: 'Houston Anchorage',
+    lat: 29.0,
+    lon: -94.5,
+    radius: 0.4,
+    region: 'us_gulf',
+    description: 'US Gulf Coast receiving hub for crude oil imports.'
+  },
+  NEW_YORK: {
+    id: 'new_york',
+    name: 'New York Harbor',
+    lat: 40.5,
+    lon: -73.8,
+    radius: 0.4,
+    region: 'us_east',
+    description: 'Major US East Coast petroleum receiving port.'
+  },
+  CAPE_TOWN: {
+    id: 'cape_town',
+    name: 'Cape Town Anchorage',
+    lat: -33.9,
+    lon: 18.4,
+    radius: 0.4,
+    region: 'africa',
+    description: 'Waypoint anchorage off Cape of Good Hope.'
   },
 };
 

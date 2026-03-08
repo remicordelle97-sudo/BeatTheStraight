@@ -1046,9 +1046,13 @@ const NPC_STATE = {
   WAITING_SAFE: 'waiting_safe', // anchored outside danger zone, waiting for conditions to improve
 };
 
-// Safe anchorage zone — Gulf of Oman only
+// Safe anchorage zones — worldwide
 const SAFE_ANCHORAGES = [
   { lat: 24.5, lon: 57.8, name: 'Gulf of Oman' },
+  { lat: 1.2, lon: 104.0, name: 'Singapore Strait' },
+  { lat: 36.0, lon: 14.5, name: 'Central Mediterranean' },
+  { lat: 28.5, lon: -89.0, name: 'US Gulf Anchorage' },
+  { lat: -33.5, lon: 18.0, name: 'Cape Town Roads' },
 ];
 
 const NPC_SHIP_NAMES = [
@@ -1058,6 +1062,11 @@ const NPC_SHIP_NAMES = [
   'Pearl Venture', 'Crimson Tide', 'Blue Marlin', 'Iron Duke',
   'Swift Arrow', 'Amber Sun', 'Jade Empress', 'Ruby Crown',
   'Sapphire Wave', 'Diamond Crest', 'Emerald Bay', 'Crystal Sea',
+  'Atlantic Star', 'Rio Grande', 'Cape Runner', 'Nordic Spirit',
+  'Lagos Express', 'Maracaibo Sun', 'Bayou Queen', 'Texas Titan',
+  'Amazon Dawn', 'Bonny Light', 'Suez Passage', 'Panama Pride',
+  'North Star', 'Caspian Wind', 'Baltic Trader', 'Aegean Wave',
+  'Orinoco Dream', 'Alaskan Valor', 'Gulf Stream', 'Bering Scout',
 ];
 let npcNameIndex = 0;
 
@@ -1079,13 +1088,28 @@ function randomDropoff() {
 
 // Global NPC spawn zones — spread NPCs across major shipping lanes
 const NPC_SPAWN_ZONES = [
-  { latMin: 24.0, latMax: 27.0, lonMin: 53.0, lonMax: 58.0 },   // Persian Gulf
-  { latMin: 0.0, latMax: 5.0, lonMin: 98.0, lonMax: 105.0 },     // Malacca Strait
-  { latMin: 8.0, latMax: 15.0, lonMin: 68.0, lonMax: 78.0 },     // Arabian Sea
-  { latMin: 28.0, latMax: 33.0, lonMin: 120.0, lonMax: 124.0 },   // East China Sea
-  { latMin: 12.0, latMax: 16.0, lonMin: 42.0, lonMax: 46.0 },     // Bab el-Mandeb
-  { latMin: 34.0, latMax: 38.0, lonMin: 10.0, lonMax: 20.0 },     // Mediterranean
-  { latMin: -2.0, latMax: 5.0, lonMin: 40.0, lonMax: 50.0 },      // East Africa
+  // Middle East / Indian Ocean
+  { latMin: 24.0, latMax: 27.0, lonMin: 53.0, lonMax: 58.0 },     // Persian Gulf / Hormuz
+  { latMin: 8.0, latMax: 15.0, lonMin: 68.0, lonMax: 78.0 },      // Arabian Sea
+  { latMin: 12.0, latMax: 16.0, lonMin: 42.0, lonMax: 46.0 },     // Bab el-Mandeb / Red Sea
+  // Asia / Pacific
+  { latMin: 0.0, latMax: 5.0, lonMin: 98.0, lonMax: 105.0 },      // Malacca Strait
+  { latMin: 28.0, latMax: 33.0, lonMin: 120.0, lonMax: 124.0 },    // East China Sea
+  { latMin: 5.0, latMax: 12.0, lonMin: 108.0, lonMax: 118.0 },     // South China Sea
+  // Mediterranean / Europe
+  { latMin: 34.0, latMax: 38.0, lonMin: 10.0, lonMax: 20.0 },      // Mediterranean
+  { latMin: 29.0, latMax: 31.5, lonMin: 31.0, lonMax: 34.0 },      // Suez Canal
+  { latMin: 48.0, latMax: 52.0, lonMin: -5.0, lonMax: 4.0 },       // English Channel
+  { latMin: 57.0, latMax: 62.0, lonMin: 2.0, lonMax: 10.0 },       // North Sea
+  // Africa
+  { latMin: -2.0, latMax: 5.0, lonMin: 40.0, lonMax: 50.0 },       // East Africa
+  { latMin: 2.0, latMax: 6.0, lonMin: 3.0, lonMax: 8.0 },          // Gulf of Guinea / Nigeria
+  { latMin: -35.0, latMax: -30.0, lonMin: 16.0, lonMax: 22.0 },    // Cape of Good Hope
+  // Americas
+  { latMin: 27.0, latMax: 30.0, lonMin: -97.0, lonMax: -88.0 },    // US Gulf Coast
+  { latMin: 8.0, latMax: 12.0, lonMin: -80.0, lonMax: -64.0 },     // Caribbean / Venezuela
+  { latMin: -25.0, latMax: -20.0, lonMin: -46.0, lonMax: -40.0 },   // Brazil
+  { latMin: 7.0, latMax: 10.0, lonMin: -81.0, lonMax: -78.0 },     // Panama Canal
 ];
 
 function createNPCTanker(staggered) {
