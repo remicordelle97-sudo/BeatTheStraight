@@ -20,7 +20,7 @@ let gameState = null;
 let myId = null;
 let isHost = false;
 let options = null;
-let joinMode = false;
+// joinMode removed — no game codes
 
 let modalShipTypeId = null;
 let modalAisId = null;
@@ -638,16 +638,8 @@ function renderMobileControls(container) {
         <button class="btn btn-small mobile-ins ${insId === 'STANDARD_MARINE' ? 'btn-primary' : 'btn-secondary'}" data-ins="STANDARD">STD</button>
         <button class="btn btn-small mobile-ins ${insId === 'NONE' ? 'btn-primary' : 'btn-secondary'}" data-ins="NONE">NONE</button>
       </div>
-    </div>
-    <div class="mobile-ctrl-row">
-      <span class="mobile-ctrl-label">GAME SPEED</span>
-      <div class="mobile-ctrl-buttons">
-        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
-        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
-        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
-        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
-      </div>
     </div>`;
+
 
   // Upgrades section
   const me = gameState?.players.find(p => p.id === myId);
@@ -756,17 +748,6 @@ function renderMobileControls(container) {
       if (!insOpt) return;
       ship.insuranceId = insKey; ship.insuranceName = insOpt.name;
       addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name}`, '');
-      renderMobileControls(container);
-    });
-  });
-
-  // Game speed
-  container.querySelectorAll('.mobile-gspeed').forEach(btn => {
-    btn.addEventListener('click', () => {
-      gameSpeedMultiplier = parseInt(btn.dataset.speed);
-      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
-      if (desktopBtn) desktopBtn.classList.add('active');
       renderMobileControls(container);
     });
   });
@@ -2123,21 +2104,7 @@ document.getElementById('btn-guest').addEventListener('click', () => {
 // TITLE SCREEN
 // ============================================
 document.getElementById('btn-create').addEventListener('click', () => {
-  joinMode = false;
   document.getElementById('name-input-area').classList.remove('hidden');
-  document.getElementById('input-game-id').classList.add('hidden');
-  document.getElementById('menu-buttons').classList.add('hidden');
-  document.getElementById('auth-buttons').classList.add('hidden');
-  if (authUser) {
-    document.getElementById('input-name').value = authUser.username;
-  }
-  document.getElementById('input-name').focus();
-});
-
-document.getElementById('btn-join').addEventListener('click', () => {
-  joinMode = true;
-  document.getElementById('name-input-area').classList.remove('hidden');
-  document.getElementById('input-game-id').classList.remove('hidden');
   document.getElementById('menu-buttons').classList.add('hidden');
   document.getElementById('auth-buttons').classList.add('hidden');
   if (authUser) {
@@ -2159,29 +2126,16 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
 
   const token = authToken || undefined;
 
-  if (joinMode) {
-    const code = document.getElementById('input-game-id').value.trim().toUpperCase();
-    if (!code) { showError('Enter a game code'); return; }
-    socket.emit('join_game', { gameId: code, playerName: name, token }, (res) => {
-      if (res.success) {
-        myId = socket.id; gameState = res.game; isHost = false;
-        fetchOptions(); renderLobby(); showScreen('lobby');
-      } else { showError(res.error || 'Failed to join'); }
-    });
-  } else {
-    socket.emit('create_game', { playerName: name, token }, (res) => {
-      if (res.success) {
-        myId = socket.id; gameState = res.game; isHost = true;
-        fetchOptions(); renderLobby(); showScreen('lobby');
-      } else { showError('Failed to create game'); }
-    });
-  }
+  socket.emit('create_game', { playerName: name, token }, (res) => {
+    if (res.success) {
+      myId = socket.id; gameState = res.game; isHost = true;
+      fetchOptions(); renderLobby(); showScreen('lobby');
+    } else { showError('Failed to create game'); }
+  });
 });
 
-['input-name', 'input-game-id'].forEach(id => {
-  document.getElementById(id).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') document.getElementById('btn-confirm').click();
-  });
+document.getElementById('input-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btn-confirm').click();
 });
 
 function fetchOptions() {
@@ -2192,7 +2146,6 @@ function fetchOptions() {
 // LOBBY
 // ============================================
 function renderLobby() {
-  document.getElementById('lobby-code').textContent = gameState.id;
   const list = document.getElementById('lobby-players');
   list.innerHTML = gameState.players.map(p => `
     <div class="player-card">

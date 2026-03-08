@@ -42,14 +42,12 @@
 
         <!-- Main menu buttons (shown AFTER login or guest) -->
         <div class="menu-buttons hidden" id="menu-buttons">
-          <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
-          <button id="btn-join" class="btn btn-secondary btn-large">JOIN GAME</button>
+          <button id="btn-create" class="btn btn-primary btn-large">PLAY</button>
         </div>
 
-        <!-- Game name/code input area -->
+        <!-- Game name input area -->
         <div id="name-input-area" class="hidden">
           <input type="text" id="input-name" class="input" placeholder="Captain Name" maxlength="20">
-          <input type="text" id="input-game-id" class="input hidden" placeholder="Game Code" maxlength="6">
           <button id="btn-confirm" class="btn btn-primary">CONFIRM</button>
           <button id="btn-back" class="btn btn-ghost">BACK</button>
         </div>
@@ -62,7 +60,6 @@
       <div class="panel-center">
         <div class="screen-header">
           <h2>GAME LOBBY</h2>
-          <div class="game-code">Code: <span id="lobby-code"></span></div>
         </div>
         <div class="player-list" id="lobby-players"></div>
         <button id="btn-start" class="btn btn-primary btn-large hidden">START GAME</button>
