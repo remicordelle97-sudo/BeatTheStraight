@@ -1775,7 +1775,7 @@ const OCEAN_EDGES = [
   ['baltic', 'primorsk_app'],
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
-  ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'], ['gibraltar', 'guinea'],
+  ['atl_n', 'atl_s'], ['gibraltar', 'guinea'],
   // West Africa — coastal route avoids cutting across land
   ['guinea', 'gulf_guinea'], ['gulf_guinea', 'w_africa'],  // route around West African coast
   ['gulf_guinea', 'gabon'], ['gulf_guinea', 'atl_s'],      // offshore shortcuts
