@@ -262,15 +262,179 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH, lonShift = 0) {
   ctx.stroke();
 }
 
+// Biome zones: latitude/longitude-based color regions painted over land
+// Each zone has soft fade edges (fadeLat degrees of gradient on top/bottom)
+const BIOME_ZONES = [
+  // Arctic / tundra
+  { latMin: 63, latMax: 90, lonMin: -180, lonMax: 180, color: '#8a9a8a', fadeLat: 4 },
+  // Northern Europe — cool temperate
+  { latMin: 46, latMax: 63, lonMin: -12, lonMax: 42, color: '#5a7a4a', fadeLat: 4 },
+  // Scandinavia — boreal
+  { latMin: 56, latMax: 71, lonMin: 5, lonMax: 32, color: '#4a6a4a', fadeLat: 3 },
+  // Mediterranean — warm dry
+  { latMin: 35, latMax: 46, lonMin: -10, lonMax: 42, color: '#7a8050', fadeLat: 3 },
+  // Siberia / Central Asia steppe
+  { latMin: 42, latMax: 63, lonMin: 42, lonMax: 140, color: '#6a7a50', fadeLat: 4 },
+  // Sahara Desert
+  { latMin: 18, latMax: 35, lonMin: -17, lonMax: 35, color: '#b09860', fadeLat: 4 },
+  // Arabian Desert / Middle East
+  { latMin: 15, latMax: 35, lonMin: 35, lonMax: 60, color: '#a89058', fadeLat: 4 },
+  // Sahel — semi-arid transition
+  { latMin: 10, latMax: 18, lonMin: -17, lonMax: 35, color: '#8a8040', fadeLat: 3 },
+  // Tropical West/Central Africa
+  { latMin: -5, latMax: 10, lonMin: -17, lonMax: 35, color: '#3a6a2a', fadeLat: 3 },
+  // East Africa — savanna
+  { latMin: -12, latMax: 5, lonMin: 28, lonMax: 52, color: '#6a7a30', fadeLat: 3 },
+  // Southern Africa — savanna/veld
+  { latMin: -35, latMax: -5, lonMin: 10, lonMax: 52, color: '#7a7a38', fadeLat: 4 },
+  // Indian subcontinent
+  { latMin: 8, latMax: 28, lonMin: 68, lonMax: 90, color: '#5a8a3a', fadeLat: 3 },
+  // Himalayas / Tibetan plateau
+  { latMin: 28, latMax: 40, lonMin: 70, lonMax: 105, color: '#8a8a6a', fadeLat: 3 },
+  // SE Asia — tropical
+  { latMin: -10, latMax: 25, lonMin: 90, lonMax: 155, color: '#3a7a30', fadeLat: 4 },
+  // China — temperate
+  { latMin: 22, latMax: 42, lonMin: 100, lonMax: 125, color: '#5a7a3a', fadeLat: 3 },
+  // N America — boreal/temperate
+  { latMin: 45, latMax: 63, lonMin: -170, lonMax: -50, color: '#4a6a3a', fadeLat: 4 },
+  // US temperate
+  { latMin: 30, latMax: 45, lonMin: -130, lonMax: -70, color: '#5a7a3a', fadeLat: 3 },
+  // US southwest — arid
+  { latMin: 25, latMax: 37, lonMin: -120, lonMax: -95, color: '#9a8050', fadeLat: 4 },
+  // Central America — tropical
+  { latMin: 5, latMax: 25, lonMin: -120, lonMax: -60, color: '#3a7a2a', fadeLat: 3 },
+  // Amazon — tropical rainforest
+  { latMin: -15, latMax: 5, lonMin: -80, lonMax: -35, color: '#2a6a20', fadeLat: 4 },
+  // Southern South America — pampas/patagonia
+  { latMin: -55, latMax: -15, lonMin: -80, lonMax: -35, color: '#7a8a48', fadeLat: 5 },
+  // Australia coast — green fringe (drawn first, interior overdraws center)
+  { latMin: -40, latMax: -10, lonMin: 110, lonMax: 160, color: '#6a8038', fadeLat: 3 },
+  // Australia interior — arid
+  { latMin: -33, latMax: -17, lonMin: 118, lonMax: 150, color: '#a08048', fadeLat: 4 },
+];
+
 // Draw all world coastline polygons (skip off-screen ones)
 function drawWorldCoastlines(ctx, drawW, drawH) {
+  // 1. Draw base land polygons
   for (const { poly, color } of WORLD_POLYGONS) {
-    // Try drawing at multiple longitude offsets for wrapping support
     for (const shift of [0, -360, 360]) {
       if (!polyVisible(poly, shift)) continue;
       drawCoastline(ctx, poly, color, drawW, drawH, shift);
     }
   }
+
+  // 2. Create clipping region from all visible land polygons
+  ctx.save();
+  ctx.beginPath();
+  for (const { poly } of WORLD_POLYGONS) {
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      const vpCenter = (viewport.west + viewport.east) / 2;
+      let lonOffset = shift;
+      if (shift === 0) {
+        const refLon = poly[0][1];
+        lonOffset = 0;
+        while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+        while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+      }
+      const vpW = viewport.east - viewport.west;
+      const vpH = viewport.north - viewport.south;
+      poly.forEach((p, i) => {
+        const x = ((p[1] + lonOffset - viewport.west) / vpW) * drawW;
+        const y = ((viewport.north - p[0]) / vpH) * drawH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+    }
+  }
+  ctx.clip();
+
+  // 3. Paint biome zones with soft fades (lat vertical + lon horizontal)
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+  const hFadeDeg = 3; // degrees of horizontal fade at zone edges
+  const hSteps = 6;   // number of fade strips per edge (performance-friendly)
+
+  for (const zone of BIOME_ZONES) {
+    // Skip zones fully outside viewport
+    if (zone.latMax < viewport.south || zone.latMin > viewport.north) continue;
+    if (zone.lonMax < viewport.west || zone.lonMin > viewport.east) continue;
+
+    const x1 = ((zone.lonMin - viewport.west) / vpW) * drawW;
+    const x2 = ((zone.lonMax - viewport.west) / vpW) * drawW;
+    const yTop = ((viewport.north - zone.latMax) / vpH) * drawH;
+    const yBot = ((viewport.north - zone.latMin) / vpH) * drawH;
+    const height = yBot - yTop;
+    if (height <= 0) continue;
+
+    // Vertical gradient: transparent → color → color → transparent
+    const grad = ctx.createLinearGradient(0, yTop, 0, yBot);
+    const fadePx = (zone.fadeLat / vpH) * drawH;
+    const fadeRatio = fadePx > 0 && height > fadePx * 2
+      ? Math.min(fadePx / height, 0.4) : 0.3;
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(fadeRatio, zone.color);
+    grad.addColorStop(1 - fadeRatio, zone.color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+    const hFadePx = (hFadeDeg / vpW) * drawW;
+    const innerX1 = x1 + hFadePx;
+    const innerX2 = x2 - hFadePx;
+
+    ctx.fillStyle = grad;
+    // Center region at full opacity
+    if (innerX2 > innerX1) {
+      ctx.fillRect(innerX1, yTop, innerX2 - innerX1, height);
+    }
+    // Left edge fade (few wide strips with decreasing alpha)
+    if (hFadePx > 1) {
+      const stripW = hFadePx / hSteps;
+      for (let i = 0; i < hSteps; i++) {
+        ctx.globalAlpha = (i + 0.5) / hSteps;
+        ctx.fillRect(x1 + i * stripW, yTop, stripW + 1, height);
+      }
+      ctx.globalAlpha = 1;
+    }
+    // Right edge fade
+    if (hFadePx > 1) {
+      const stripW = hFadePx / hSteps;
+      for (let i = 0; i < hSteps; i++) {
+        ctx.globalAlpha = 1 - (i + 0.5) / hSteps;
+        ctx.fillRect(innerX2 + i * stripW, yTop, stripW + 1, height);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  ctx.restore(); // remove clip
+
+  // 4. Re-draw coastline strokes on top so borders aren't covered
+  ctx.strokeStyle = '#2a3a2a';
+  ctx.lineWidth = 1.5;
+  for (const { poly } of WORLD_POLYGONS) {
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      const vpCenter = (viewport.west + viewport.east) / 2;
+      let lonOffset = shift;
+      if (shift === 0) {
+        const refLon = poly[0][1];
+        lonOffset = 0;
+        while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+        while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+      }
+      ctx.beginPath();
+      poly.forEach((p, i) => {
+        const x = ((p[1] + lonOffset - viewport.west) / vpW) * drawW;
+        const y = ((viewport.north - p[0]) / vpH) * drawH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
   // Canal water cuts — draw ocean-colored polygons on top of land to create passages
   drawCanalCuts(ctx, drawW, drawH);
 }

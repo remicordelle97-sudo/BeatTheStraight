@@ -1622,44 +1622,45 @@ export const ICELAND = [
 // then detail polygons on top
 // ============================================
 export const WORLD_POLYGONS = [
-  // Large landmasses first (background)
-  { poly: AFRO_EURASIA, color: '#6a7050' },
-  { poly: NORTH_AMERICA, color: '#5a6a3a' },
-  { poly: SOUTH_AMERICA, color: '#5a7a30' },
-  { poly: AUSTRALIA, color: '#9a7040' },
-  // European islands
-  { poly: SARDINIA, color: '#6a7a5a' },
-  { poly: CORSICA, color: '#6a7a5a' },
-  { poly: SICILY, color: '#6a7a5a' },
-  { poly: CRETE, color: '#7a7a55' },
-  { poly: BRITISH_ISLES, color: '#5a6a4a' },
-  { poly: IRELAND, color: '#5a6a4a' },
-  // Asia (islands)
-  { poly: SRI_LANKA, color: '#7a8a5a' },
-  { poly: HAINAN, color: '#5a7a40' },
-  // Japan
-  { poly: JAPAN_HONSHU, color: '#6a7a5a' },
-  { poly: JAPAN_HOKKAIDO, color: '#5a6a4a' },
-  { poly: JAPAN_KYUSHU, color: '#6a7a5a' },
-  { poly: JAPAN_SHIKOKU, color: '#6a7a5a' },
-  { poly: TAIWAN, color: '#6a7a5a' },
-  // SE Asia islands
-  { poly: SUMATRA, color: '#5a7a40' },
-  { poly: BORNEO, color: '#5a7a40' },
-  { poly: JAVA, color: '#5a7a40' },
-  { poly: SULAWESI, color: '#5a7a40' },
-  { poly: PHILIPPINES, color: '#5a7a40' },
-  { poly: PAPUA_NEW_GUINEA, color: '#5a7a40' },
-  // Oceania
-  { poly: NEW_ZEALAND_N, color: '#5a7a40' },
-  { poly: NEW_ZEALAND_S, color: '#5a7a40' },
-  // Americas
-  { poly: CENTRAL_AMERICA, color: '#6a7a40' },
-  { poly: CUBA, color: '#6a7a40' },
+  // Large landmasses (base color — biome overlay paints regional colors)
+  { poly: AFRO_EURASIA, color: '#5a6a40' },
+  { poly: NORTH_AMERICA, color: '#4a6a3a' },
+  { poly: SOUTH_AMERICA, color: '#4a6a30' },
+  { poly: AUSTRALIA, color: '#7a7838' },
+  // European islands — Mediterranean
+  { poly: SARDINIA, color: '#7a8050' },
+  { poly: CORSICA, color: '#7a8050' },
+  { poly: SICILY, color: '#7a8050' },
+  { poly: CRETE, color: '#8a8555' },
+  // British Isles — lush temperate
+  { poly: BRITISH_ISLES, color: '#4a6a3a' },
+  { poly: IRELAND, color: '#3a6a3a' },
+  // South Asia
+  { poly: SRI_LANKA, color: '#4a8a3a' },
+  { poly: HAINAN, color: '#3a7a30' },
+  // Japan — temperate
+  { poly: JAPAN_HONSHU, color: '#5a7a4a' },
+  { poly: JAPAN_HOKKAIDO, color: '#4a6a3a' },
+  { poly: JAPAN_KYUSHU, color: '#5a7a4a' },
+  { poly: JAPAN_SHIKOKU, color: '#5a7a4a' },
+  { poly: TAIWAN, color: '#4a7a3a' },
+  // SE Asia islands — tropical
+  { poly: SUMATRA, color: '#3a7a28' },
+  { poly: BORNEO, color: '#3a7a28' },
+  { poly: JAVA, color: '#3a7a28' },
+  { poly: SULAWESI, color: '#3a7a28' },
+  { poly: PHILIPPINES, color: '#3a7a28' },
+  { poly: PAPUA_NEW_GUINEA, color: '#3a7a28' },
+  // Oceania — temperate green
+  { poly: NEW_ZEALAND_N, color: '#4a7a3a' },
+  { poly: NEW_ZEALAND_S, color: '#4a7a3a' },
+  // Central America — tropical
+  { poly: CENTRAL_AMERICA, color: '#3a7a2a' },
+  { poly: CUBA, color: '#3a7a2a' },
   // Islands
-  { poly: MADAGASCAR, color: '#7a8a50' },
-  { poly: GREENLAND, color: '#8a9a9a' },
-  { poly: ICELAND, color: '#7a8a8a' },
+  { poly: MADAGASCAR, color: '#5a7a38' },
+  { poly: GREENLAND, color: '#8a9a90' },
+  { poly: ICELAND, color: '#7a8a80' },
 ];
 
 // ============================================
