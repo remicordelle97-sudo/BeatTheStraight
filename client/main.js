@@ -522,7 +522,7 @@ function renderMobileFleet(container) {
     });
   });
   const buyBtn = document.getElementById('mobile-buy-ship');
-  if (buyBtn) buyBtn.addEventListener('click', () => document.getElementById('btn-buy-ship').click());
+  if (buyBtn) buyBtn.addEventListener('click', () => openShipPurchaseModal());
 }
 
 function renderMobileControls(container) {
@@ -659,6 +659,14 @@ function renderMobileSettings(container) {
     </div>`;
   }
 
+  html += `<div class="mobile-section-title" style="margin-top:12px;">GAME SPEED</div>`;
+  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:12px;">
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
+  </div>`;
+
   html += `<div class="mobile-section-title" style="margin-top:12px;">CHOKEPOINTS</div>`;
   for (const cp of CHOKEPOINTS) {
     html += `<button class="chokepoint-btn mobile-cp-btn" style="width:100%;margin-bottom:4px;" data-cp="${cp.shortName}">${cp.shortName}</button>`;
@@ -672,6 +680,16 @@ function renderMobileSettings(container) {
       mapLabelSettings[key] = e.target.checked;
       const desktopCb = document.getElementById(labels.find(l => l.key === key)?.elId);
       if (desktopCb) desktopCb.checked = e.target.checked;
+    });
+  });
+
+  container.querySelectorAll('.mobile-settings-speed').forEach(btn => {
+    btn.addEventListener('click', () => {
+      gameSpeedMultiplier = parseInt(btn.dataset.speed);
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
+      if (desktopBtn) desktopBtn.classList.add('active');
+      renderMobileSettings(container);
     });
   });
 
@@ -3617,6 +3635,71 @@ document.getElementById('terminal-popup-close').addEventListener('click', hideTe
 document.getElementById('terminal-popup-select').addEventListener('click', hideTerminalPopup);
 
 // ============================================
+// SHIP INFO DIALOG (mobile tap)
+// ============================================
+function showShipInfoDialog(ship, state) {
+  const dialog = document.getElementById('ship-info-dialog');
+  document.getElementById('ship-info-name').textContent = ship.name;
+  const hp = state ? Math.round((state.health - (state.totalDamage || 0)) * 100) : Math.round((ship.health || 1) * 100);
+  const cargo = shipCargo[ship.id];
+  const cargoText = state?.destroyed ? 'DESTROYED' : state?.seized ? 'SEIZED' : cargo?.delivered ? 'DELIVERED' : cargo?.loaded ? `LOADED (${(ship.cargoType || 'oil').toUpperCase()})` : 'EMPTY';
+  const speedText = state ? `${Math.round(state.speed || 0)} kts` : `${ship.speed || 0} kts`;
+  const aisText = ship.aisName || ship.aisId || '—';
+  const insText = ship.insuranceName || ship.insuranceId || '—';
+
+  document.getElementById('ship-info-body').innerHTML = `
+    <div class="ship-info-row"><span>Type:</span><span>${ship.name}</span></div>
+    <div class="ship-info-row"><span>HP:</span><span class="${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">${hp}%</span></div>
+    <div class="ship-info-row"><span>Speed:</span><span>${speedText}</span></div>
+    <div class="ship-info-row"><span>Cargo:</span><span>${cargoText}</span></div>
+    <div class="ship-info-row"><span>Capacity:</span><span>${(ship.capacity || 0).toLocaleString()} ${(ship.cargoType || 'oil') === 'lng' ? 'MMBtu' : 'bbl'}</span></div>
+    <div class="ship-info-row"><span>AIS:</span><span>${aisText}</span></div>
+    <div class="ship-info-row"><span>Insurance:</span><span>${insText}</span></div>
+    ${ship.engineUpgrade ? '<div class="ship-info-row"><span>Engine:</span><span class="stat-good">UPGRADED</span></div>' : ''}
+    ${ship.defenseUpgrade ? '<div class="ship-info-row"><span>Defense:</span><span class="stat-good">UPGRADED</span></div>' : ''}
+    ${ship.hasAutopilot ? '<div class="ship-info-row"><span>Autopilot:</span><span class="stat-good">INSTALLED</span></div>' : ''}`;
+
+  dialog.dataset.shipId = ship.id;
+  dialog.classList.remove('hidden');
+}
+
+function showNpcInfoDialog(npc) {
+  const dialog = document.getElementById('ship-info-dialog');
+  document.getElementById('ship-info-name').textContent = npc.shipName;
+  document.getElementById('ship-info-body').innerHTML = `
+    <div class="ship-info-row"><span>Type:</span><span>${npc.typeName} (NPC)</span></div>
+    <div class="ship-info-row"><span>Cargo:</span><span>${(npc.cargoType || 'oil').toUpperCase()}</span></div>
+    <div class="ship-info-row"><span>Speed:</span><span>${Math.round(npc.speed)} kts</span></div>
+    <div class="ship-info-row"><span>Heading:</span><span>${Math.round(npc.heading || 0)}&deg;</span></div>`;
+  dialog.dataset.shipId = '';
+  // Hide manage/select for NPC ships
+  document.getElementById('ship-info-select').classList.add('hidden');
+  document.getElementById('ship-info-manage').classList.add('hidden');
+  dialog.classList.remove('hidden');
+}
+
+function hideShipInfoDialog() {
+  document.getElementById('ship-info-dialog').classList.add('hidden');
+  document.getElementById('ship-info-select').classList.remove('hidden');
+  document.getElementById('ship-info-manage').classList.remove('hidden');
+}
+
+document.getElementById('ship-info-close').addEventListener('click', hideShipInfoDialog);
+document.getElementById('ship-info-select').addEventListener('click', () => {
+  const shipId = document.getElementById('ship-info-dialog').dataset.shipId;
+  if (shipId) selectShip(shipId);
+  hideShipInfoDialog();
+});
+document.getElementById('ship-info-manage').addEventListener('click', () => {
+  const shipId = document.getElementById('ship-info-dialog').dataset.shipId;
+  if (shipId) {
+    selectShip(shipId);
+    openFleetManager();
+  }
+  hideShipInfoDialog();
+});
+
+// ============================================
 // MAP CLICK HANDLER
 // ============================================
 mapCanvas.addEventListener('click', (e) => {
@@ -3625,6 +3708,7 @@ mapCanvas.addEventListener('click', (e) => {
   const cx = e.clientX - rect.left;
   const cy = e.clientY - rect.top;
   const target = canvasToLatLon(cx, cy, rect.width, rect.height);
+  const mobile = isMobile();
 
   // Check ship click first (higher priority than terminals)
   const me = gameState?.players.find(p => p.id === myId);
@@ -3633,9 +3717,10 @@ mapCanvas.addEventListener('click', (e) => {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
       const shipPos = latLonToCanvas(state.lat, state.lon, rect.width, rect.height);
-      if (Math.sqrt(Math.pow(cx - shipPos.x, 2) + Math.pow(cy - shipPos.y, 2)) < 20) {
-        if (ship.id === selectedShipId) {
-          // Click selected ship again → deselect
+      if (Math.sqrt(Math.pow(cx - shipPos.x, 2) + Math.pow(cy - shipPos.y, 2)) < (mobile ? 30 : 20)) {
+        if (mobile) {
+          showShipInfoDialog(ship, state);
+        } else if (ship.id === selectedShipId) {
           deselectShip();
         } else {
           selectShip(ship.id);
@@ -3645,10 +3730,21 @@ mapCanvas.addEventListener('click', (e) => {
     }
   }
 
+  // Check NPC ship click on mobile
+  if (mobile) {
+    for (const npc of npcShips) {
+      const npcPos = latLonToCanvas(npc.lat, npc.lon, rect.width, rect.height);
+      if (Math.sqrt(Math.pow(cx - npcPos.x, 2) + Math.pow(cy - npcPos.y, 2)) < 30) {
+        showNpcInfoDialog(npc);
+        return;
+      }
+    }
+  }
+
   // Check terminal click (all terminals — export and import)
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const tPos = latLonToCanvas(terminal.lat, terminal.lon, rect.width, rect.height);
-    if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < 20) {
+    if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < (mobile ? 30 : 20)) {
       if (selectedShipId && shipStates[selectedShipId]) {
         addWaypointForSelectedShip({ lat: terminal.lat, lon: terminal.lon });
       } else {
@@ -3660,6 +3756,7 @@ mapCanvas.addEventListener('click', (e) => {
 
   if (shipControlOpen) closeShipControlPanel();
   hideTerminalPopup();
+  hideShipInfoDialog();
 
   // Add waypoint for selected ship
   if (!selectedShipId || !shipStates[selectedShipId]) return;
