@@ -501,6 +501,51 @@ h1 {
   line-height: 1.4;
 }
 
+/* Ship Info Dialog */
+.ship-info-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px;
+  max-width: 90vw;
+  background: rgba(10, 14, 26, 0.96);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 60;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+.ship-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--primary);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.ship-info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--text);
+}
+
+.ship-info-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ship-info-actions .btn {
+  flex: 1;
+}
+
 /* Ship Purchase Modal */
 .modal-overlay {
   position: fixed;
@@ -1978,11 +2023,13 @@ h1 {
     font-size: 11px;
   }
 
-  /* Terminal popup */
+  /* Terminal popup - centered on mobile */
   .terminal-popup {
     width: 80vw;
     max-width: 300px;
-    left: 10vw !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%);
   }
 
   /* Spawn region */
