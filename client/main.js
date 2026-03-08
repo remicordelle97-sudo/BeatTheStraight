@@ -1699,7 +1699,8 @@ const OCEAN_NODES = [
   { id: 'baltic', lat: 59.5, lon: 24.0 },
   { id: 'primorsk_app', lat: 59.8, lon: 27.0 },
   // Africa
-  { id: 'guinea', lat: 4.0, lon: -5.0 },
+  { id: 'guinea', lat: 3.0, lon: -6.0 },  // offshore Ivory Coast/Liberia
+  { id: 'gulf_guinea', lat: 1.0, lon: -1.0 },  // offshore Gulf of Guinea — avoids West African coast bulge
   { id: 'w_africa', lat: 4.0, lon: 3.0 },
   { id: 'cameroon', lat: 3.5, lon: 9.5 },
   { id: 'gabon', lat: -1.0, lon: 8.5 },
@@ -1773,7 +1774,9 @@ const OCEAN_EDGES = [
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
   ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'], ['gibraltar', 'guinea'],
   // West Africa — coastal route avoids cutting across land
-  ['guinea', 'w_africa'], ['guinea', 'atl_n'], ['guinea', 'atl_s'],
+  ['guinea', 'gulf_guinea'], ['gulf_guinea', 'w_africa'],  // route around West African coast
+  ['gulf_guinea', 'gabon'], ['gulf_guinea', 'atl_s'],      // offshore shortcuts
+  ['guinea', 'atl_n'], ['guinea', 'atl_s'],
   ['w_africa', 'cameroon'], ['cameroon', 'gabon'],
   ['gabon', 'angola'], ['angola', 'namibia'], ['namibia', 'cape'],
   ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
