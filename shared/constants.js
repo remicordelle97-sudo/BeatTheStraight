@@ -909,7 +909,7 @@ export const RISK_LEVELS = {
   LOW: { name: 'Low Tension', oilPriceMultiplier: 1.0, eventFrequency: 0.05 },
   MODERATE: { name: 'Moderate Tension', oilPriceMultiplier: 1.3, eventFrequency: 0.15 },
   HIGH: { name: 'High Tension', oilPriceMultiplier: 1.8, eventFrequency: 0.3 },
-  CRITICAL: { name: 'Active Conflict', oilPriceMultiplier: 3.0, eventFrequency: 0.5 }
+  CRITICAL: { name: 'Global Report', oilPriceMultiplier: 3.0, eventFrequency: 0.5 }
 };
 
 export const BASE_OIL_PRICE = 75;

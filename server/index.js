@@ -299,6 +299,20 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
+  socket.on('ais_fine', ({ shipId, amount }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const game = games.get(info.gameId);
+    if (!game) { callback?.({ success: false }); return; }
+    const player = game.players[socket.id];
+    if (!player) { callback?.({ success: false }); return; }
+    player.cash = (player.cash || 0) - (amount || 0);
+    player.totalLosses = (player.totalLosses || 0) + (amount || 0);
+    persistPlayer(socket.id);
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true });
+  });
+
   socket.on('ship_destroyed', ({ shipId }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false }); return; }

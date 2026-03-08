@@ -600,7 +600,6 @@ function renderMobileSitrep(container) {
   html += `<div style="display:flex;justify-content:space-around;margin-bottom:12px;">
     <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--danger);">${campaignStats.missileEvents || 0}</div><div style="font-size:9px;color:var(--text-muted);">MISSILES</div></div>
     <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--primary);">${recentAttacks.length}</div><div style="font-size:9px;color:var(--text-muted);">RECENT</div></div>
-    <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div><div style="font-size:9px;color:var(--text-muted);">OIL/BBL</div></div>
   </div>`;
 
   // Region intensity cards
@@ -1672,8 +1671,8 @@ function renderSituationMonitor() {
             <div class="sitmon-stat-label">RECENT ATTACKS</div>
           </div>
           <div class="sitmon-stat-card">
-            <div class="sitmon-stat-number" style="color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div>
-            <div class="sitmon-stat-label">OIL PRICE/BBL</div>
+            <div class="sitmon-stat-number" style="color:var(--info);">${campaignStats.deliveries || 0}</div>
+            <div class="sitmon-stat-label">DELIVERIES</div>
           </div>
           <div class="sitmon-stat-card">
             <div class="sitmon-stat-number" style="color:${(campaignStats.totalDamageTaken || 0) > 0.3 ? 'var(--danger)' : 'var(--success)'};">${Math.round((campaignStats.totalDamageTaken || 0) * 100)}%</div>
@@ -1681,7 +1680,6 @@ function renderSituationMonitor() {
           </div>
         </div>
         <div class="sitmon-zone-details" style="margin-top:4px;">
-          <div class="sitmon-row"><span class="sitmon-row-label">Oil Price Multiplier</span><span class="sitmon-row-value">${risk.oilPriceMultiplier}x</span></div>
           <div class="sitmon-row"><span class="sitmon-row-label">Event Frequency</span><span class="sitmon-row-value ${risk.eventFrequency > 0.3 ? 'sitmon-stat-bad' : risk.eventFrequency > 0.1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok'}">${(risk.eventFrequency * 100).toFixed(0)}%</span></div>
         </div>
       </div>
@@ -1693,7 +1691,7 @@ function renderSituationMonitor() {
 
   // LEFT COLUMN: Conflict zones + fleet exposure
   html += `<div>`;
-  html += `<div class="sitmon-section-title">ACTIVE CONFLICT ZONES</div>`;
+  html += `<div class="sitmon-section-title">CONFLICT ZONES</div>`;
 
   for (const wz of warZones) {
     const ri = campaignStats.regionIntensity[wz.region];
@@ -2476,8 +2474,6 @@ function updateFleetPanel() {
 
   const cashEl = document.getElementById('plan-cash');
   if (cashEl) cashEl.textContent = formatMoney(me.cash || 0);
-  const oilEl = document.getElementById('plan-oil-price');
-  if (oilEl) oilEl.textContent = (gameState.oilPrice || 0).toFixed(2);
   const riskBadge = document.getElementById('plan-risk');
   if (riskBadge && gameState.riskInfo) {
     riskBadge.textContent = gameState.riskInfo.name.toUpperCase();
@@ -2809,10 +2805,10 @@ const OCEAN_NODES = [
   { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
   { id: 'gulf_uae_s', lat: 25.2, lon: 55.0 },  // south UAE approach
   { id: 'hormuz_app', lat: 26.3, lon: 55.5 },  // Hormuz approach from west
-  { id: 'hormuz', lat: 26.5, lon: 56.3 },
-  { id: 'hormuz_ch', lat: 26.3, lon: 56.8 },   // through the strait channel
-  { id: 'hormuz_e', lat: 26.0, lon: 57.3 },    // east exit of strait
-  { id: 'gulf_oman', lat: 25.5, lon: 58.5 },
+  { id: 'hormuz', lat: 26.55, lon: 56.25 },    // strait center — deep-water channel
+  { id: 'hormuz_ch', lat: 26.55, lon: 56.65 }, // through the strait — north of Musandam tip
+  { id: 'hormuz_e', lat: 25.8, lon: 57.2 },    // east exit — south of Musandam peninsula
+  { id: 'gulf_oman', lat: 25.3, lon: 58.0 },   // Gulf of Oman — clear of Musandam
   { id: 'oman_se', lat: 24.5, lon: 59.0 },
   { id: 'oman', lat: 24.0, lon: 60.0 },
   // Indian Ocean
@@ -3820,6 +3816,7 @@ function transitLoop(timestamp) {
   if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
     checkDangerZonesAllShips(elapsed);
+    checkAisFines(elapsed);
   }
 
   updateAmbientWar(elapsed);
@@ -3856,6 +3853,7 @@ function transitLoop(timestamp) {
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
+    terminalPrices: gameState?.terminalPrices || null,
     ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
@@ -4413,6 +4411,33 @@ function checkDangerZonesAllShips(elapsed) {
           outcome.damagePercent > 0 || outcome.moneyLoss > 0 ? 'danger' : outcome.delayHours < 0 ? 'success' : '');
         updateFleetPanel();
       }
+    }
+  }
+}
+
+// AIS compliance enforcement — worldwide, 5% chance per check (~1 min game-time intervals)
+const aisFineCooldowns = {};
+const AIS_FINE_INTERVAL = 60; // seconds of game time between checks per ship
+function checkAisFines(elapsed) {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me) return;
+  for (const ship of me.fleet) {
+    const state = shipStates[ship.id];
+    if (!state || state.destroyed || state.seized) continue;
+    const aisId = ship.aisId || 'FULL_BROADCAST';
+    if (aisId === 'FULL_BROADCAST' || aisId === 'full_broadcast') continue;
+    const lastCheck = aisFineCooldowns[ship.id] || 0;
+    if (elapsed - lastCheck < AIS_FINE_INTERVAL) continue;
+    aisFineCooldowns[ship.id] = elapsed;
+    if (Math.random() < 0.05) {
+      const ais = options?.aisOptions?.[aisId];
+      const fine = ais?.legalPenalty || (aisId === 'DARK' ? 500000 : 50000);
+      socket.emit('ais_fine', { shipId: ship.id, amount: fine }, (res) => {
+        if (res?.success) updateFleetPanel();
+      });
+      const modeLabel = aisId === 'DARK' ? 'AIS Dark' : 'Reduced AIS';
+      addTransitEvent('AIS VIOLATION',
+        `${ship.name}: Caught operating with ${modeLabel}. Fined ${formatMoney(fine)}.`, 'danger');
     }
   }
 }
