@@ -1143,18 +1143,9 @@ function drawMap(canvas, options = {}) {
   // Chokepoint markers
   drawChokepointMarkers(ctx, drawW, drawH);
 
-  // Persian Gulf detail coastlines (drawn on top when zoomed in)
-  // Colors match world-level polygons to prevent color shift on zoom
+  // Gulf islands (always rendered via WORLD_POLYGONS now)
+  // Gulf detail coastlines (IRAN_COAST, ARAB_COAST) retained for collision only
   const gulfVisible = isGulfZoom();
-  if (gulfVisible) {
-    drawCoastline(ctx, IRAN_COAST, '#6a7050', drawW, drawH);   // matches ASIA_MAINLAND
-    drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);   // matches ARABIA
-    drawCoastline(ctx, QESHM, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, LARAK, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, HORMUZ_ISLAND, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
-    drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
-  }
 
   const lbl = options.labels || {};
 
