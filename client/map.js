@@ -359,57 +359,42 @@ function sampleBiome(lat, lon) {
   return [Math.round(rSum / wSum), Math.round(gSum / wSum), Math.round(bSum / wSum)];
 }
 
-// Offscreen biome bitmap cache — avoids per-frame recalculation
-const BIOME_TEX_W = 256;
-const BIOME_TEX_H = 128;
-let _biomeCvs = null;    // offscreen canvas
-let _biomeVp = null;     // viewport the cache was rendered for
+// Global biome bitmap — rendered ONCE covering the entire world, then sliced per viewport
+const BIOME_WORLD_W = 720;   // 2 px per degree longitude
+const BIOME_WORLD_H = 290;   // 2 px per degree latitude
+const BIOME_WORLD_WEST = -180;
+const BIOME_WORLD_NORTH = 85;
+const BIOME_WORLD_SOUTH = -60;
+let _biomeWorldCvs = null;
 
-function _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth) {
-  if (!_biomeCvs) {
-    _biomeCvs = document.createElement('canvas');
-    _biomeCvs.width = BIOME_TEX_W;
-    _biomeCvs.height = BIOME_TEX_H;
-  }
-  const bctx = _biomeCvs.getContext('2d');
-  const imgData = bctx.createImageData(BIOME_TEX_W, BIOME_TEX_H);
+function _ensureBiomeWorld() {
+  if (_biomeWorldCvs) return _biomeWorldCvs;
+  _biomeWorldCvs = document.createElement('canvas');
+  _biomeWorldCvs.width = BIOME_WORLD_W;
+  _biomeWorldCvs.height = BIOME_WORLD_H;
+  const bctx = _biomeWorldCvs.getContext('2d');
+  const imgData = bctx.createImageData(BIOME_WORLD_W, BIOME_WORLD_H);
   const data = imgData.data;
-  const vpW = vpEast - vpWest;
-  const vpH = vpNorth - vpSouth;
-  for (let y = 0; y < BIOME_TEX_H; y++) {
-    const lat = vpNorth - (y + 0.5) / BIOME_TEX_H * vpH;
-    for (let x = 0; x < BIOME_TEX_W; x++) {
-      const lon = vpWest + (x + 0.5) / BIOME_TEX_W * vpW;
+  const lonRange = 360; // -180 to 180
+  const latRange = BIOME_WORLD_NORTH - BIOME_WORLD_SOUTH; // 145
+  for (let y = 0; y < BIOME_WORLD_H; y++) {
+    const lat = BIOME_WORLD_NORTH - (y + 0.5) / BIOME_WORLD_H * latRange;
+    for (let x = 0; x < BIOME_WORLD_W; x++) {
+      const lon = BIOME_WORLD_WEST + (x + 0.5) / BIOME_WORLD_W * lonRange;
       const rgb = sampleBiome(lat, lon);
-      const idx = (y * BIOME_TEX_W + x) * 4;
+      const idx = (y * BIOME_WORLD_W + x) * 4;
       if (rgb) {
         data[idx] = rgb[0];
         data[idx + 1] = rgb[1];
         data[idx + 2] = rgb[2];
         data[idx + 3] = 255;
       } else {
-        data[idx + 3] = 0; // transparent where no biome data
+        data[idx + 3] = 0;
       }
     }
   }
   bctx.putImageData(imgData, 0, 0);
-  _biomeVp = { west: vpWest, east: vpEast, north: vpNorth, south: vpSouth };
-}
-
-function getBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth) {
-  // Rebuild if viewport shifted by more than 5% or no cache exists
-  if (!_biomeVp) {
-    _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth);
-  } else {
-    const oldW = _biomeVp.east - _biomeVp.west;
-    const oldH = _biomeVp.north - _biomeVp.south;
-    const dW = Math.abs(vpWest - _biomeVp.west) + Math.abs(vpEast - _biomeVp.east);
-    const dH = Math.abs(vpNorth - _biomeVp.north) + Math.abs(vpSouth - _biomeVp.south);
-    if (dW > oldW * 0.05 || dH > oldH * 0.05) {
-      _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth);
-    }
-  }
-  return _biomeCvs;
+  return _biomeWorldCvs;
 }
 
 // Draw all world coastline polygons (skip off-screen ones)
@@ -449,11 +434,18 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
   }
   ctx.clip();
 
-  // 3. Paint biome colors from cached offscreen bitmap (smooth pixel-level blending)
-  const biomeBmp = getBiomeBitmap(viewport.west, viewport.east, viewport.north, viewport.south);
+  // 3. Paint biome colors — slice from pre-rendered world bitmap (computed once)
+  const biomeWorld = _ensureBiomeWorld();
+  const lonRange = 360;
+  const latRange = BIOME_WORLD_NORTH - BIOME_WORLD_SOUTH;
+  // Map viewport to source rect in the world bitmap
+  const sx = ((viewport.west - BIOME_WORLD_WEST) / lonRange) * BIOME_WORLD_W;
+  const sy = ((BIOME_WORLD_NORTH - viewport.north) / latRange) * BIOME_WORLD_H;
+  const sw = (vpW / lonRange) * BIOME_WORLD_W;
+  const sh = (vpH / latRange) * BIOME_WORLD_H;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(biomeBmp, 0, 0, drawW, drawH);
+  ctx.drawImage(biomeWorld, sx, sy, sw, sh, 0, 0, drawW, drawH);
 
   ctx.restore(); // remove clip
 
