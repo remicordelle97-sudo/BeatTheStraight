@@ -1384,7 +1384,7 @@ function createNPCTanker(staggered) {
     waitTimer: 0,
     safeAnchorage: null,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
-    coastEscapeTimer: 0, coastEscapeHeading: 0,
+    coastEscapeTimer: 0, coastEscapeHeading: 0, progressTimer: 0, progressLat: 0, progressLon: 0,
     trail: [],
     route: [],     // waypoint route [{lat,lon}, ...]
     routeIdx: 0,   // current waypoint index
@@ -1608,6 +1608,26 @@ function updateNPCShips(dt, elapsed) {
         // No route — head directly (fallback for short distances)
         npc.targetHeading = headingToTarget(npc.lat, npc.lon, dest.lat, dest.lon);
       }
+    }
+
+    // Stuck detection: if ship hasn't made progress in 15 seconds, reroute
+    npc.progressTimer = (npc.progressTimer || 0) + dt;
+    if (npc.progressTimer > 15) {
+      const moved = distanceDeg(npc.lat, npc.lon, npc.progressLat || npc.lat, npc.progressLon || npc.lon);
+      if (moved < 0.3 && npc.speed > 0) {
+        // Stuck — recompute route from current position
+        const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+        if (dest) {
+          npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
+          npc.route.push({ lat: dest.lat, lon: dest.lon });
+          npc.routeIdx = 0;
+          npc.coastEscapeTimer = 0;
+          npc.stuckCount = 0;
+        }
+      }
+      npc.progressTimer = 0;
+      npc.progressLat = npc.lat;
+      npc.progressLon = npc.lon;
     }
 
     // Coast escape mode: after hitting land, commit to escape heading
@@ -1841,6 +1861,28 @@ function transitLoop(timestamp) {
           } else { state.speed = 0; }
         } else {
           state.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
+        }
+      }
+
+      // Autopilot stuck detection: if ship hasn't made progress in 15 seconds, reroute
+      if (apActive && state.speed > 0) {
+        state.progressTimer = (state.progressTimer || 0) + dt;
+        if (state.progressTimer > 15) {
+          const moved = distanceDeg(state.lat, state.lon, state.progressLat || state.lat, state.progressLon || state.lon);
+          if (moved < 0.3) {
+            // Stuck — recompute route from current position
+            const cargo = shipCargo[ship.id];
+            const dest = (cargo && cargo.loaded)
+              ? { lat: ap.dropoff.lat, lon: ap.dropoff.lon }
+              : { lat: ap.terminal.lat, lon: ap.terminal.lon };
+            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+            shipWaypoints[ship.id] = route;
+            state.apCoastEscapeTimer = 0;
+            state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+          }
+          state.progressTimer = 0;
+          state.progressLat = state.lat;
+          state.progressLon = state.lon;
         }
       }
 
