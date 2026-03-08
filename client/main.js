@@ -761,7 +761,9 @@ function renderMobileControls(container) {
       const sid = selectedShipId;
 
       if (type === 'repair') {
-        socket.emit('upgrade_ship', { shipId: sid, type: 'repair' }, (res) => {
+        const _st = shipStates[sid];
+        const _health = _st ? Math.max(0.01, (_st.health || 1) - (_st.totalDamage || 0)) : undefined;
+        socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: _health }, (res) => {
           if (res?.success) {
             const st = shipStates[sid];
             if (st) {
@@ -1030,13 +1032,13 @@ document.getElementById('scp-repair').addEventListener('click', () => {
     return;
   }
   const sid = selectedShipId;
-  socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
+  const currentHealth = Math.max(0.01, (state.health || 1) - state.totalDamage);
+  socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
     if (res?.success) {
       const st = shipStates[sid];
       if (st) {
         st.totalDamage = 0;
-        // Restore original speed
-        const s2 = getSelectedShipData();
+        const s2 = getShipData(sid);
         if (s2) st.speed = s2.speed || st.speed;
       }
       addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
@@ -1236,7 +1238,8 @@ function autopilotReroute(ship) {
     dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
   }
   if (dest.lat == null || dest.lon == null) return;
-  const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+  const destTerminal = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
+  const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destTerminal?.loadRadius || 0.15);
   shipWaypoints[ship.id] = route;
   if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
   if (route.length > 0) {
@@ -1796,10 +1799,15 @@ function renderFleetManager() {
       const me2 = gameState?.players.find(p => p.id === myId);
       if (!me2 || me2.cash < repairCost) return;
       btn.disabled = true;
-      socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
+      const currentHealth = Math.max(0.01, (st.health || 1) - st.totalDamage);
+      socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
         if (res?.success) {
-          st.totalDamage = 0;
-          if (s) st.speed = s.speed || st.speed;
+          const freshSt = shipStates[sid];
+          if (freshSt) {
+            freshSt.totalDamage = 0;
+            const freshShip = getShipData(sid);
+            if (freshShip) freshSt.speed = freshShip.speed || freshSt.speed;
+          }
           renderFleetManager(); updateFleetPanel();
         }
         else { btn.disabled = false; }
@@ -2372,7 +2380,8 @@ function deselectShip() {
 
 function addWaypointForSelectedShip(target) {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
-  if (isOnLand(target.lat, target.lon)) return;
+  // Allow terminal waypoints (they have loadRadius) even if on land — terminals are coastal
+  if (!target.loadRadius && isOnLand(target.lat, target.lon)) return;
   const wps = shipWaypoints[selectedShipId] || [];
   wps.push(target);
   shipWaypoints[selectedShipId] = wps;
@@ -2616,13 +2625,20 @@ const NPC_SPAWN_ZONES = [
 const OCEAN_NODES = [
   // Persian Gulf (dense waypoints for complex coastline)
   { id: 'gulf_nw', lat: 29.4, lon: 48.5 },
+  { id: 'gulf_nw_s', lat: 28.7, lon: 49.0 },  // between NW and W, avoids Kuwait coast
   { id: 'gulf_w', lat: 28.0, lon: 50.0 },
-  { id: 'gulf', lat: 27.0, lon: 50.0 },
-  { id: 'gulf_central', lat: 26.5, lon: 52.0 },
-  { id: 'gulf_qatar_e', lat: 25.5, lon: 53.0 },
+  { id: 'gulf_kharg', lat: 28.8, lon: 50.3 },  // near Kharg Island approach
+  { id: 'gulf', lat: 27.0, lon: 50.5 },
+  { id: 'gulf_bahrain_e', lat: 26.5, lon: 50.8 },  // east of Bahrain
+  { id: 'gulf_central', lat: 26.0, lon: 52.0 },
+  { id: 'gulf_qatar_e', lat: 25.5, lon: 52.5 },
+  { id: 'gulf_das', lat: 25.2, lon: 53.0 },    // near Das Island
   { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
-  { id: 'hormuz_ch', lat: 26.5, lon: 57.0 },
-  { id: 'hormuz', lat: 26.5, lon: 56.5 },
+  { id: 'gulf_uae_s', lat: 25.2, lon: 55.0 },  // south UAE approach
+  { id: 'hormuz_app', lat: 26.3, lon: 55.5 },  // Hormuz approach from west
+  { id: 'hormuz', lat: 26.5, lon: 56.3 },
+  { id: 'hormuz_ch', lat: 26.3, lon: 56.8 },   // through the strait channel
+  { id: 'hormuz_e', lat: 26.0, lon: 57.3 },    // east exit of strait
   { id: 'gulf_oman', lat: 25.5, lon: 58.5 },
   { id: 'oman_se', lat: 24.5, lon: 59.0 },
   { id: 'oman', lat: 24.0, lon: 60.0 },
@@ -2704,14 +2720,21 @@ const OCEAN_NODES = [
 
 // Adjacency — pairs of connected waypoint IDs
 const OCEAN_EDGES = [
-  // Persian Gulf internal corridors
-  ['gulf_nw', 'gulf_w'], ['gulf_w', 'gulf'], ['gulf_nw', 'gulf'],
+  // Persian Gulf internal corridors (dense network for narrow waterway)
+  ['gulf_nw', 'gulf_nw_s'], ['gulf_nw_s', 'gulf_w'], ['gulf_nw', 'gulf_w'],
+  ['gulf_nw', 'gulf_kharg'], ['gulf_nw_s', 'gulf_kharg'], ['gulf_kharg', 'gulf_w'],
+  ['gulf_w', 'gulf'], ['gulf_w', 'gulf_bahrain_e'],
+  ['gulf', 'gulf_bahrain_e'], ['gulf_bahrain_e', 'gulf_central'],
   ['gulf', 'gulf_central'], ['gulf_central', 'gulf_qatar_e'],
-  ['gulf_qatar_e', 'gulf_uae'], ['gulf_uae', 'hormuz_ch'],
-  ['hormuz_ch', 'hormuz'], ['gulf_central', 'gulf_uae'],
+  ['gulf_qatar_e', 'gulf_das'], ['gulf_das', 'gulf_uae'],
+  ['gulf_qatar_e', 'gulf_uae'], ['gulf_central', 'gulf_uae'],
+  ['gulf_central', 'gulf_das'],
+  ['gulf_uae', 'hormuz_app'], ['gulf_uae_s', 'hormuz_app'],
+  ['gulf_das', 'gulf_uae_s'], ['gulf_qatar_e', 'gulf_uae_s'],
+  ['hormuz_app', 'hormuz'], ['hormuz', 'hormuz_ch'],
+  ['hormuz_ch', 'hormuz_e'],
   // Strait of Hormuz to Gulf of Oman
-  ['hormuz_ch', 'hormuz'],
-  ['hormuz_ch', 'gulf_oman'], ['gulf_oman', 'oman_se'],
+  ['hormuz_e', 'gulf_oman'], ['gulf_oman', 'oman_se'],
   ['oman_se', 'oman'],
   // Indian Ocean
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
@@ -2873,7 +2896,7 @@ function createNPCTanker(staggered) {
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
     npc.route = computeOceanRoute(npc.lat, npc.lon, terminal.lat, terminal.lon);
-    npc.route.push({ lat: terminal.lat, lon: terminal.lon });
+    npc.route.push({ lat: terminal.lat, lon: terminal.lon, loadRadius: terminal.loadRadius || 0.15 });
     npc.routeIdx = 0;
     const wp = npc.route[0];
     npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
@@ -2884,7 +2907,7 @@ function createNPCTanker(staggered) {
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
     npc.route = computeOceanRoute(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
-    npc.route.push({ lat: dropoff.lat, lon: dropoff.lon });
+    npc.route.push({ lat: dropoff.lat, lon: dropoff.lon, loadRadius: dropoff.loadRadius || 0.15 });
     npc.routeIdx = 0;
     const wp = npc.route[0];
     npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
@@ -2939,9 +2962,9 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
 }
 
 // Autopilot route uses the ocean waypoint graph (same as NPC ships).
-function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
+function computeAutopilotRoute(fromLat, fromLon, toLat, toLon, loadRadius) {
   const route = computeOceanRoute(fromLat, fromLon, toLat, toLon);
-  route.push({ lat: toLat, lon: toLon });
+  route.push({ lat: toLat, lon: toLon, loadRadius: loadRadius || 0.15 });
   return route;
 }
 
@@ -2991,7 +3014,7 @@ function updateNPCShips(dt, elapsed) {
             // Recompute route from current position
             const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
             npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
-            npc.route.push({ lat: dest.lat, lon: dest.lon });
+            npc.route.push({ lat: dest.lat, lon: dest.lon, loadRadius: dest.loadRadius || 0.15 });
             npc.routeIdx = 0;
             const wp = npc.route[0];
             npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
@@ -3009,7 +3032,7 @@ function updateNPCShips(dt, elapsed) {
         if (npc.state === NPC_STATE.LOADING) {
           npc.state = NPC_STATE.HEADING_TO_DROPOFF;
           npc.route = computeOceanRoute(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
-          npc.route.push({ lat: npc.dropoff.lat, lon: npc.dropoff.lon });
+          npc.route.push({ lat: npc.dropoff.lat, lon: npc.dropoff.lon, loadRadius: npc.dropoff.loadRadius || 0.15 });
           npc.routeIdx = 0;
           const wp = npc.route[0];
           npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
@@ -3021,7 +3044,7 @@ function updateNPCShips(dt, elapsed) {
           npc.dropoff = randomDropoff();
           npc.state = NPC_STATE.HEADING_TO_TERMINAL;
           npc.route = computeOceanRoute(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
-          npc.route.push({ lat: npc.targetTerminal.lat, lon: npc.targetTerminal.lon });
+          npc.route.push({ lat: npc.targetTerminal.lat, lon: npc.targetTerminal.lon, loadRadius: npc.targetTerminal.loadRadius || 0.15 });
           npc.routeIdx = 0;
           const wp = npc.route[0];
           npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
@@ -3101,7 +3124,7 @@ function updateNPCShips(dt, elapsed) {
         const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
         if (dest) {
           npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
-          npc.route.push({ lat: dest.lat, lon: dest.lon });
+          npc.route.push({ lat: dest.lat, lon: dest.lon, loadRadius: dest.loadRadius || 0.15 });
           npc.routeIdx = 0;
           npc.coastEscapeTimer = 0;
           npc.stuckCount = 0;
@@ -3318,13 +3341,9 @@ function transitLoop(timestamp) {
         const curWps = shipWaypoints[ship.id] || [];
         if (curWps.length === 0 && state.speed === 0) {
           // If empty → head to load terminal; if loaded → head to dropoff
-          let dest;
-          if (cargo && cargo.loaded) {
-            dest = { lat: ap.dropoff.lat, lon: ap.dropoff.lon };
-          } else {
-            dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
-          }
-          const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+          const destT = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
+          const dest = { lat: destT.lat, lon: destT.lon };
+          const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destT?.loadRadius || 0.15);
           shipWaypoints[ship.id] = route;
           state.speed = Math.round(ship.speed || 14);
           state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
@@ -3359,10 +3378,9 @@ function transitLoop(timestamp) {
           if (moved < 0.3) {
             // Stuck — recompute route from current position
             const cargo = shipCargo[ship.id];
-            const dest = (cargo && cargo.loaded)
-              ? { lat: ap.dropoff.lat, lon: ap.dropoff.lon }
-              : { lat: ap.terminal.lat, lon: ap.terminal.lon };
-            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+            const destTerminal2 = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
+            const dest = { lat: destTerminal2.lat, lon: destTerminal2.lon };
+            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon, destTerminal2?.loadRadius || 0.15);
             shipWaypoints[ship.id] = route;
             state.apCoastEscapeTimer = 0;
             state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
@@ -4478,7 +4496,7 @@ mapCanvas.addEventListener('click', (e) => {
     const tPos = latLonToCanvas(terminal.lat, terminal.lon, rect.width, rect.height);
     if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < (mobile ? 30 : 20)) {
       if (selectedShipId && shipStates[selectedShipId]) {
-        addWaypointForSelectedShip({ lat: terminal.lat, lon: terminal.lon });
+        addWaypointForSelectedShip({ lat: terminal.lat, lon: terminal.lon, loadRadius: terminal.loadRadius || 0.15 });
       } else {
         showTerminalPopup(terminal, e.clientX, e.clientY);
       }

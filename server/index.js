@@ -306,11 +306,16 @@ io.on('connection', (socket) => {
     callback?.({ success: true, insurancePayout });
   });
 
-  socket.on('upgrade_ship', ({ shipId, type }, callback) => {
+  socket.on('upgrade_ship', ({ shipId, type, health }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false }); return; }
     const game = games.get(info.gameId);
     if (!game) { callback?.({ success: false }); return; }
+    // Sync client-side damage for repair (damage is tracked client-side)
+    if (type === 'repair' && health != null) {
+      const ship = game.players[socket.id]?.fleet.find(s => s.id === shipId);
+      if (ship) ship.health = Math.max(0.01, Math.min(1.0, health));
+    }
     const result = game.upgradeShip(socket.id, shipId, type);
     if (!result) { callback?.({ success: false, error: 'Upgrade failed' }); return; }
     persistPlayer(socket.id);
