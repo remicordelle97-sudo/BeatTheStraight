@@ -849,11 +849,11 @@ function renderFleetManager() {
         </div>
         ${apActive || ship.hasAutopilot ? `
         <div class="fm-ap-row" style="margin-top:6px;">
-          <span class="fm-control-label" style="margin-right:4px;">AP:</span>
+          <span class="fm-control-label" style="margin-right:4px;">ROUTE:</span>
           <select class="fm-ap-terminal" data-sid="${ship.id}"></select>
           <span style="color:var(--text-muted);font-size:9px;">→</span>
           <select class="fm-ap-dropoff" data-sid="${ship.id}"></select>
-          <button class="btn btn-small fm-ap-reroute" data-sid="${ship.id}">SET</button>
+          <button class="btn btn-small fm-ap-reroute" data-sid="${ship.id}">${apActive ? 'REROUTE' : 'START'}</button>
         </div>` : ''}
       </div>`;
   }).join('');
@@ -1049,19 +1049,29 @@ function renderFleetManager() {
       const sid = btn.dataset.sid;
       if (!fmShipAlive(sid)) return;
       const s = getShipData(sid);
-      if (!s) return;
-      const ap = shipAutopilot[s.id];
-      if (!ap || !ap.active) return;
       const st = shipStates[sid];
-      if (!st) return;
+      if (!s || !st) return;
       const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
       const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
       if (!termSel || !dropSel) return;
       const terminal = getTerminalById(termSel.value);
       const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
-      if (terminal) ap.terminal = terminal;
-      if (dropoff) ap.dropoff = dropoff;
-      autopilotReroute(s);
+      if (!terminal) return;
+      const ap = shipAutopilot[s.id];
+      if (ap && ap.active) {
+        // Already active — reroute to new terminals
+        ap.terminal = terminal;
+        ap.dropoff = dropoff;
+        autopilotReroute(s);
+      } else {
+        // Not active — engage autopilot with selected terminals
+        shipAutopilot[s.id] = { active: true, terminal, dropoff };
+        st.apCoastEscapeTimer = 0;
+        st.apCoastEscapeHeading = 0;
+        shipWaypoints[s.id] = [];
+        if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+      }
+      renderFleetManager(); updateFleetPanel();
     });
   });
 }
