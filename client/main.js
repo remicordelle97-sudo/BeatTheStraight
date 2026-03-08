@@ -417,7 +417,76 @@ document.querySelectorAll('.speed-btn').forEach(btn => {
 // SETTINGS MENU
 // ============================================
 document.getElementById('settings-btn').addEventListener('click', () => {
-  document.getElementById('settings-panel').classList.toggle('hidden');
+  const panel = document.getElementById('settings-panel');
+  if (panel.classList.contains('hidden')) {
+    // Reset to main menu when opening
+    document.getElementById('settings-menu').classList.remove('hidden');
+    document.querySelectorAll('.settings-section').forEach(s => s.classList.add('hidden'));
+    panel.classList.remove('hidden');
+  } else {
+    panel.classList.add('hidden');
+  }
+});
+
+// Settings sub-menu navigation
+document.querySelectorAll('.settings-menu-item[data-section]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const section = btn.dataset.section;
+    document.getElementById('settings-menu').classList.add('hidden');
+    document.getElementById(`settings-${section}`).classList.remove('hidden');
+    if (section === 'leaderboard') fetchLeaderboard();
+  });
+});
+
+document.querySelectorAll('.settings-back-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.settings-section').forEach(s => s.classList.add('hidden'));
+    document.getElementById('settings-menu').classList.remove('hidden');
+  });
+});
+
+// Settings logout
+document.getElementById('settings-logout-btn').addEventListener('click', () => {
+  logout();
+  document.getElementById('settings-panel').classList.add('hidden');
+  showScreen('title');
+  transitActive = false;
+});
+
+// Leaderboard
+let leaderboardPeriod = 'week';
+
+async function fetchLeaderboard() {
+  const listEl = document.getElementById('settings-lb-list');
+  listEl.innerHTML = '<div class="muted" style="padding:8px;font-size:11px;">Loading...</div>';
+  try {
+    const url = leaderboardPeriod === 'all' ? '/api/leaderboard' : `/api/leaderboard?period=${leaderboardPeriod}`;
+    const res = await fetch(url);
+    const rows = await res.json();
+    if (rows.length === 0) {
+      listEl.innerHTML = '<div class="muted" style="padding:8px;font-size:11px;">No data yet.</div>';
+      return;
+    }
+    listEl.innerHTML = rows.map((r, i) => {
+      const profit = r.period_profit != null ? r.period_profit : r.total_profit;
+      return `<div class="settings-lb-row">
+        <span class="settings-lb-rank">#${i + 1}</span>
+        <span class="settings-lb-name">${escapeHtml(r.username)}</span>
+        <span class="settings-lb-profit">${formatMoney(profit)}</span>
+      </div>`;
+    }).join('');
+  } catch {
+    listEl.innerHTML = '<div class="muted" style="padding:8px;font-size:11px;">Failed to load.</div>';
+  }
+}
+
+document.querySelectorAll('.settings-lb-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.settings-lb-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    leaderboardPeriod = tab.dataset.period;
+    fetchLeaderboard();
+  });
 });
 
 const labelToggleMap = {
@@ -855,8 +924,63 @@ function renderMobileLog(container) {
   container.innerHTML = html;
 }
 
+let mobileSettingsView = 'menu'; // 'menu', 'visual', 'leaderboard'
+
 function renderMobileSettings(container) {
-  let html = '<div class="mobile-section-title">MAP LABELS</div>';
+  if (mobileSettingsView === 'leaderboard') {
+    renderMobileLeaderboard(container);
+    return;
+  }
+  if (mobileSettingsView === 'visual') {
+    renderMobileVisual(container);
+    return;
+  }
+
+  // Main settings menu
+  let html = '<div class="mobile-section-title">SETTINGS</div>';
+  html += `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+    <button class="btn btn-secondary mobile-settings-nav" data-view="leaderboard">LEADERBOARD</button>
+    <button class="btn btn-secondary mobile-settings-nav" data-view="visual">VISUAL OPTIONS</button>
+    <button class="btn btn-ghost mobile-settings-logout">LOGOUT</button>
+  </div>`;
+
+  html += `<div class="mobile-section-title">GAME SPEED</div>`;
+  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:12px;">
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
+    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
+  </div>`;
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.mobile-settings-nav').forEach(btn => {
+    btn.addEventListener('click', () => {
+      mobileSettingsView = btn.dataset.view;
+      renderMobileSettings(container);
+    });
+  });
+
+  container.querySelector('.mobile-settings-logout')?.addEventListener('click', () => {
+    logout();
+    showScreen('title');
+    transitActive = false;
+  });
+
+  container.querySelectorAll('.mobile-settings-speed').forEach(btn => {
+    btn.addEventListener('click', () => {
+      gameSpeedMultiplier = parseInt(btn.dataset.speed);
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
+      if (desktopBtn) desktopBtn.classList.add('active');
+      renderMobileSettings(container);
+    });
+  });
+}
+
+function renderMobileVisual(container) {
+  let html = `<button class="btn btn-ghost btn-small mobile-settings-back" style="margin-bottom:8px;">&larr; BACK</button>`;
+  html += '<div class="mobile-section-title">MAP LABELS</div>';
   const labels = [
     { key: 'cityNames', label: 'City names', elId: 'toggle-city-names' },
     { key: 'countryNames', label: 'Country names', elId: 'toggle-country-names' },
@@ -870,16 +994,12 @@ function renderMobileSettings(container) {
       <span>${l.label}</span>
     </div>`;
   }
-
-  html += `<div class="mobile-section-title" style="margin-top:12px;">GAME SPEED</div>`;
-  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:12px;">
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
-  </div>`;
-
   container.innerHTML = html;
+
+  container.querySelector('.mobile-settings-back')?.addEventListener('click', () => {
+    mobileSettingsView = 'menu';
+    renderMobileSettings(container);
+  });
 
   container.querySelectorAll('.mobile-label-toggle').forEach(cb => {
     cb.addEventListener('change', (e) => {
@@ -889,17 +1009,50 @@ function renderMobileSettings(container) {
       if (desktopCb) desktopCb.checked = e.target.checked;
     });
   });
+}
 
-  container.querySelectorAll('.mobile-settings-speed').forEach(btn => {
-    btn.addEventListener('click', () => {
-      gameSpeedMultiplier = parseInt(btn.dataset.speed);
-      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
-      if (desktopBtn) desktopBtn.classList.add('active');
-      renderMobileSettings(container);
+function renderMobileLeaderboard(container) {
+  let html = `<button class="btn btn-ghost btn-small mobile-settings-back" style="margin-bottom:8px;">&larr; BACK</button>`;
+  html += '<div class="mobile-section-title">LEADERBOARD</div>';
+  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:8px;">
+    <button class="btn btn-small mobile-lb-tab ${leaderboardPeriod === 'week' ? 'btn-primary' : 'btn-secondary'}" data-period="week">1W</button>
+    <button class="btn btn-small mobile-lb-tab ${leaderboardPeriod === 'month' ? 'btn-primary' : 'btn-secondary'}" data-period="month">1M</button>
+    <button class="btn btn-small mobile-lb-tab ${leaderboardPeriod === 'year' ? 'btn-primary' : 'btn-secondary'}" data-period="year">1Y</button>
+    <button class="btn btn-small mobile-lb-tab ${leaderboardPeriod === 'all' ? 'btn-primary' : 'btn-secondary'}" data-period="all">ALL</button>
+  </div>`;
+  html += `<div id="mobile-lb-list" style="font-size:11px;"><div class="muted">Loading...</div></div>`;
+  container.innerHTML = html;
+
+  container.querySelector('.mobile-settings-back')?.addEventListener('click', () => {
+    mobileSettingsView = 'menu';
+    renderMobileSettings(container);
+  });
+
+  container.querySelectorAll('.mobile-lb-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      leaderboardPeriod = tab.dataset.period;
+      renderMobileLeaderboard(container);
     });
   });
 
+  // Fetch leaderboard data
+  const url = leaderboardPeriod === 'all' ? '/api/leaderboard' : `/api/leaderboard?period=${leaderboardPeriod}`;
+  fetch(url).then(r => r.json()).then(rows => {
+    const listEl = container.querySelector('#mobile-lb-list');
+    if (!listEl) return;
+    if (rows.length === 0) { listEl.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+    listEl.innerHTML = rows.map((r, i) => {
+      const profit = r.period_profit != null ? r.period_profit : r.total_profit;
+      return `<div class="settings-lb-row">
+        <span class="settings-lb-rank">#${i + 1}</span>
+        <span class="settings-lb-name">${escapeHtml(r.username)}</span>
+        <span class="settings-lb-profit">${formatMoney(profit)}</span>
+      </div>`;
+    }).join('');
+  }).catch(() => {
+    const listEl = container.querySelector('#mobile-lb-list');
+    if (listEl) listEl.innerHTML = '<div class="muted">Failed to load.</div>';
+  });
 }
 
 // ============================================

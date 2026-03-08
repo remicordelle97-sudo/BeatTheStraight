@@ -49,8 +49,19 @@ app.get('/api/profile', (req, res) => {
 });
 
 app.get('/api/leaderboard', (req, res) => {
-  const rows = stmts.getLeaderboard.all();
-  res.json(rows);
+  const period = req.query.period; // 'week', 'month', 'year', or omitted for all-time
+  if (period === 'week' || period === 'month' || period === 'year') {
+    const offsets = { week: '-7 days', month: '-1 month', year: '-1 year' };
+    const since = new Date(Date.now());
+    if (period === 'week') since.setDate(since.getDate() - 7);
+    else if (period === 'month') since.setMonth(since.getMonth() - 1);
+    else since.setFullYear(since.getFullYear() - 1);
+    const rows = stmts.getLeaderboardSince.all(since.toISOString());
+    res.json(rows);
+  } else {
+    const rows = stmts.getLeaderboard.all();
+    res.json(rows);
+  }
 });
 
 // Serve built static files
@@ -278,7 +289,12 @@ io.on('connection', (socket) => {
     const player = game.players[socket.id];
     if (!player) { callback?.({ success: false }); return; }
     player.cash = (player.cash || 0) + (revenue || 0);
+    if (revenue > 0) player.totalProfit = (player.totalProfit || 0) + revenue;
     persistPlayer(socket.id);
+    // Log profit for time-based leaderboard
+    if (revenue > 0 && info.dbUserId) {
+      try { stmts.logProfit.run(info.dbUserId, revenue); } catch {}
+    }
     io.to(game.id).emit('game_update', game.serialize());
     callback?.({ success: true });
   });
