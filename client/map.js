@@ -1374,8 +1374,8 @@ function drawMap(canvas, options = {}) {
       const absDiff = Math.abs(diff);
       let darkness;
       if (absDiff <= 75) darkness = 0;
-      else if (absDiff >= 105) darkness = 0.4;
-      else darkness = 0.4 * (absDiff - 75) / 30;
+      else if (absDiff >= 105) darkness = 0.55;
+      else darkness = 0.55 * (absDiff - 75) / 30;
       grad.addColorStop(frac, `rgba(5, 8, 20, ${darkness})`);
     }
     ctx.fillStyle = grad;
