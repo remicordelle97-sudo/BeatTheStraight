@@ -1258,7 +1258,8 @@ const OCEAN_NODES = [
   { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
   { id: 'mumbai_app', lat: 18.5, lon: 71.0 },
   { id: 'india_w', lat: 15.0, lon: 70.0 },
-  { id: 'india_s', lat: 7.0, lon: 78.0 },
+  { id: 'india_s', lat: 5.0, lon: 76.0 },
+  { id: 'ceylon_e', lat: 5.5, lon: 83.0 },
   // Red Sea / Suez
   { id: 'bab', lat: 12.5, lon: 43.5 },
   { id: 'red_sea', lat: 20.0, lon: 38.5 },
@@ -1364,7 +1365,8 @@ const OCEAN_EDGES = [
   // Pacific — full circumnavigation routes
   ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
   // Asia
-  ['india_s', 'andaman'], ['andaman', 'malacca'], ['malacca', 'singapore'],
+  ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
+  ['andaman', 'malacca'], ['malacca', 'singapore'],
   ['singapore', 'scs_south'], ['scs_south', 'scs'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
