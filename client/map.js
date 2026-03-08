@@ -359,6 +359,59 @@ function sampleBiome(lat, lon) {
   return [Math.round(rSum / wSum), Math.round(gSum / wSum), Math.round(bSum / wSum)];
 }
 
+// Offscreen biome bitmap cache — avoids per-frame recalculation
+const BIOME_TEX_W = 256;
+const BIOME_TEX_H = 128;
+let _biomeCvs = null;    // offscreen canvas
+let _biomeVp = null;     // viewport the cache was rendered for
+
+function _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth) {
+  if (!_biomeCvs) {
+    _biomeCvs = document.createElement('canvas');
+    _biomeCvs.width = BIOME_TEX_W;
+    _biomeCvs.height = BIOME_TEX_H;
+  }
+  const bctx = _biomeCvs.getContext('2d');
+  const imgData = bctx.createImageData(BIOME_TEX_W, BIOME_TEX_H);
+  const data = imgData.data;
+  const vpW = vpEast - vpWest;
+  const vpH = vpNorth - vpSouth;
+  for (let y = 0; y < BIOME_TEX_H; y++) {
+    const lat = vpNorth - (y + 0.5) / BIOME_TEX_H * vpH;
+    for (let x = 0; x < BIOME_TEX_W; x++) {
+      const lon = vpWest + (x + 0.5) / BIOME_TEX_W * vpW;
+      const rgb = sampleBiome(lat, lon);
+      const idx = (y * BIOME_TEX_W + x) * 4;
+      if (rgb) {
+        data[idx] = rgb[0];
+        data[idx + 1] = rgb[1];
+        data[idx + 2] = rgb[2];
+        data[idx + 3] = 255;
+      } else {
+        data[idx + 3] = 0; // transparent where no biome data
+      }
+    }
+  }
+  bctx.putImageData(imgData, 0, 0);
+  _biomeVp = { west: vpWest, east: vpEast, north: vpNorth, south: vpSouth };
+}
+
+function getBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth) {
+  // Rebuild if viewport shifted by more than 5% or no cache exists
+  if (!_biomeVp) {
+    _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth);
+  } else {
+    const oldW = _biomeVp.east - _biomeVp.west;
+    const oldH = _biomeVp.north - _biomeVp.south;
+    const dW = Math.abs(vpWest - _biomeVp.west) + Math.abs(vpEast - _biomeVp.east);
+    const dH = Math.abs(vpNorth - _biomeVp.north) + Math.abs(vpSouth - _biomeVp.south);
+    if (dW > oldW * 0.05 || dH > oldH * 0.05) {
+      _buildBiomeBitmap(vpWest, vpEast, vpNorth, vpSouth);
+    }
+  }
+  return _biomeCvs;
+}
+
 // Draw all world coastline polygons (skip off-screen ones)
 function drawWorldCoastlines(ctx, drawW, drawH) {
   // 1. Draw base land polygons
@@ -396,29 +449,11 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
   }
   ctx.clip();
 
-  // 3. Paint biome colors using sampled vertical gradient strips
-  const stripCount = Math.min(48, Math.max(16, Math.round(drawW / 20)));
-  const samplesPerStrip = Math.min(24, Math.max(8, Math.round(drawH / 30)));
-  const stripW = drawW / stripCount;
-
-  for (let i = 0; i < stripCount; i++) {
-    const xMid = (i + 0.5) / stripCount;
-    const lon = viewport.west + xMid * vpW;
-    // Sample biome color at several latitude points along this strip
-    const grad = ctx.createLinearGradient(0, 0, 0, drawH);
-    for (let j = 0; j <= samplesPerStrip; j++) {
-      const yFrac = j / samplesPerStrip;
-      const lat = viewport.north - yFrac * vpH;
-      const rgb = sampleBiome(lat, lon);
-      if (rgb) {
-        grad.addColorStop(yFrac, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
-      } else {
-        grad.addColorStop(yFrac, 'rgba(0,0,0,0)');
-      }
-    }
-    ctx.fillStyle = grad;
-    ctx.fillRect(Math.floor(i * stripW), 0, Math.ceil(stripW) + 1, drawH);
-  }
+  // 3. Paint biome colors from cached offscreen bitmap (smooth pixel-level blending)
+  const biomeBmp = getBiomeBitmap(viewport.west, viewport.east, viewport.north, viewport.south);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(biomeBmp, 0, 0, drawW, drawH);
 
   ctx.restore(); // remove clip
 
