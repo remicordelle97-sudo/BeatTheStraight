@@ -1247,6 +1247,8 @@ const OCEAN_NODES = [
   { id: 'channel', lat: 50.0, lon: -2.0 },
   { id: 'dover', lat: 51.0, lon: 1.5 },
   { id: 'north_sea', lat: 58.0, lon: 3.0 },
+  { id: 'skagerrak', lat: 57.5, lon: 8.5 },
+  { id: 'baltic_south', lat: 55.0, lon: 14.0 },
   { id: 'baltic', lat: 60.0, lon: 25.0 },
   { id: 'primorsk_app', lat: 59.5, lon: 26.0 },
   // Africa
@@ -1266,14 +1268,15 @@ const OCEAN_NODES = [
   { id: 'caribbean', lat: 15.0, lon: -70.0 },
   { id: 'trinidad', lat: 11.0, lon: -62.0 },
   { id: 'venezuela', lat: 11.0, lon: -66.0 },
-  { id: 'panama_c', lat: 9.3, lon: -79.8 },
-  { id: 'panama_p', lat: 8.5, lon: -80.0 },
+  { id: 'panama_c', lat: 9.4, lon: -79.6 },
+  { id: 'panama_p', lat: 8.0, lon: -79.6 },
   { id: 'brazil', lat: -23.0, lon: -42.0 },
   { id: 'alaska', lat: 59.0, lon: -148.0 },
   { id: 'pac_n', lat: 45.0, lon: -155.0 },
   // Asia Pacific
   { id: 'malacca', lat: 4.0, lon: 96.0 },
   { id: 'singapore', lat: 1.3, lon: 103.5 },
+  { id: 'scs_south', lat: 5.0, lon: 108.0 },
   { id: 'scs', lat: 12.0, lon: 112.0 },
   { id: 'ecs', lat: 30.0, lon: 123.0 },
   { id: 'korea', lat: 34.0, lon: 129.5 },
@@ -1303,7 +1306,8 @@ const OCEAN_EDGES = [
   // Europe
   ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
   ['dover', 'north_sea'],
-  ['north_sea', 'baltic'], ['baltic', 'primorsk_app'],
+  ['north_sea', 'skagerrak'], ['skagerrak', 'baltic_south'],
+  ['baltic_south', 'baltic'], ['baltic', 'primorsk_app'],
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
   ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'],
@@ -1321,7 +1325,8 @@ const OCEAN_EDGES = [
   // Pacific — full circumnavigation routes
   ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
   // Asia
-  ['india_s', 'malacca'], ['malacca', 'singapore'], ['singapore', 'scs'],
+  ['india_s', 'malacca'], ['malacca', 'singapore'],
+  ['singapore', 'scs_south'], ['scs_south', 'scs'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
 

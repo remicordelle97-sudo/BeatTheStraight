@@ -275,11 +275,11 @@ const SUEZ_CANAL = [
 ];
 
 const PANAMA_CANAL = [
-  [9.45, -79.95], [9.45, -79.45],  // north (Caribbean side)
-  [9.2, -79.4], [8.9, -79.4],      // east bank through canal
-  [8.85, -79.55],                   // south (Pacific side)
-  [8.9, -79.65], [9.2, -79.65],    // west bank through canal
-  [9.45, -79.95]                    // close
+  [9.55, -80.1], [9.55, -79.3],    // north (Caribbean side) — wide entrance
+  [9.1, -79.2], [8.7, -79.3],      // east bank through canal
+  [8.6, -79.55],                    // south (Pacific side)
+  [8.7, -79.8], [9.1, -79.8],      // west bank through canal
+  [9.55, -80.1]                     // close
 ];
 
 function drawCanalCuts(ctx, drawW, drawH) {
