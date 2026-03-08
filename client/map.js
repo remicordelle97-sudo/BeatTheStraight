@@ -492,7 +492,8 @@ const SUEZ_CANAL = [
 const PANAMA_CANAL = [
   [9.55, -80.1], [9.55, -79.3],    // north (Caribbean side) — wide entrance
   [9.1, -79.2], [8.7, -79.3],      // east bank through canal
-  [8.6, -79.55],                    // south (Pacific side)
+  [8.0, -79.3], [7.3, -79.3],      // extended south into Gulf of Panama
+  [7.3, -79.9], [8.0, -79.9],      // west bank extension
   [8.7, -79.8], [9.1, -79.8],      // west bank through canal
   [9.55, -80.1]                     // close
 ];

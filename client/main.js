@@ -1674,8 +1674,10 @@ const OCEAN_NODES = [
   { id: 'india_w', lat: 15.0, lon: 70.0 },
   { id: 'india_s', lat: 5.0, lon: 76.0 },
   { id: 'ceylon_e', lat: 5.5, lon: 83.0 },
-  // Red Sea / Suez
-  { id: 'bab', lat: 12.5, lon: 43.5 },
+  // Red Sea / Suez — Bab el-Mandeb corridor
+  { id: 'bab_s', lat: 11.8, lon: 43.3 },    // south approach — Gulf of Aden side
+  { id: 'bab', lat: 12.4, lon: 43.3 },       // strait center — shifted west into channel
+  { id: 'bab_n', lat: 13.5, lon: 42.5 },     // north exit — open Red Sea
   { id: 'red_sea', lat: 20.0, lon: 38.5 },
   { id: 'red_sea_n', lat: 25.5, lon: 35.0 },
   { id: 'suez_app', lat: 28.5, lon: 33.2 },
@@ -1722,7 +1724,7 @@ const OCEAN_NODES = [
   { id: 'trinidad', lat: 11.0, lon: -62.0 },
   { id: 'venezuela', lat: 11.0, lon: -66.0 },
   { id: 'panama_c', lat: 9.4, lon: -79.6 },
-  { id: 'panama_p', lat: 8.0, lon: -79.6 },
+  { id: 'panama_p', lat: 7.5, lon: -79.6 },   // Pacific side — clear of canal/land
   { id: 'brazil', lat: -23.0, lon: -42.0 },
   { id: 'alaska', lat: 59.0, lon: -148.0 },
   { id: 'alaska_pws', lat: 60.3, lon: -147.0 },  // Prince William Sound approach for Valdez
@@ -1756,12 +1758,13 @@ const OCEAN_EDGES = [
   // Indian Ocean
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
   ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
-  // Red Sea route
-  ['arabian_sea', 'bab'], ['bab', 'red_sea'], ['red_sea', 'red_sea_n'],
+  // Red Sea route — Bab el-Mandeb corridor
+  ['arabian_sea', 'bab_s'], ['bab_s', 'bab'], ['bab', 'bab_n'],
+  ['bab_n', 'red_sea'], ['red_sea', 'red_sea_n'],
   ['red_sea_n', 'suez_app'], ['suez_app', 'suez_s'],
   ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
   // East Africa
-  ['bab', 'e_africa'], ['e_africa', 'arabian_sea'],
+  ['bab_s', 'e_africa'], ['e_africa', 'arabian_sea'],
   // Mediterranean
   ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
   ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
@@ -1792,7 +1795,7 @@ const OCEAN_EDGES = [
   ['florida_str', 'us_gulf'],
   ['us_east', 'caribbean'], ['florida_east', 'caribbean'],
   ['florida_str', 'caribbean'],
-  ['caribbean', 'venezuela'], ['caribbean', 'panama_c'],
+  ['caribbean', 'venezuela'], ['caribbean', 'panama_c'], ['florida_str', 'panama_c'],
   ['caribbean', 'trinidad'], ['trinidad', 'venezuela'],
   ['panama_c', 'panama_p'],
   ['atl_s', 'brazil'], ['brazil', 'cape'],
