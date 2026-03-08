@@ -791,7 +791,8 @@ function renderMobileControls(container) {
   });
   document.getElementById('mobile-spd-up')?.addEventListener('click', () => {
     if (state.destroyed || state.seized) return;
-    state.speed = Math.min(20, Math.round(state.speed || 0) + 1);
+    const maxSpd = ratedSpeed + 4;
+    state.speed = Math.min(maxSpd, Math.round(state.speed || 0) + 1);
     const el = document.getElementById('mobile-spd-val');
     if (el) el.textContent = state.speed > ratedSpeed ? `${state.speed} kts !` : `${state.speed} kts`;
     document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
@@ -1118,8 +1119,9 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
   if (state.destroyed || state.seized) return;
-  state.speed = Math.min(20, Math.round(state.speed || 0) + 1);
   const ratedSpeed = ship?.speed || 16;
+  const maxSpeed = ratedSpeed + 4;
+  state.speed = Math.min(maxSpeed, Math.round(state.speed || 0) + 1);
   const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
   document.getElementById('scp-speed-value').textContent = label;
 });
@@ -1407,8 +1409,9 @@ function autopilotReroute(ship) {
 document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
+  if (!ship) return;
   const ap = shipAutopilot[ship.id];
-  if (!ship || !ap || !ap.active) return;
+  if (!ap || !ap.active) return;
   const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
   if (!terminal) return;
   ap.terminal = terminal;
@@ -1419,8 +1422,9 @@ document.getElementById('scp-ap-terminal').addEventListener('change', () => {
 document.getElementById('scp-ap-dropoff').addEventListener('change', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
+  if (!ship) return;
   const ap = shipAutopilot[ship.id];
-  if (!ship || !ap || !ap.active) return;
+  if (!ap || !ap.active) return;
   const dropoff = getDropoffById(document.getElementById('scp-ap-dropoff').value);
   if (!dropoff) return;
   ap.dropoff = dropoff;
@@ -1902,7 +1906,9 @@ function renderFleetManager() {
       const sid = btn.dataset.sid;
       if (!fmShipAlive(sid)) return;
       const st = shipStates[sid];
-      st.speed = Math.min(20, Math.round(st.speed || 0) + 1);
+      const s = getShipData(sid);
+      const rated = s?.speed || 16;
+      st.speed = Math.min(rated + 4, Math.round(st.speed || 0) + 1);
       updateFmSpeedLabel(sid, st);
     });
   });
@@ -1981,7 +1987,7 @@ function renderFleetManager() {
         if (res?.success) {
           // Re-fetch ship data in case game_update replaced the object
           const fresh = getShipData(sid);
-          if (fresh) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+          if (fresh && !fresh.engineUpgrade) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
           renderFleetManager(); updateFleetPanel();
         } else { btn.disabled = false; }
       });
