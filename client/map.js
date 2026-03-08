@@ -360,8 +360,8 @@ function sampleBiome(lat, lon) {
 }
 
 // Global biome bitmap — rendered ONCE covering the entire world, then sliced per viewport
-const BIOME_WORLD_W = 720;   // 2 px per degree longitude
-const BIOME_WORLD_H = 290;   // 2 px per degree latitude
+const BIOME_WORLD_W = 1440;  // 4 px per degree longitude
+const BIOME_WORLD_H = 580;   // 4 px per degree latitude
 const BIOME_WORLD_WEST = -180;
 const BIOME_WORLD_NORTH = 85;
 const BIOME_WORLD_SOUTH = -60;
@@ -435,17 +435,27 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
   ctx.clip();
 
   // 3. Paint biome colors — slice from pre-rendered world bitmap (computed once)
+  // Snap source rect to pixel boundaries to prevent interpolation shimmer on pan
   const biomeWorld = _ensureBiomeWorld();
   const lonRange = 360;
   const latRange = BIOME_WORLD_NORTH - BIOME_WORLD_SOUTH;
   // Map viewport to source rect in the world bitmap
-  const sx = ((viewport.west - BIOME_WORLD_WEST) / lonRange) * BIOME_WORLD_W;
-  const sy = ((BIOME_WORLD_NORTH - viewport.north) / latRange) * BIOME_WORLD_H;
-  const sw = (vpW / lonRange) * BIOME_WORLD_W;
-  const sh = (vpH / latRange) * BIOME_WORLD_H;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(biomeWorld, sx, sy, sw, sh, 0, 0, drawW, drawH);
+  const sxRaw = ((viewport.west - BIOME_WORLD_WEST) / lonRange) * BIOME_WORLD_W;
+  const syRaw = ((BIOME_WORLD_NORTH - viewport.north) / latRange) * BIOME_WORLD_H;
+  const swRaw = (vpW / lonRange) * BIOME_WORLD_W;
+  const shRaw = (vpH / latRange) * BIOME_WORLD_H;
+  // Snap to integer source pixels — prevents bilinear interpolation artifacts
+  const sx = Math.floor(sxRaw);
+  const sy = Math.floor(syRaw);
+  const sw = Math.ceil(swRaw + (sxRaw - sx));
+  const sh = Math.ceil(shRaw + (syRaw - sy));
+  // Offset destination to compensate for the snap
+  const dxOff = -(sxRaw - sx) / sw * drawW;
+  const dyOff = -(syRaw - sy) / sh * drawH;
+  const dw = drawW * (sw / swRaw);
+  const dh = drawH * (sh / shRaw);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(biomeWorld, sx, sy, sw, sh, dxOff, dyOff, dw, dh);
 
   ctx.restore(); // remove clip
 

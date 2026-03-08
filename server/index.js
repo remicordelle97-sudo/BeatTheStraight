@@ -363,25 +363,91 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Rejoin game after reconnection
+  socket.on('rejoin_game', ({ gameId, playerName, token }, callback) => {
+    const game = games.get(gameId);
+    if (!game) { callback?.({ success: false, error: 'Game not found' }); return; }
+
+    let dbUserId = null;
+    if (token) {
+      const decoded = verifyToken(token);
+      if (decoded) {
+        dbUserId = decoded.userId;
+        const profile = getProfile(decoded.userId);
+        if (profile) playerName = profile.username;
+      }
+    }
+
+    // Check if player already exists under a stale socket ID (from before disconnect)
+    let existingPlayer = null;
+    let oldSocketId = null;
+    for (const [pid, p] of Object.entries(game.players)) {
+      if (p.name === playerName) { existingPlayer = p; oldSocketId = pid; break; }
+    }
+
+    if (existingPlayer && oldSocketId !== socket.id) {
+      // Migrate player data to new socket ID
+      game.players[socket.id] = existingPlayer;
+      game.players[socket.id].id = socket.id;
+      delete game.players[oldSocketId];
+      if (game.hostId === oldSocketId) game.hostId = socket.id;
+      // Clean up old socket mapping
+      socketMap.delete(oldSocketId);
+    } else if (!existingPlayer) {
+      // Player was fully removed — re-add with defaults or profile
+      if (dbUserId) {
+        const profile = getProfile(dbUserId);
+        if (profile) {
+          const player = game.addPlayer(socket.id, playerName);
+          player.cash = profile.cash;
+          player.fleet = profile.fleet;
+          player.totalProfit = profile.totalProfit;
+          player.totalLosses = profile.totalLosses;
+          player.successfulTransits = profile.successfulTransits;
+          player.failedTransits = profile.failedTransits;
+        } else {
+          game.addPlayer(socket.id, playerName);
+        }
+      } else {
+        game.addPlayer(socket.id, playerName);
+      }
+    }
+
+    socketMap.set(socket.id, { gameId, playerName, dbUserId });
+    socket.join(gameId);
+
+    io.to(game.id).emit('game_update', game.serialize());
+    callback?.({ success: true, game: game.serialize() });
+    console.log(`${playerName} rejoined game ${gameId}`);
+  });
+
   socket.on('disconnect', () => {
     const info = socketMap.get(socket.id);
     if (info) {
-      // Persist before removing from game
+      // Persist before cleanup
       persistPlayer(socket.id);
       const game = games.get(info.gameId);
       if (game) {
-        game.removePlayer(socket.id);
-        if (game.getPlayerCount() === 0) {
-          games.delete(info.gameId);
-          console.log(`Game ${info.gameId} deleted (empty)`);
-        } else {
-          if (game.hostId === socket.id) {
-            game.hostId = Object.keys(game.players)[0];
+        // Keep player in game for 60s to allow reconnection
+        const socketId = socket.id;
+        const playerName = info.playerName;
+        setTimeout(() => {
+          // Only remove if the player hasn't reconnected under a different socket
+          if (game.players[socketId]) {
+            game.removePlayer(socketId);
+            if (game.getPlayerCount() === 0) {
+              games.delete(info.gameId);
+              console.log(`Game ${info.gameId} deleted (empty)`);
+            } else {
+              if (game.hostId === socketId) {
+                game.hostId = Object.keys(game.players)[0];
+              }
+              io.to(game.id).emit('game_update', game.serialize());
+            }
           }
-          io.to(game.id).emit('game_update', game.serialize());
-        }
+          socketMap.delete(socketId);
+        }, 60000);
       }
-      socketMap.delete(socket.id);
     }
     console.log(`Player disconnected: ${socket.id}`);
   });
