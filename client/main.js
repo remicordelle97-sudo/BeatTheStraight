@@ -573,6 +573,76 @@ function renderMobileControls(container) {
         <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
       </div>
     </div>`;
+
+  // Upgrades section
+  const me = gameState?.players.find(p => p.id === myId);
+  const cash = me?.cash || 0;
+  const dmg = state.totalDamage || 0;
+  const repairCost = dmg > 0 ? Math.round((ship.cost || 0) * dmg * 0.3) : 0;
+  const apState = shipAutopilot[ship.id];
+  const apActive = apState && apState.active;
+
+  html += `<div class="mobile-section-title" style="margin-top:8px;">UPGRADES</div>`;
+  html += `<div class="mobile-upgrade-grid">`;
+
+  // Repair
+  if (dmg > 0) {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="repair" ${cash < repairCost ? 'disabled' : ''}>REPAIR ${formatMoney(repairCost)}</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" disabled>REPAIR (OK)</button>`;
+  }
+
+  // Engine
+  if (ship.engineUpgrade) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" disabled>ENGINE UPGRADED</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="engine" ${cash < 25000000 ? 'disabled' : ''}>ENGINE +4kts ${formatMoney(25000000)}</button>`;
+  }
+
+  // Defense
+  if (ship.defenseUpgrade) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" disabled>DEFENSE UPGRADED</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="defense" ${cash < 20000000 ? 'disabled' : ''}>DEFENSE ${formatMoney(20000000)}</button>`;
+  }
+
+  // Autopilot
+  if (apActive) {
+    html += `<button class="btn btn-small btn-upgrade owned mobile-upgrade" data-upgrade="autopilot">AUTOPILOT ON</button>`;
+  } else if (ship.hasAutopilot) {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot">AUTOPILOT OFF</button>`;
+  } else {
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot" ${cash < 30000000 ? 'disabled' : ''}>AUTOPILOT ${formatMoney(30000000)}</button>`;
+  }
+  html += `</div>`;
+
+  // Autopilot route selectors (if owned)
+  if (ship.hasAutopilot || apActive) {
+    const cargoType = ship.cargoType || 'oil';
+    const isLng = cargoType === 'lng';
+    const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+    const imports = Object.values(IMPORT_TERMINALS);
+
+    html += `<div class="mobile-ctrl-row" style="margin-top:6px;">
+      <span class="mobile-ctrl-label">AP LOAD AT</span>
+      <select id="mobile-ap-terminal" class="mobile-select">`;
+    for (const t of exports) {
+      const sel = (apState?.terminal?.id === t.id) ? 'selected' : '';
+      html += `<option value="${t.id}" ${sel}>${t.name} — $${t.buyPrice || '?'}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
+    }
+    html += `</select></div>`;
+    html += `<div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">AP DROP AT</span>
+      <select id="mobile-ap-dropoff" class="mobile-select">`;
+    for (const t of imports) {
+      const sel = (apState?.dropoff?.id === t.id) ? 'selected' : '';
+      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : (t.sellPrice || '?');
+      html += `<option value="${t.id}" ${sel}>${t.name} — $${price}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
+    }
+    html += `</select></div>`;
+  }
+
+  html += `<div id="mobile-upgrade-info" class="scp-upgrade-info" style="margin-top:6px;"></div>`;
   container.innerHTML = html;
 
   // Speed controls
@@ -623,6 +693,86 @@ function renderMobileControls(container) {
       const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
       if (desktopBtn) desktopBtn.classList.add('active');
       renderMobileControls(container);
+    });
+  });
+
+  // Upgrades
+  container.querySelectorAll('.mobile-upgrade').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.upgrade;
+      if (!type || !selectedShipId) return;
+      const infoEl = document.getElementById('mobile-upgrade-info');
+      const sid = selectedShipId;
+
+      if (type === 'repair') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'repair' }, (res) => {
+          if (res?.success) {
+            const st = shipStates[sid];
+            if (st) st.totalDamage = 0;
+            addTransitEvent('SHIP REPAIRED', `Ship fully repaired.`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Repair failed.';
+        });
+      } else if (type === 'engine') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'engine' }, (res) => {
+          if (res?.success) {
+            const fresh = getSelectedShipData();
+            if (fresh && !fresh.engineUpgrade) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+            addTransitEvent('ENGINE UPGRADE', `Engine upgraded! +4 kts`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+        });
+      } else if (type === 'defense') {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'defense' }, (res) => {
+          if (res?.success) {
+            const fresh = getSelectedShipData();
+            if (fresh) fresh.defenseUpgrade = 1;
+            addTransitEvent('DEFENSE UPGRADE', `Armed guards & hull armor installed!`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+        });
+      } else if (type === 'autopilot') {
+        const apSt = shipAutopilot[ship.id];
+        if (apSt && apSt.active) {
+          // Toggle off
+          apSt.active = false;
+          shipWaypoints[ship.id] = [];
+          const st = shipStates[ship.id];
+          if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
+          addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+          updateFleetPanel();
+          renderMobileControls(container);
+        } else if (ship.hasAutopilot) {
+          // Engage autopilot with selected terminals
+          const termSel = document.getElementById('mobile-ap-terminal');
+          const dropSel = document.getElementById('mobile-ap-dropoff');
+          const terminal = getTerminalById(termSel?.value);
+          const dropoff = getDropoffById(dropSel?.value) || DROPOFF_POINT;
+          if (terminal) {
+            shipAutopilot[ship.id] = { active: true, terminal, dropoff };
+            const st = shipStates[ship.id];
+            if (st) { st.apCoastEscapeTimer = 0; st.apCoastEscapeHeading = 0; }
+            shipWaypoints[ship.id] = [];
+            addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
+            updateFleetPanel();
+            renderMobileControls(container);
+          }
+        } else {
+          // Buy autopilot
+          socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot' }, (res) => {
+            if (res?.success) {
+              const fresh = getSelectedShipData();
+              if (fresh) fresh.hasAutopilot = true;
+              addTransitEvent('AUTOPILOT INSTALLED', `Autopilot system installed on ${ship.name}.`, 'success');
+              updateFleetPanel();
+              renderMobileControls(container);
+            } else if (infoEl) infoEl.textContent = 'Upgrade failed.';
+          });
+        }
+      }
     });
   });
 }
@@ -1169,6 +1319,138 @@ document.getElementById('fleet-manager-modal').addEventListener('click', (e) => 
 });
 document.getElementById('btn-manage-all').addEventListener('click', openFleetManager);
 
+// ============================================
+// SITUATION MONITOR
+// ============================================
+function openSituationMonitor() {
+  document.getElementById('situation-monitor-modal').classList.remove('hidden');
+  renderSituationMonitor();
+}
+function closeSituationMonitor() {
+  document.getElementById('situation-monitor-modal').classList.add('hidden');
+}
+document.getElementById('sitmon-close').addEventListener('click', closeSituationMonitor);
+document.getElementById('situation-monitor-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'situation-monitor-modal') closeSituationMonitor();
+});
+document.getElementById('plan-risk').addEventListener('click', openSituationMonitor);
+
+function renderSituationMonitor() {
+  const container = document.getElementById('sitmon-body');
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
+  const rl = gameState?.riskLevel || 'LOW';
+
+  // Group danger zones by region
+  const warZones = [
+    {
+      name: 'PERSIAN GULF / STRAIT OF HORMUZ',
+      region: 'gulf',
+      threat: rl === 'CRITICAL' ? 'HIGH' : rl === 'HIGH' ? 'HIGH' : rl === 'MODERATE' ? 'MODERATE' : 'LOW',
+      belligerents: 'Iran (IRGC) vs US/Coalition',
+      zones: DANGER_ZONES.filter(z => !z.region || z.region === 'gulf'),
+      risks: ['Anti-ship missiles', 'Drone swarms', 'Mine fields', 'IRGC patrol boats', 'Ship seizure'],
+      description: 'Active naval conflict zone. Iranian IRGC forces targeting commercial shipping through the Strait of Hormuz.',
+    },
+    {
+      name: 'RED SEA / BAB EL-MANDEB',
+      region: 'red_sea',
+      threat: rl === 'CRITICAL' ? 'HIGH' : rl === 'HIGH' ? 'MODERATE' : 'LOW',
+      belligerents: 'Ansar Allah (Houthi) vs Saudi/US Coalition',
+      zones: DANGER_ZONES.filter(z => z.region === 'red_sea'),
+      risks: ['Houthi anti-ship missiles', 'One-way attack drones', 'Pirate skiffs', 'Mine risk near Bab el-Mandeb'],
+      description: 'Houthi forces launching anti-ship ballistic missiles and drones at commercial vessels transiting the Red Sea.',
+    },
+    {
+      name: 'GULF OF ADEN / SOMALIA',
+      region: 'somalia',
+      threat: 'MODERATE',
+      belligerents: 'Somali pirate networks',
+      zones: DANGER_ZONES.filter(z => z.region === 'somalia'),
+      risks: ['Armed pirate boarding', 'Ransom demands', 'Crew hostage situations'],
+      description: 'Persistent piracy threat. Armed groups in fast skiffs targeting slow-moving tankers.',
+    },
+    {
+      name: 'MALACCA & SINGAPORE STRAITS',
+      region: 'malacca',
+      threat: 'LOW',
+      belligerents: 'Criminal pirate groups',
+      zones: DANGER_ZONES.filter(z => z.region === 'malacca' || z.region === 'singapore'),
+      risks: ['Piracy', 'Robbery at anchor', 'Opportunistic boarding'],
+      description: 'Low-level piracy and armed robbery, primarily targeting vessels at anchor or slow speed.',
+    },
+    {
+      name: 'GULF OF GUINEA',
+      region: 'guinea',
+      threat: 'MODERATE',
+      belligerents: 'Nigerian pirate syndicates',
+      zones: DANGER_ZONES.filter(z => z.region === 'guinea'),
+      risks: ['Armed robbery', 'Kidnap for ransom', 'Hijacking'],
+      description: 'Most violent piracy region globally. Well-armed groups known for crew kidnapping.',
+    },
+  ];
+
+  let html = '';
+
+  // Global status banner
+  html += `<div class="sitmon-zone" style="border-color:${rl === 'CRITICAL' ? '#800' : rl === 'HIGH' ? 'var(--danger)' : 'var(--primary)'};">
+    <div class="sitmon-zone-header">
+      <span class="sitmon-zone-name">GLOBAL THREAT LEVEL</span>
+      <span class="sitmon-zone-threat sitmon-threat-${rl === 'CRITICAL' || rl === 'HIGH' ? 'high' : rl === 'MODERATE' ? 'moderate' : 'low'}">${risk.name.toUpperCase()}</span>
+    </div>
+    <div class="sitmon-zone-details">
+      <div class="sitmon-row"><span class="sitmon-row-label">Oil Price Multiplier</span><span class="sitmon-row-value">${risk.oilPriceMultiplier}x</span></div>
+      <div class="sitmon-row"><span class="sitmon-row-label">Event Frequency</span><span class="sitmon-row-value ${risk.eventFrequency > 0.3 ? 'sitmon-stat-bad' : risk.eventFrequency > 0.1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok'}">${(risk.eventFrequency * 100).toFixed(0)}%</span></div>
+      <div class="sitmon-row"><span class="sitmon-row-label">Missile Events (Session)</span><span class="sitmon-row-value">${campaignStats.missileEvents || 0}</span></div>
+      <div class="sitmon-row"><span class="sitmon-row-label">Total Damage Taken</span><span class="sitmon-row-value">${Math.round((campaignStats.totalDamageTaken || 0) * 100)}%</span></div>
+    </div>
+  </div>`;
+
+  html += `<div class="sitmon-section-title">ACTIVE CONFLICT ZONES</div>`;
+
+  for (const wz of warZones) {
+    const threatClass = wz.threat === 'HIGH' ? 'high' : wz.threat === 'MODERATE' ? 'moderate' : 'low';
+    const zoneCount = wz.zones.length;
+    html += `<div class="sitmon-zone">
+      <div class="sitmon-zone-header">
+        <span class="sitmon-zone-name">${wz.name}</span>
+        <span class="sitmon-zone-threat sitmon-threat-${threatClass}">${wz.threat}</span>
+      </div>
+      <div class="sitmon-zone-details">
+        <div class="sitmon-row"><span class="sitmon-row-label">Belligerents</span><span class="sitmon-row-value">${wz.belligerents}</span></div>
+        <div class="sitmon-row"><span class="sitmon-row-label">Active Zones</span><span class="sitmon-row-value">${zoneCount}</span></div>
+        <div class="sitmon-row"><span class="sitmon-row-label">Risks</span><span class="sitmon-row-value" style="text-align:right;max-width:60%;">${wz.risks.join(', ')}</span></div>
+        <div style="margin-top:6px;font-size:10px;color:var(--text-muted);line-height:1.4;">${wz.description}</div>
+      </div>
+    </div>`;
+  }
+
+  // Player ship exposure
+  const me = gameState?.players.find(p => p.id === myId);
+  if (me && me.fleet.length > 0) {
+    html += `<div class="sitmon-section-title">YOUR FLEET EXPOSURE</div>`;
+    for (const ship of me.fleet) {
+      const state = shipStates[ship.id];
+      if (!state) continue;
+      const inZones = DANGER_ZONES.filter(z =>
+        state.lat >= z.bounds.south && state.lat <= z.bounds.north &&
+        state.lon >= z.bounds.west && state.lon <= z.bounds.east
+      );
+      const exposure = inZones.length > 0
+        ? inZones.map(z => z.label || z.name).join(', ')
+        : 'Safe waters';
+      const expClass = inZones.length > 0 ? 'sitmon-stat-bad' : 'sitmon-stat-ok';
+      html += `<div class="sitmon-zone" style="padding:6px 12px;">
+        <div class="sitmon-zone-header" style="margin-bottom:0;">
+          <span class="sitmon-zone-name" style="font-size:11px;">${ship.name}</span>
+          <span class="${expClass}" style="font-size:10px;font-weight:bold;">${exposure}</span>
+        </div>
+      </div>`;
+    }
+  }
+
+  container.innerHTML = html;
+}
+
 function renderFleetManager() {
   const me = gameState?.players.find(p => p.id === myId);
   if (!me) return;
@@ -1246,6 +1528,12 @@ function renderFleetManager() {
         </div>` : ''}
       </div>`;
   }).join('');
+
+  // Add close button at bottom for mobile
+  if (isMobile()) {
+    container.innerHTML += `<button id="fm-close-bottom" class="btn btn-primary" style="width:100%;margin-top:12px;min-height:48px;font-size:14px;">CLOSE</button>`;
+    document.getElementById('fm-close-bottom')?.addEventListener('click', closeFleetManager);
+  }
 
   // Populate autopilot selects
   me.fleet.forEach(ship => {
@@ -3336,9 +3624,24 @@ let lastAlliedCheck = 0;
 // Independent intervals so Iranian and allied salvos don't always coincide
 const IRANIAN_INTERVAL = 3;  // seconds between Iranian launch checks
 const ALLIED_INTERVAL = 3;   // seconds between allied launch checks
+const HOUTHI_INTERVAL = 5;   // seconds between Houthi launch checks (less frequent)
+const HOUTHI_COUNTER_INTERVAL = 6;
 // Stagger initial offsets so they don't start in sync
 let iranianOffset = 0;
 let alliedOffset = 1.5 + Math.random() * 1.5; // 1.5-3s after Iranian
+let houthiOffset = 2 + Math.random() * 2;
+let houthiCounterOffset = 3.5 + Math.random() * 2;
+let lastHouthiCheck = -999;
+let lastHouthiCounterCheck = -999;
+
+// War zone bounds — missiles only target ships within this region
+// Covers the Persian Gulf, Strait of Hormuz, Gulf of Oman, Red Sea, and Arabian Sea
+const WAR_ZONE = { north: 33, south: 10, west: 32, east: 65 };
+
+function isInWarZone(lat, lon) {
+  return lat >= WAR_ZONE.south && lat <= WAR_ZONE.north &&
+         lon >= WAR_ZONE.west && lon <= WAR_ZONE.east;
+}
 
 // Add slight randomness to impact point (scatter around target)
 function scatterTarget(lat, lon) {
@@ -3421,8 +3724,9 @@ function updateAmbientWar(elapsed) {
 
       // --- Missiles targeting NPC ships (small chance, Iranian only) ---
       // Damage is handled by the global impact handler (proximity-based)
+      // Only target ships within the gulf war zone (not ships sailing near New York, etc.)
       if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
-        const movingNpcs = npcShips.filter(n => n.speed > 0);
+        const movingNpcs = npcShips.filter(n => n.speed > 0 && isInWarZone(n.lat, n.lon));
         if (movingNpcs.length > 0) {
           const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
           const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
@@ -3459,6 +3763,88 @@ function updateAmbientWar(elapsed) {
         const airBase = alliedAirBases[Math.floor(Math.random() * alliedAirBases.length)];
         const target = pickMissileTarget(iranMissileBases, iranCities);
         if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+      }
+    }
+  }
+
+  // =============================================
+  // HOUTHI / RED SEA AMBIENT WAR (less frequent)
+  // =============================================
+  const houthiBases = MILITARY_BASES.filter(b => b.country === 'Houthi' && (b.type === 'missile' || b.type === 'naval'));
+  const houthiAirBases = MILITARY_BASES.filter(b => b.country === 'Houthi' && b.type === 'air');
+  const houthiCities = CITIES.filter(c => c.country === 'Houthi');
+  const coalitionRedSeaBases = MILITARY_BASES.filter(b =>
+    (b.country === 'Saudi Arabia' || b.country === 'US') && b.lat < 22
+  );
+  const coalitionRedSeaCities = CITIES.filter(c =>
+    c.country === 'Saudi Arabia' || c.country === 'Djibouti'
+  );
+  const houthiChance = ambientChance * 0.4; // 40% of gulf frequency
+
+  // --- Houthi salvos ---
+  const houthiTime = elapsed - houthiOffset;
+  if (houthiTime >= 0 && houthiTime - lastHouthiCheck >= HOUTHI_INTERVAL) {
+    lastHouthiCheck = houthiTime;
+    houthiOffset += (Math.random() - 0.5) * 3;
+
+    if (Math.random() < houthiChance) {
+      if (houthiBases.length > 0 && Math.random() < 0.5) {
+        const salvoSize = 1 + Math.floor(Math.random() * Math.min(3, houthiBases.length));
+        const shuffled = [...houthiBases].sort(() => Math.random() - 0.5);
+        const firingBases = shuffled.slice(0, salvoSize);
+        for (let si = 0; si < firingBases.length; si++) {
+          const launcher = firingBases[si];
+          const targets = [...coalitionRedSeaBases, ...coalitionRedSeaCities];
+          if (targets.length > 0) {
+            const target = pickMissileTarget(coalitionRedSeaBases, coalitionRedSeaCities);
+            if (target) {
+              const delay = si * (150 + Math.random() * 300);
+              setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
+            }
+          }
+        }
+      }
+
+      // Houthi drone sorties
+      if (houthiAirBases.length > 0 && Math.random() < 0.3) {
+        const airBase = houthiAirBases[Math.floor(Math.random() * houthiAirBases.length)];
+        const target = pickMissileTarget(coalitionRedSeaBases, coalitionRedSeaCities);
+        if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
+      }
+
+      // Houthi missiles targeting NPC ships in Red Sea
+      if (npcShips.length > 0 && houthiBases.length > 0 && Math.random() < 0.12) {
+        const redSeaNpcs = npcShips.filter(n => n.speed > 0 &&
+          n.lat >= 10 && n.lat <= 30 && n.lon >= 32 && n.lon <= 45);
+        if (redSeaNpcs.length > 0) {
+          const targetNpc = redSeaNpcs[Math.floor(Math.random() * redSeaNpcs.length)];
+          const launcher = houthiBases[Math.floor(Math.random() * houthiBases.length)];
+          const hitPoint = scatterTarget(targetNpc.lat, targetNpc.lon);
+          spawnMissile(launcher.lat, launcher.lon, hitPoint.lat, hitPoint.lon);
+        }
+      }
+    }
+  }
+
+  // --- Coalition counter-strikes on Houthi positions ---
+  const hcTime = elapsed - houthiCounterOffset;
+  if (hcTime >= 0 && hcTime - lastHouthiCounterCheck >= HOUTHI_COUNTER_INTERVAL) {
+    lastHouthiCounterCheck = hcTime;
+    houthiCounterOffset += (Math.random() - 0.5) * 3;
+
+    if (Math.random() < houthiChance * 0.6) {
+      if (coalitionRedSeaBases.length > 0 && Math.random() < 0.4) {
+        const salvoSize = 1 + Math.floor(Math.random() * 2);
+        const shuffled = [...coalitionRedSeaBases].sort(() => Math.random() - 0.5);
+        const firingBases = shuffled.slice(0, salvoSize);
+        for (let si = 0; si < firingBases.length; si++) {
+          const launcher = firingBases[si];
+          const target = pickMissileTarget(houthiBases, houthiCities);
+          if (target) {
+            const delay = si * (100 + Math.random() * 200);
+            setTimeout(() => spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon), delay);
+          }
+        }
       }
     }
   }
@@ -3506,9 +3892,11 @@ function checkDangerZonesAllShips(elapsed) {
         if (outcome.delayHours >= 720) state.seized = true;
         if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
         campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
-        if (eventId === 'missile_alert' || eventId === 'drone_swarm') campaignStats.missileEvents++;
-        // Spawn missile animation for missile events
-        if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
+        const isHouthiEvent = eventId === 'houthi_missile' || eventId === 'houthi_drone';
+        const isIranEvent = eventId === 'missile_alert' || eventId === 'drone_swarm';
+        if (isIranEvent || isHouthiEvent) campaignStats.missileEvents++;
+        // Spawn missile animation for missile/drone events
+        if (isIranEvent) {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
           const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
           const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
@@ -3517,15 +3905,12 @@ function checkDangerZonesAllShips(elapsed) {
             const launcher = iranBases[Math.floor(Math.random() * iranBases.length)];
             const roll = Math.random();
             if (roll < 0.25) {
-              // 25% chance: missile aimed directly at this ship
               const shipTarget = scatterTarget(state.lat, state.lon);
               spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
             } else {
-              // 75% chance: missile aimed at allied target (base/city/random land)
               const target = pickMissileTarget(alliedBases, alliedCities);
               if (target) {
                 if (Math.random() < 0.05) {
-                  // 5% malfunction — hits ship instead
                   const shipTarget = scatterTarget(state.lat, state.lon);
                   spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
                   addTransitEvent('MISSILE MALFUNCTION', 'An enemy missile veered off course toward your vessel!', 'danger');
@@ -3535,7 +3920,6 @@ function checkDangerZonesAllShips(elapsed) {
               }
             }
           }
-          // Fighter plane sorties
           const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
           if (iranAirBases.length > 0) {
             const airBase = iranAirBases[Math.floor(Math.random() * iranAirBases.length)];
@@ -3553,6 +3937,32 @@ function checkDangerZonesAllShips(elapsed) {
                 }
               }
             }
+          }
+        }
+        // Houthi missile/drone animations from Yemen
+        if (isHouthiEvent) {
+          const hBases = MILITARY_BASES.filter(b => b.country === 'Houthi');
+          const coalBases = MILITARY_BASES.filter(b =>
+            (b.country === 'Saudi Arabia' || b.country === 'US') && b.lat < 22);
+          const coalCities = CITIES.filter(c =>
+            c.country === 'Saudi Arabia' || c.country === 'Djibouti');
+          if (hBases.length > 0) {
+            const launcher = hBases[Math.floor(Math.random() * hBases.length)];
+            if (Math.random() < 0.3) {
+              const shipTarget = scatterTarget(state.lat, state.lon);
+              spawnMissile(launcher.lat, launcher.lon, shipTarget.lat, shipTarget.lon);
+            } else {
+              const target = pickMissileTarget(coalBases, coalCities);
+              if (target) {
+                spawnMissile(launcher.lat, launcher.lon, target.lat, target.lon);
+              }
+            }
+          }
+          const hAir = MILITARY_BASES.filter(b => b.country === 'Houthi' && b.type === 'air');
+          if (hAir.length > 0 && Math.random() < 0.3) {
+            const airBase = hAir[Math.floor(Math.random() * hAir.length)];
+            const target = pickMissileTarget(coalBases, coalCities);
+            if (target) spawnPlane(airBase.id, airBase.lat, airBase.lon, target.lat, target.lon);
           }
         }
         let extra = '';
