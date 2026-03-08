@@ -236,6 +236,49 @@ function drawWorldCoastlines(ctx, drawW, drawH) {
     if (!polyVisible(poly)) continue;
     drawCoastline(ctx, poly, color, drawW, drawH);
   }
+  // Canal water cuts — draw ocean-colored polygons on top of land to create passages
+  drawCanalCuts(ctx, drawW, drawH);
+}
+
+// Water openings at major canals (drawn on top of land polygons)
+const SUEZ_CANAL = [
+  [31.3, 32.2], [31.3, 32.45],   // north entrance (Mediterranean)
+  [30.85, 32.45], [30.45, 32.6],  // through canal
+  [30.0, 32.6], [29.9, 32.5],     // south entrance (Gulf of Suez)
+  [29.9, 32.35],                   // west bank south
+  [30.0, 32.4], [30.45, 32.4],    // through canal west bank
+  [30.85, 32.25], [31.3, 32.2]    // close
+];
+
+const PANAMA_CANAL = [
+  [9.45, -79.95], [9.45, -79.45],  // north (Caribbean side)
+  [9.2, -79.4], [8.9, -79.4],      // east bank through canal
+  [8.85, -79.55],                   // south (Pacific side)
+  [8.9, -79.65], [9.2, -79.65],    // west bank through canal
+  [9.45, -79.95]                    // close
+];
+
+function drawCanalCuts(ctx, drawW, drawH) {
+  const oceanColor = '#0a1520';
+  if (polyVisible(SUEZ_CANAL)) {
+    drawCanalWater(ctx, SUEZ_CANAL, oceanColor, drawW, drawH);
+  }
+  if (polyVisible(PANAMA_CANAL)) {
+    drawCanalWater(ctx, PANAMA_CANAL, oceanColor, drawW, drawH);
+  }
+}
+
+function drawCanalWater(ctx, points, fillColor, drawW, drawH) {
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const { x, y } = latLonToCanvas(p[0], p[1], drawW, drawH);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  // No stroke — seamless water
 }
 
 // Draw shipping route lines
@@ -1433,6 +1476,9 @@ function pointInPolygon(lat, lon, polygon) {
 }
 
 function isOnLand(lat, lon) {
+  // Canal cuts — these areas are water even though they're inside land polygons
+  if (pointInPolygon(lat, lon, SUEZ_CANAL)) return false;
+  if (pointInPolygon(lat, lon, PANAMA_CANAL)) return false;
   // Check Gulf detail polygons first (higher precision)
   if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
       lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
