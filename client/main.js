@@ -202,6 +202,102 @@ function initPanZoom() {
   });
 
   mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---- TOUCH CONTROLS ----
+  let touchStartTime = 0;
+  let touchStartPos = null;
+  let touchPanActive = false;
+  let pinchStartDist = 0;
+  let pinchStartViewport = null;
+  let touchMoved = false;
+
+  function getTouchDist(t1, t2) {
+    return Math.sqrt(Math.pow(t1.clientX - t2.clientX, 2) + Math.pow(t1.clientY - t2.clientY, 2));
+  }
+
+  function getTouchCenter(t1, t2) {
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  }
+
+  mapCanvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      touchStartTime = Date.now();
+      touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      touchMoved = false;
+      touchPanActive = true;
+      panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      panViewportStart = { ...getViewport() };
+    } else if (e.touches.length === 2) {
+      touchPanActive = false;
+      pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+      pinchStartViewport = { ...getViewport() };
+    }
+  }, { passive: false });
+
+  mapCanvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && touchPanActive && panViewportStart) {
+      const dx = e.touches[0].clientX - panStart.x;
+      const dy = e.touches[0].clientY - panStart.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchMoved = true;
+      const rect = mapCanvas.getBoundingClientRect();
+      const lonShift = -dx / rect.width * (panViewportStart.east - panViewportStart.west);
+      const latShift = dy / rect.height * (panViewportStart.north - panViewportStart.south);
+      viewport = clampViewport({
+        west: panViewportStart.west + lonShift,
+        east: panViewportStart.east + lonShift,
+        north: panViewportStart.north + latShift,
+        south: panViewportStart.south + latShift
+      });
+      setViewport(viewport);
+    } else if (e.touches.length === 2 && pinchStartViewport) {
+      const dist = getTouchDist(e.touches[0], e.touches[1]);
+      const scale = pinchStartDist / dist;
+      const center = getTouchCenter(e.touches[0], e.touches[1]);
+      const rect = mapCanvas.getBoundingClientRect();
+      const lonFrac = (center.x - rect.left) / rect.width;
+      const latFrac = (center.y - rect.top) / rect.height;
+      const lonCenter = pinchStartViewport.west + lonFrac * (pinchStartViewport.east - pinchStartViewport.west);
+      const latCenter = pinchStartViewport.north - latFrac * (pinchStartViewport.north - pinchStartViewport.south);
+      const newLonRange = (pinchStartViewport.east - pinchStartViewport.west) * scale;
+      const newLatRange = (pinchStartViewport.north - pinchStartViewport.south) * scale;
+      if (newLonRange >= 0.5 && newLonRange <= 360 && newLatRange >= 0.3 && newLatRange <= 145) {
+        viewport = clampViewport({
+          west: lonCenter - newLonRange * lonFrac,
+          east: lonCenter + newLonRange * (1 - lonFrac),
+          north: latCenter + newLatRange * latFrac,
+          south: latCenter - newLatRange * (1 - latFrac)
+        });
+        setViewport(viewport);
+      }
+      touchMoved = true;
+    }
+  }, { passive: false });
+
+  mapCanvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 0) {
+      touchPanActive = false;
+      // If short tap without moving, simulate a click
+      if (!touchMoved && touchStartPos && (Date.now() - touchStartTime < 300)) {
+        const clickEvent = new MouseEvent('click', {
+          clientX: touchStartPos.x,
+          clientY: touchStartPos.y,
+          bubbles: true
+        });
+        mapCanvas.dispatchEvent(clickEvent);
+      }
+      touchStartPos = null;
+      pinchStartViewport = null;
+    } else if (e.touches.length === 1) {
+      // Went from 2 fingers to 1: restart pan from current position
+      touchPanActive = true;
+      panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      panViewportStart = { ...getViewport() };
+      pinchStartViewport = null;
+    }
+  }, { passive: false });
 }
 initPanZoom();
 
@@ -317,6 +413,281 @@ const labelToggleMap = {
 for (const [elId, key] of Object.entries(labelToggleMap)) {
   document.getElementById(elId).addEventListener('change', (e) => {
     mapLabelSettings[key] = e.target.checked;
+  });
+}
+
+// ============================================
+// MOBILE TAB BAR & DRAWER
+// ============================================
+let mobileActiveTab = 'map';
+let mobileEventLog = []; // stores {name, text, type} for mobile event log
+
+function isMobile() {
+  return window.innerWidth <= 768;
+}
+
+(function initMobileTabBar() {
+  const tabs = document.querySelectorAll('.mobile-tab');
+  const drawer = document.getElementById('mobile-drawer');
+  const drawerContent = document.getElementById('mobile-drawer-content');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.dataset.tab;
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      if (tabName === 'map' || tabName === mobileActiveTab) {
+        // Close drawer on map tab or toggle
+        if (tabName === 'map') {
+          drawer.classList.add('mobile-drawer-hidden');
+          mobileActiveTab = 'map';
+          tabs.forEach(t => t.classList.remove('active'));
+          document.querySelector('.mobile-tab[data-tab="map"]').classList.add('active');
+          return;
+        }
+        if (tabName === mobileActiveTab && !drawer.classList.contains('mobile-drawer-hidden')) {
+          drawer.classList.add('mobile-drawer-hidden');
+          mobileActiveTab = 'map';
+          tabs.forEach(t => t.classList.remove('active'));
+          document.querySelector('.mobile-tab[data-tab="map"]').classList.add('active');
+          return;
+        }
+      }
+
+      mobileActiveTab = tabName;
+      drawer.classList.remove('mobile-drawer-hidden');
+      renderMobileDrawer(tabName, drawerContent);
+    });
+  });
+})();
+
+function renderMobileDrawer(tabName, container) {
+  switch (tabName) {
+    case 'fleet': renderMobileFleet(container); break;
+    case 'controls': renderMobileControls(container); break;
+    case 'log': renderMobileLog(container); break;
+    case 'settings': renderMobileSettings(container); break;
+    default: container.innerHTML = '';
+  }
+}
+
+function renderMobileFleet(container) {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me) { container.innerHTML = '<div class="muted">No game data</div>'; return; }
+
+  let html = `<div class="mobile-section-title">FLEET — ${formatMoney(me.cash || 0)}</div>`;
+  if (me.fleet.length === 0) {
+    html += '<div class="muted">No ships. Buy one!</div>';
+  } else {
+    for (const s of me.fleet) {
+      const state = shipStates[s.id];
+      const cargo = shipCargo[s.id];
+      const isSelected = selectedShipId === s.id;
+      const hp = state ? Math.round((state.health - state.totalDamage) * 100) : Math.round(s.health * 100);
+      const destroyed = state?.destroyed || state?.seized;
+      const cargoText = destroyed ? 'LOST' : cargo?.delivered ? 'DELIVERED' : cargo?.loaded ? 'LOADED' : 'EMPTY';
+      const cargoClass = destroyed ? 'stat-bad' : cargo?.delivered ? 'stat-good' : cargo?.loaded ? 'stat-warn' : 'stat-warn';
+      html += `
+        <div class="mobile-fleet-card ${isSelected ? 'selected' : ''}" data-mobile-ship="${s.id}">
+          <div class="mobile-fleet-header">
+            <span class="mobile-fleet-name">${s.name}</span>
+            <div class="mobile-fleet-stats">
+              <span class="stat">${(s.cargoType || 'oil').toUpperCase()}</span>
+              <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
+              <span class="stat ${cargoClass}">${cargoText}</span>
+              ${shipAutopilot[s.id]?.active ? '<span class="stat stat-good">AP</span>' : ''}
+            </div>
+          </div>
+          <div class="mobile-fleet-actions">
+            <button class="btn btn-small btn-secondary mobile-select-ship" data-sid="${s.id}">SELECT</button>
+            <button class="btn btn-small btn-primary mobile-manage-ship" data-sid="${s.id}">MANAGE</button>
+          </div>
+        </div>`;
+    }
+  }
+  html += `<button id="mobile-buy-ship" class="btn btn-small btn-primary" style="width:100%;margin-top:8px;">+ BUY SHIP</button>`;
+  container.innerHTML = html;
+
+  container.querySelectorAll('.mobile-select-ship').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectShip(btn.dataset.sid);
+      renderMobileFleet(container);
+    });
+  });
+  container.querySelectorAll('.mobile-manage-ship').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectShip(btn.dataset.sid);
+      openFleetManager();
+    });
+  });
+  const buyBtn = document.getElementById('mobile-buy-ship');
+  if (buyBtn) buyBtn.addEventListener('click', () => document.getElementById('btn-buy-ship').click());
+}
+
+function renderMobileControls(container) {
+  const ship = getSelectedShipData();
+  const state = selectedShipId ? shipStates[selectedShipId] : null;
+  if (!ship || !state) {
+    container.innerHTML = '<div class="muted">Select a ship first</div>';
+    return;
+  }
+
+  const ratedSpeed = ship.speed || 16;
+  const spdLabel = (state.speed || 0) > ratedSpeed ? `${state.speed} kts !` : `${state.speed || 0} kts`;
+  const aisId = ship.aisId || 'FULL_BROADCAST';
+  const insId = ship.insuranceId || 'FULL_WAR_RISK';
+
+  let html = `<div class="mobile-section-title">${ship.name} CONTROLS</div>`;
+  html += `
+    <div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">SPEED</span>
+      <div class="mobile-speed-control">
+        <button class="btn btn-small" id="mobile-spd-down">-</button>
+        <span class="mobile-speed-value" id="mobile-spd-val">${spdLabel}</span>
+        <button class="btn btn-small" id="mobile-spd-up">+</button>
+      </div>
+    </div>
+    <div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">AIS</span>
+      <div class="mobile-ctrl-buttons">
+        <button class="btn btn-small mobile-ais ${aisId === 'FULL_BROADCAST' ? 'btn-primary' : 'btn-secondary'}" data-ais="FULL_BROADCAST">FULL</button>
+        <button class="btn btn-small mobile-ais ${aisId === 'REDUCED' ? 'btn-primary' : 'btn-secondary'}" data-ais="REDUCED">RED</button>
+        <button class="btn btn-small mobile-ais ${aisId === 'DARK' ? 'btn-primary' : 'btn-secondary'}" data-ais="DARK">DARK</button>
+      </div>
+    </div>
+    <div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">INSURANCE</span>
+      <div class="mobile-ctrl-buttons">
+        <button class="btn btn-small mobile-ins ${insId === 'FULL_WAR_RISK' ? 'btn-primary' : 'btn-secondary'}" data-ins="FULL_WAR_RISK">WAR</button>
+        <button class="btn btn-small mobile-ins ${insId === 'STANDARD_MARINE' ? 'btn-primary' : 'btn-secondary'}" data-ins="STANDARD">STD</button>
+        <button class="btn btn-small mobile-ins ${insId === 'NONE' ? 'btn-primary' : 'btn-secondary'}" data-ins="NONE">NONE</button>
+      </div>
+    </div>
+    <div class="mobile-ctrl-row">
+      <span class="mobile-ctrl-label">GAME SPEED</span>
+      <div class="mobile-ctrl-buttons">
+        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
+        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
+        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
+        <button class="btn btn-small mobile-gspeed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
+      </div>
+    </div>`;
+  container.innerHTML = html;
+
+  // Speed controls
+  document.getElementById('mobile-spd-down')?.addEventListener('click', () => {
+    if (state.destroyed || state.seized) return;
+    state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
+    const el = document.getElementById('mobile-spd-val');
+    if (el) el.textContent = `${state.speed} kts`;
+    document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
+  });
+  document.getElementById('mobile-spd-up')?.addEventListener('click', () => {
+    if (state.destroyed || state.seized) return;
+    state.speed = Math.min(20, Math.round(state.speed || 0) + 1);
+    const el = document.getElementById('mobile-spd-val');
+    if (el) el.textContent = state.speed > ratedSpeed ? `${state.speed} kts !` : `${state.speed} kts`;
+    document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
+  });
+
+  // AIS
+  container.querySelectorAll('.mobile-ais').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const aisKey = btn.dataset.ais;
+      const aisOpt = options?.aisOptions?.[aisKey];
+      if (!aisOpt) return;
+      ship.aisId = aisKey; ship.aisName = aisOpt.name;
+      addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
+      renderMobileControls(container);
+    });
+  });
+
+  // Insurance
+  container.querySelectorAll('.mobile-ins').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const insKey = btn.dataset.ins;
+      const insOpt = options?.insuranceOptions?.[insKey];
+      if (!insOpt) return;
+      ship.insuranceId = insKey; ship.insuranceName = insOpt.name;
+      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name}`, '');
+      renderMobileControls(container);
+    });
+  });
+
+  // Game speed
+  container.querySelectorAll('.mobile-gspeed').forEach(btn => {
+    btn.addEventListener('click', () => {
+      gameSpeedMultiplier = parseInt(btn.dataset.speed);
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
+      if (desktopBtn) desktopBtn.classList.add('active');
+      renderMobileControls(container);
+    });
+  });
+}
+
+function renderMobileLog(container) {
+  if (mobileEventLog.length === 0) {
+    container.innerHTML = '<div class="muted">No events yet</div>';
+    return;
+  }
+  let html = '<div class="mobile-section-title">EVENT LOG</div>';
+  for (let i = mobileEventLog.length - 1; i >= 0; i--) {
+    const ev = mobileEventLog[i];
+    html += `<div class="mobile-event-item ${ev.type || ''}">
+      <div class="mobile-event-name">${ev.name}</div>
+      <div class="mobile-event-outcome">${ev.text}</div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+function renderMobileSettings(container) {
+  let html = '<div class="mobile-section-title">MAP LABELS</div>';
+  const labels = [
+    { key: 'cityNames', label: 'City names', elId: 'toggle-city-names' },
+    { key: 'countryNames', label: 'Country names', elId: 'toggle-country-names' },
+    { key: 'baseNames', label: 'Military installations', elId: 'toggle-base-names' },
+    { key: 'terminalNames', label: 'Terminal names', elId: 'toggle-terminal-names' },
+    { key: 'waterLabels', label: 'Water body labels', elId: 'toggle-water-labels' },
+  ];
+  for (const l of labels) {
+    html += `<div class="mobile-settings-row">
+      <input type="checkbox" class="mobile-label-toggle" data-key="${l.key}" ${mapLabelSettings[l.key] ? 'checked' : ''}>
+      <span>${l.label}</span>
+    </div>`;
+  }
+
+  html += `<div class="mobile-section-title" style="margin-top:12px;">CHOKEPOINTS</div>`;
+  for (const cp of CHOKEPOINTS) {
+    html += `<button class="chokepoint-btn mobile-cp-btn" style="width:100%;margin-bottom:4px;" data-cp="${cp.shortName}">${cp.shortName}</button>`;
+  }
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.mobile-label-toggle').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const key = cb.dataset.key;
+      mapLabelSettings[key] = e.target.checked;
+      const desktopCb = document.getElementById(labels.find(l => l.key === key)?.elId);
+      if (desktopCb) desktopCb.checked = e.target.checked;
+    });
+  });
+
+  container.querySelectorAll('.mobile-cp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cp = CHOKEPOINTS.find(c => c.shortName === btn.dataset.cp);
+      if (cp) {
+        viewport = { ...cp.viewport };
+        setViewport(viewport);
+        // Switch to map view
+        document.getElementById('mobile-drawer').classList.add('mobile-drawer-hidden');
+        mobileActiveTab = 'map';
+        document.querySelectorAll('.mobile-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.mobile-tab[data-tab="map"]').classList.add('active');
+      }
+    });
   });
 }
 
@@ -3076,6 +3447,14 @@ function addTransitEvent(name, text, type) {
   while (container.children.length > 8) {
     container.firstChild.style.opacity = '0';
     setTimeout(() => container.firstChild?.remove(), 300);
+  }
+  // Also store for mobile log
+  mobileEventLog.push({ name, text, type });
+  if (mobileEventLog.length > 50) mobileEventLog.shift();
+  // Live-update mobile log if visible
+  if (isMobile() && mobileActiveTab === 'log') {
+    const dc = document.getElementById('mobile-drawer-content');
+    if (dc) renderMobileLog(dc);
   }
 }
 

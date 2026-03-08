@@ -1501,3 +1501,460 @@ h1 {
 .spawn-region-body.hidden {
   display: none;
 }
+
+/* ============================================
+   MOBILE TAB BAR & DRAWER (hidden on desktop)
+   ============================================ */
+#mobile-tab-bar {
+  display: none;
+}
+
+#mobile-drawer {
+  display: none;
+}
+
+/* ============================================
+   MOBILE RESPONSIVE STYLES
+   ============================================ */
+@media (max-width: 768px) {
+  /* Title screen */
+  h1 {
+    font-size: 32px;
+    letter-spacing: 2px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .menu-buttons {
+    flex-direction: column;
+    max-width: 280px;
+    gap: 10px;
+  }
+
+  .btn {
+    padding: 12px 16px;
+    font-size: 14px;
+    min-height: 44px;
+  }
+
+  .btn-large {
+    padding: 14px;
+    font-size: 16px;
+  }
+
+  .input {
+    padding: 12px;
+    font-size: 14px;
+    min-height: 44px;
+  }
+
+  #name-input-area {
+    max-width: 280px;
+  }
+
+  /* Lobby */
+  .panel-center {
+    padding: 20px 16px;
+    max-width: 95vw;
+    width: 95%;
+  }
+
+  .game-code {
+    font-size: 22px;
+  }
+
+  .screen-header h2 {
+    font-size: 20px;
+  }
+
+  /* Transit screen: hide desktop-only elements */
+  .planning-dashboard {
+    display: none !important;
+  }
+
+  .chokepoint-panel {
+    display: none !important;
+  }
+
+  #hud-compass {
+    display: none !important;
+  }
+
+  #settings-btn {
+    display: none !important;
+  }
+
+  #settings-panel {
+    display: none !important;
+  }
+
+  #hud-events {
+    display: none !important;
+  }
+
+  #hud-ship-name {
+    display: none !important;
+  }
+
+  #hud-cargo-status {
+    display: none !important;
+  }
+
+  .btn-clear-wp {
+    top: auto;
+    bottom: 60px;
+    right: 10px;
+    font-size: 9px;
+    padding: 6px 10px;
+    min-height: 32px;
+  }
+
+  #ship-control-panel {
+    display: none !important;
+  }
+
+  .npc-hover-panel {
+    display: none !important;
+  }
+
+  /* HUD top bar — compact for mobile */
+  #hud-top {
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .hud-label {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+
+  .hud-value {
+    font-size: 14px;
+  }
+
+  /* Mobile tab bar */
+  #mobile-tab-bar {
+    display: flex;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 50px;
+    background: rgba(10, 14, 26, 0.96);
+    border-top: 1px solid var(--border);
+    z-index: 40;
+    pointer-events: auto;
+  }
+
+  .mobile-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    cursor: pointer;
+    padding: 8px 4px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .mobile-tab.active {
+    color: var(--primary);
+    background: rgba(240, 160, 48, 0.1);
+    border-top: 2px solid var(--primary);
+  }
+
+  /* Mobile drawer */
+  #mobile-drawer {
+    display: block;
+    position: absolute;
+    bottom: 50px;
+    left: 0;
+    right: 0;
+    max-height: 50vh;
+    overflow-y: auto;
+    background: rgba(10, 14, 26, 0.96);
+    border-top: 1px solid var(--border);
+    z-index: 35;
+    pointer-events: auto;
+    padding: 10px 12px;
+    transition: transform 0.25s ease;
+  }
+
+  #mobile-drawer.mobile-drawer-hidden {
+    transform: translateY(100%);
+    pointer-events: none;
+  }
+
+  /* Mobile drawer content sections */
+  .mobile-section-title {
+    font-size: 10px;
+    color: var(--primary);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+    font-weight: bold;
+  }
+
+  .mobile-fleet-card {
+    background: rgba(20, 28, 45, 0.8);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+
+  .mobile-fleet-card.selected {
+    border-color: var(--primary);
+  }
+
+  .mobile-fleet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .mobile-fleet-name {
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  .mobile-fleet-stats {
+    display: flex;
+    gap: 6px;
+    font-size: 9px;
+  }
+
+  .mobile-fleet-stats .stat {
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .mobile-fleet-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .mobile-fleet-actions .btn {
+    flex: 1;
+    padding: 8px 4px;
+    font-size: 10px;
+    min-height: 36px;
+  }
+
+  .mobile-ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(42, 48, 80, 0.5);
+  }
+
+  .mobile-ctrl-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    font-weight: bold;
+  }
+
+  .mobile-ctrl-buttons {
+    display: flex;
+    gap: 4px;
+  }
+
+  .mobile-ctrl-buttons .btn {
+    padding: 8px 10px;
+    font-size: 10px;
+    min-height: 36px;
+  }
+
+  .mobile-speed-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .mobile-speed-control .btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    font-size: 16px;
+    min-height: 36px;
+  }
+
+  .mobile-speed-value {
+    font-size: 14px;
+    font-weight: bold;
+    min-width: 50px;
+    text-align: center;
+  }
+
+  .mobile-event-item {
+    background: rgba(19, 24, 41, 0.92);
+    border-left: 3px solid var(--info);
+    padding: 8px 10px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .mobile-event-item.danger {
+    border-left-color: var(--danger);
+  }
+
+  .mobile-event-item.success {
+    border-left-color: var(--success);
+  }
+
+  .mobile-event-name {
+    font-weight: bold;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .mobile-event-outcome {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* Mobile settings */
+  .mobile-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .mobile-settings-row input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary);
+  }
+
+  /* Modals — full screen on mobile */
+  .modal-panel {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    padding: 16px;
+  }
+
+  .fm-panel {
+    width: 100vw;
+    max-width: 100vw;
+  }
+
+  .fm-controls {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .fm-ship-row {
+    padding: 8px;
+  }
+
+  .fm-speed-row button {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+    min-height: 36px;
+  }
+
+  .fm-btn-group .btn {
+    font-size: 10px;
+    padding: 6px 8px;
+    min-height: 32px;
+  }
+
+  .fm-upgrades .btn {
+    font-size: 10px;
+    padding: 6px 8px;
+    min-height: 32px;
+  }
+
+  .fm-ap-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .fm-ap-row select {
+    font-size: 11px;
+    max-width: none;
+    flex: 1;
+    min-height: 32px;
+  }
+
+  /* Option cards — bigger touch targets */
+  .option-card {
+    padding: 12px;
+    min-height: 44px;
+  }
+
+  .option-card .option-name {
+    font-size: 14px;
+  }
+
+  .option-card .option-desc {
+    font-size: 11px;
+  }
+
+  /* Results / Game Over — adjust for mobile */
+  .panel-wide {
+    max-width: 95vw;
+  }
+
+  .result-header {
+    font-size: 16px;
+  }
+
+  .result-lines {
+    font-size: 12px;
+  }
+
+  .gameover-container h1 {
+    font-size: 32px;
+  }
+
+  .gameover-container {
+    max-width: 95vw;
+  }
+
+  /* Ship purchase modal steps */
+  .modal-step-title {
+    font-size: 12px;
+  }
+
+  .modal-sub-title {
+    font-size: 11px;
+  }
+
+  /* Terminal popup */
+  .terminal-popup {
+    width: 80vw;
+    max-width: 300px;
+    left: 10vw !important;
+  }
+
+  /* Spawn region */
+  .spawn-region-header {
+    padding: 10px 12px;
+    font-size: 13px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
