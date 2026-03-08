@@ -102,6 +102,42 @@ h1 {
   max-width: 500px;
 }
 
+/* Auth UI */
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--success);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.auth-status strong {
+  color: var(--primary);
+}
+
+#auth-buttons {
+  justify-content: center;
+  gap: 8px;
+  margin-top: -8px;
+  max-width: 300px;
+}
+
+#auth-form-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.auth-form-title {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--primary);
+  text-align: center;
+}
+
 /* Buttons */
 .btn {
   padding: 14px 24px;

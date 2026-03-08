@@ -1496,14 +1496,127 @@ function populateFmApSelect(termSel, dropSel, ship) {
 }
 
 // ============================================
+// AUTH
+// ============================================
+let authToken = localStorage.getItem('bts_token') || null;
+let authUser = null;
+let authMode = null; // 'login' or 'register'
+
+function updateAuthUI() {
+  const statusEl = document.getElementById('auth-status');
+  const usernameEl = document.getElementById('auth-username');
+  const authBtns = document.getElementById('auth-buttons');
+  const nameInput = document.getElementById('input-name');
+
+  if (authUser) {
+    statusEl.classList.remove('hidden');
+    usernameEl.textContent = authUser.username;
+    authBtns.classList.add('hidden');
+    nameInput.value = authUser.username;
+    nameInput.readOnly = true;
+  } else {
+    statusEl.classList.add('hidden');
+    authBtns.classList.remove('hidden');
+    nameInput.readOnly = false;
+  }
+}
+
+function showAuthForm(mode) {
+  authMode = mode;
+  document.getElementById('auth-form-title').textContent = mode === 'login' ? 'LOGIN' : 'REGISTER';
+  document.getElementById('auth-form-area').classList.remove('hidden');
+  document.getElementById('menu-buttons').classList.add('hidden');
+  document.getElementById('auth-buttons').classList.add('hidden');
+  document.getElementById('input-auth-user').focus();
+}
+
+function hideAuthForm() {
+  document.getElementById('auth-form-area').classList.add('hidden');
+  document.getElementById('menu-buttons').classList.remove('hidden');
+  updateAuthUI();
+}
+
+async function submitAuth() {
+  const username = document.getElementById('input-auth-user').value.trim();
+  const password = document.getElementById('input-auth-pass').value;
+  if (!username || !password) { showError('Enter username and password'); return; }
+
+  const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      authToken = data.token;
+      authUser = data.user;
+      localStorage.setItem('bts_token', authToken);
+      hideAuthForm();
+      updateAuthUI();
+      // Auth the socket too
+      socket.emit('auth', { token: authToken });
+    } else {
+      showError(data.error || 'Authentication failed');
+    }
+  } catch (e) {
+    showError('Connection error');
+  }
+}
+
+function logout() {
+  authToken = null;
+  authUser = null;
+  localStorage.removeItem('bts_token');
+  updateAuthUI();
+}
+
+// Auto-login on page load if token exists
+async function tryAutoLogin() {
+  if (!authToken) return;
+  try {
+    const res = await fetch('/api/profile', {
+      headers: { 'Authorization': `Bearer ${authToken}` }
+    });
+    if (res.ok) {
+      authUser = await res.json();
+      updateAuthUI();
+      socket.emit('auth', { token: authToken });
+    } else {
+      localStorage.removeItem('bts_token');
+      authToken = null;
+    }
+  } catch {
+    // Silently fail auto-login
+  }
+}
+tryAutoLogin();
+
+document.getElementById('btn-login').addEventListener('click', () => showAuthForm('login'));
+document.getElementById('btn-register').addEventListener('click', () => showAuthForm('register'));
+document.getElementById('btn-auth-back').addEventListener('click', hideAuthForm);
+document.getElementById('btn-auth-submit').addEventListener('click', submitAuth);
+document.getElementById('btn-logout').addEventListener('click', logout);
+
+['input-auth-user', 'input-auth-pass'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitAuth();
+  });
+});
+
+// ============================================
 // TITLE SCREEN
 // ============================================
 document.getElementById('btn-create').addEventListener('click', () => {
   joinMode = false;
   document.getElementById('name-input-area').classList.remove('hidden');
   document.getElementById('input-game-id').classList.add('hidden');
-  document.getElementById('btn-create').classList.add('hidden');
-  document.getElementById('btn-join').classList.add('hidden');
+  document.getElementById('menu-buttons').classList.add('hidden');
+  document.getElementById('auth-buttons').classList.add('hidden');
+  if (authUser) {
+    document.getElementById('input-name').value = authUser.username;
+  }
   document.getElementById('input-name').focus();
 });
 
@@ -1511,15 +1624,18 @@ document.getElementById('btn-join').addEventListener('click', () => {
   joinMode = true;
   document.getElementById('name-input-area').classList.remove('hidden');
   document.getElementById('input-game-id').classList.remove('hidden');
-  document.getElementById('btn-create').classList.add('hidden');
-  document.getElementById('btn-join').classList.add('hidden');
+  document.getElementById('menu-buttons').classList.add('hidden');
+  document.getElementById('auth-buttons').classList.add('hidden');
+  if (authUser) {
+    document.getElementById('input-name').value = authUser.username;
+  }
   document.getElementById('input-name').focus();
 });
 
 document.getElementById('btn-back').addEventListener('click', () => {
   document.getElementById('name-input-area').classList.add('hidden');
-  document.getElementById('btn-create').classList.remove('hidden');
-  document.getElementById('btn-join').classList.remove('hidden');
+  document.getElementById('menu-buttons').classList.remove('hidden');
+  updateAuthUI();
 });
 
 document.getElementById('btn-confirm').addEventListener('click', () => {
@@ -1527,17 +1643,19 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
   if (!name) { showError('Enter a captain name'); return; }
   if (!socket.connected) { showError('Not connected to server'); return; }
 
+  const token = authToken || undefined;
+
   if (joinMode) {
     const code = document.getElementById('input-game-id').value.trim().toUpperCase();
     if (!code) { showError('Enter a game code'); return; }
-    socket.emit('join_game', { gameId: code, playerName: name }, (res) => {
+    socket.emit('join_game', { gameId: code, playerName: name, token }, (res) => {
       if (res.success) {
         myId = socket.id; gameState = res.game; isHost = false;
         fetchOptions(); renderLobby(); showScreen('lobby');
       } else { showError(res.error || 'Failed to join'); }
     });
   } else {
-    socket.emit('create_game', { playerName: name }, (res) => {
+    socket.emit('create_game', { playerName: name, token }, (res) => {
       if (res.success) {
         myId = socket.id; gameState = res.game; isHost = true;
         fetchOptions(); renderLobby(); showScreen('lobby');

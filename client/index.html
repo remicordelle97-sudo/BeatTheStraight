@@ -17,10 +17,35 @@
           <h1>BEAT THE<br><span class="highlight">STRAIT</span></h1>
           <p class="subtitle">Strait of Hormuz Live Simulator</p>
         </div>
-        <div class="menu-buttons">
+
+        <!-- Auth status (shown when logged in) -->
+        <div id="auth-status" class="auth-status hidden">
+          <span>Logged in as <strong id="auth-username"></strong></span>
+          <button id="btn-logout" class="btn btn-ghost btn-small">LOGOUT</button>
+        </div>
+
+        <!-- Main menu buttons -->
+        <div class="menu-buttons" id="menu-buttons">
           <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
           <button id="btn-join" class="btn btn-secondary btn-large">JOIN GAME</button>
         </div>
+
+        <!-- Auth buttons (shown when not logged in) -->
+        <div id="auth-buttons" class="menu-buttons">
+          <button id="btn-login" class="btn btn-ghost btn-small">LOGIN</button>
+          <button id="btn-register" class="btn btn-ghost btn-small">REGISTER</button>
+        </div>
+
+        <!-- Login/Register form -->
+        <div id="auth-form-area" class="hidden">
+          <div id="auth-form-title" class="auth-form-title">LOGIN</div>
+          <input type="text" id="input-auth-user" class="input" placeholder="Username" maxlength="20" autocomplete="username">
+          <input type="password" id="input-auth-pass" class="input" placeholder="Password" maxlength="64" autocomplete="current-password">
+          <button id="btn-auth-submit" class="btn btn-primary">SUBMIT</button>
+          <button id="btn-auth-back" class="btn btn-ghost">BACK</button>
+        </div>
+
+        <!-- Game name/code input area -->
         <div id="name-input-area" class="hidden">
           <input type="text" id="input-name" class="input" placeholder="Captain Name" maxlength="20">
           <input type="text" id="input-game-id" class="input hidden" placeholder="Game Code" maxlength="6">
