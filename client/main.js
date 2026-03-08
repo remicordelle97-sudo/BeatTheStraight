@@ -600,7 +600,6 @@ function renderMobileSitrep(container) {
   html += `<div style="display:flex;justify-content:space-around;margin-bottom:12px;">
     <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--danger);">${campaignStats.missileEvents || 0}</div><div style="font-size:9px;color:var(--text-muted);">MISSILES</div></div>
     <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--primary);">${recentAttacks.length}</div><div style="font-size:9px;color:var(--text-muted);">RECENT</div></div>
-    <div style="text-align:center;"><div style="font-size:18px;font-weight:bold;color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div><div style="font-size:9px;color:var(--text-muted);">OIL/BBL</div></div>
   </div>`;
 
   // Region intensity cards
@@ -1672,8 +1671,8 @@ function renderSituationMonitor() {
             <div class="sitmon-stat-label">RECENT ATTACKS</div>
           </div>
           <div class="sitmon-stat-card">
-            <div class="sitmon-stat-number" style="color:var(--info);">$${(gameState?.oilPrice || 0).toFixed(0)}</div>
-            <div class="sitmon-stat-label">OIL PRICE/BBL</div>
+            <div class="sitmon-stat-number" style="color:var(--info);">${campaignStats.deliveries || 0}</div>
+            <div class="sitmon-stat-label">DELIVERIES</div>
           </div>
           <div class="sitmon-stat-card">
             <div class="sitmon-stat-number" style="color:${(campaignStats.totalDamageTaken || 0) > 0.3 ? 'var(--danger)' : 'var(--success)'};">${Math.round((campaignStats.totalDamageTaken || 0) * 100)}%</div>
@@ -1681,7 +1680,6 @@ function renderSituationMonitor() {
           </div>
         </div>
         <div class="sitmon-zone-details" style="margin-top:4px;">
-          <div class="sitmon-row"><span class="sitmon-row-label">Oil Price Multiplier</span><span class="sitmon-row-value">${risk.oilPriceMultiplier}x</span></div>
           <div class="sitmon-row"><span class="sitmon-row-label">Event Frequency</span><span class="sitmon-row-value ${risk.eventFrequency > 0.3 ? 'sitmon-stat-bad' : risk.eventFrequency > 0.1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok'}">${(risk.eventFrequency * 100).toFixed(0)}%</span></div>
         </div>
       </div>
@@ -1693,7 +1691,7 @@ function renderSituationMonitor() {
 
   // LEFT COLUMN: Conflict zones + fleet exposure
   html += `<div>`;
-  html += `<div class="sitmon-section-title">ACTIVE CONFLICT ZONES</div>`;
+  html += `<div class="sitmon-section-title">CONFLICT ZONES</div>`;
 
   for (const wz of warZones) {
     const ri = campaignStats.regionIntensity[wz.region];
@@ -2476,8 +2474,6 @@ function updateFleetPanel() {
 
   const cashEl = document.getElementById('plan-cash');
   if (cashEl) cashEl.textContent = formatMoney(me.cash || 0);
-  const oilEl = document.getElementById('plan-oil-price');
-  if (oilEl) oilEl.textContent = (gameState.oilPrice || 0).toFixed(2);
   const riskBadge = document.getElementById('plan-risk');
   if (riskBadge && gameState.riskInfo) {
     riskBadge.textContent = gameState.riskInfo.name.toUpperCase();
@@ -3857,6 +3853,7 @@ function transitLoop(timestamp) {
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
+    terminalPrices: gameState?.terminalPrices || null,
     ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,

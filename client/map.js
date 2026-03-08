@@ -620,7 +620,7 @@ function drawDangerZones(ctx, drawW, drawH, lbl = {}) {
   }
 }
 
-function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
+function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}, terminalPrices = null) {
   // Draw ALL terminals (export + import) with distinct styling
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const { x, y } = latLonToCanvas(terminal.lat, terminal.lon, drawW, drawH);
@@ -649,7 +649,8 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
         ctx.fillText(terminal.name, x + sz + 4, y - 2);
         ctx.fillStyle = '#a0a8c0';
         ctx.font = '9px Courier New';
-        const sellP = isLng ? (terminal.lngSellPrice || terminal.sellPrice || '') : (terminal.sellPrice || '');
+        const livePrice = terminalPrices?.[terminal.id]?.price;
+        const sellP = isLng ? (terminal.lngSellPrice || terminal.sellPrice || '') : (livePrice || terminal.sellPrice || '');
         ctx.fillText(`SELL $${sellP}`, x + sz + 4, y + 9);
       }
     } else {
@@ -674,7 +675,8 @@ function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
         ctx.fillText(terminal.name, x + sz + 4, y - 2);
         ctx.fillStyle = '#a0a8c0';
         ctx.font = '9px Courier New';
-        ctx.fillText(`BUY $${terminal.buyPrice || ''}`, x + sz + 4, y + 9);
+        const livePrice = terminalPrices?.[terminal.id]?.price;
+        ctx.fillText(`BUY $${livePrice || terminal.buyPrice || ''}`, x + sz + 4, y + 9);
       }
     }
     ctx.textAlign = 'left';
@@ -1530,7 +1532,7 @@ function drawMap(canvas, options = {}) {
 
   // Oil terminals (always shown)
   if (options.showTerminals) {
-    drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId, lbl);
+    drawOilTerminals(ctx, drawW, drawH, options.selectedTerminalId, lbl, options.terminalPrices);
     drawDropoffPoint(ctx, drawW, drawH);
   }
 
