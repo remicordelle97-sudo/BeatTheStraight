@@ -3,8 +3,9 @@ import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getV
 import { CHOKEPOINTS } from './world-coastlines.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
-  FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS,
-  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES, CITIES
+  FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
+  NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES, CITIES,
+  TERMINAL_REGIONS
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -24,6 +25,7 @@ let joinMode = false;
 let modalShipTypeId = null;
 let modalAisId = null;
 let modalInsuranceId = null;
+let modalSpawnTerminalId = null;
 
 let gameSpeedMultiplier = 1;
 
@@ -33,6 +35,21 @@ let simGameTime = 0;
 let lastFrameTime = 0;
 let zoneCooldowns = {};
 let lastEventCheck = 0;
+
+// Campaign state
+const CAMPAIGN_DAYS = 7;
+const CAMPAIGN_DURATION = CAMPAIGN_DAYS * 24 * 3600; // 7 days in game seconds
+let campaignStats = {
+  totalProfit: 0,
+  totalRevenue: 0,
+  totalCosts: 0,
+  deliveries: 0,
+  shipsBought: 0,
+  shipsLost: 0,
+  totalDamageTaken: 0,
+  missileEvents: 0,
+};
+let campaignEnded = false;
 
 // Multi-ship state
 let shipStates = {};
@@ -77,6 +94,36 @@ const screens = {
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
   if (screens[name]) screens[name].classList.add('active');
+}
+
+// Campaign time helpers
+function getCampaignDay() { return Math.floor(simGameTime / (24 * 3600)) + 1; }
+function getGameHour() { return (simGameTime % (24 * 3600)) / 3600; }
+// Sun longitude: at hour 0 (midnight UTC), the sun is at lon 180 (opposite side).
+// The sun moves west at 15°/hour. At hour 12 (noon UTC), sun is at lon 0.
+function getSunLon() {
+  const h = getGameHour();
+  let sunLon = 180 - h * 15; // midnight UTC → sun at 180°, noon UTC → sun at 0°
+  while (sunLon > 180) sunLon -= 360;
+  while (sunLon < -180) sunLon += 360;
+  return sunLon;
+}
+// Returns 0 (full night) to 1 (full day) for a given longitude
+function getDaylightAt(lon) {
+  const sunLon = getSunLon();
+  let diff = lon - sunLon;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  const absDiff = Math.abs(diff);
+  // Day within 90° of sun, night beyond 90°, with 15° twilight transition
+  if (absDiff <= 75) return 1.0;
+  if (absDiff >= 105) return 0.0;
+  return 1.0 - (absDiff - 75) / 30;
+}
+function isNightAtLon(lon) { return getDaylightAt(lon) < 0.3; }
+function getNightDetectionMultiplier(lon) {
+  const daylight = getDaylightAt(lon);
+  return 0.4 + 0.6 * daylight; // 0.4 at full night, 1.0 at full day
 }
 
 function formatMoney(n) {
@@ -226,8 +273,8 @@ function clampViewport(vp) {
   const latRange = vp.north - vp.south;
   // Clamp latitude to map bounds
   let south = Math.max(MAP_BOUNDS.south, Math.min(MAP_BOUNDS.north - latRange, vp.south));
-  // Allow longitude panning freely (wrap if needed)
-  let west = Math.max(MAP_BOUNDS.west, Math.min(MAP_BOUNDS.east - lonRange, vp.west));
+  // Allow free longitude panning — no clamping, supports circumnavigation
+  let west = vp.west;
   return { west, east: west + lonRange, south, north: south + latRange };
 }
 
@@ -326,7 +373,8 @@ document.getElementById('scp-close').addEventListener('click', closeShipControlP
 document.getElementById('scp-speed-down').addEventListener('click', () => {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const state = shipStates[selectedShipId];
-  state.speed = Math.max(0, state.speed - 1);
+  if (state.destroyed || state.seized) return;
+  state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
   document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
 });
 
@@ -334,7 +382,8 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
-  state.speed = Math.min(20, state.speed + 1);
+  if (state.destroyed || state.seized) return;
+  state.speed = Math.min(20, Math.round(state.speed || 0) + 1);
   const ratedSpeed = ship?.speed || 16;
   const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
   document.getElementById('scp-speed-value').textContent = label;
@@ -342,32 +391,34 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
 
 document.querySelectorAll('.scp-ais-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (!selectedShipId || !options) return;
+    if (!selectedShipId || !options?.aisOptions) return;
     const aisKey = btn.dataset.ais;
+    if (!aisKey) return;
     const aisOpt = options.aisOptions[aisKey];
-    if (aisOpt) {
-      const ship = getSelectedShipData();
-      if (ship) { ship.aisId = aisKey; ship.aisName = aisOpt.name; }
-      document.querySelectorAll('.scp-ais-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
-    }
+    if (!aisOpt) return;
+    const ship = getSelectedShipData();
+    if (!ship) return;
+    ship.aisId = aisKey; ship.aisName = aisOpt.name;
+    document.querySelectorAll('.scp-ais-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    addTransitEvent('AIS CHANGE', `Transponder set to: ${aisOpt.name}`, '');
   });
 });
 
 // Insurance buttons
 document.querySelectorAll('.scp-ins-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (!selectedShipId || !options) return;
+    if (!selectedShipId || !options?.insuranceOptions) return;
     const insKey = btn.dataset.ins;
+    if (!insKey) return;
     const insOpt = options.insuranceOptions[insKey];
-    if (insOpt) {
-      const ship = getSelectedShipData();
-      if (ship) { ship.insuranceId = insKey; ship.insuranceName = insOpt.name; }
-      document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name} (weekly)`, '');
-    }
+    if (!insOpt) return;
+    const ship = getSelectedShipData();
+    if (!ship) return;
+    ship.insuranceId = insKey; ship.insuranceName = insOpt.name;
+    document.querySelectorAll('.scp-ins-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    addTransitEvent('INSURANCE CHANGE', `Insurance set to: ${insOpt.name} (weekly)`, '');
   });
 });
 
@@ -386,20 +437,24 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   const state = shipStates[selectedShipId];
   const ship = getSelectedShipData();
   if (!state || !ship) return;
-  if (state.totalDamage <= 0) {
+  if (state.destroyed || state.seized) return;
+  if (!state.totalDamage || state.totalDamage <= 0) {
     document.getElementById('scp-upgrade-info').textContent = 'Ship is at full health.';
     return;
   }
-  const repairCost = Math.round(ship.cost * state.totalDamage * 0.3);
+  const repairCost = Math.round((ship.cost || 0) * state.totalDamage * 0.3);
+  if (repairCost <= 0) return;
   const me = gameState?.players.find(p => p.id === myId);
   if (!me || me.cash < repairCost) {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(repairCost)} to repair.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'repair', cost: repairCost }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
     if (res?.success) {
-      state.totalDamage = 0;
-      addTransitEvent('SHIP REPAIRED', `${ship.name} fully repaired for ${formatMoney(repairCost)}.`, 'success');
+      const st = shipStates[sid];
+      if (st) st.totalDamage = 0;
+      addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
       updateFleetPanel();
       refreshUpgradeButtons();
     }
@@ -421,11 +476,13 @@ document.getElementById('scp-engine').addEventListener('click', () => {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for engine upgrade.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'engine', cost }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost }, (res) => {
     if (res?.success) {
-      ship.engineUpgrade = 1;
-      ship.speed += 4;
-      addTransitEvent('ENGINE UPGRADE', `${ship.name}: Engine upgraded! +4 kts`, 'success');
+      const fresh = getSelectedShipData();
+      if (fresh && !fresh.engineUpgrade) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+      addTransitEvent('ENGINE UPGRADE', `Engine upgraded! +4 kts`, 'success');
+      updateFleetPanel();
       refreshUpgradeButtons();
     }
   });
@@ -446,10 +503,13 @@ document.getElementById('scp-defense').addEventListener('click', () => {
     document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(DEFENSE_COST)} for defense.`;
     return;
   }
-  socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'defense', cost: DEFENSE_COST }, (res) => {
+  const sid = selectedShipId;
+  socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
     if (res?.success) {
-      ship.defenseUpgrade = 1;
-      addTransitEvent('DEFENSE UPGRADE', `${ship.name}: Armed guards & hull armor installed!`, 'success');
+      const fresh = getSelectedShipData();
+      if (fresh) fresh.defenseUpgrade = 1;
+      addTransitEvent('DEFENSE UPGRADE', `Armed guards & hull armor installed!`, 'success');
+      updateFleetPanel();
       refreshUpgradeButtons();
     }
   });
@@ -460,32 +520,75 @@ function populateApTerminalSelect(ship) {
   const sel = document.getElementById('scp-ap-terminal');
   sel.innerHTML = '';
   const cargoType = ship.cargoType || 'oil';
-  const terminals = Object.values(OIL_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
-  terminals.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = `${t.name} (${t.country}) +${Math.round(t.loadingBonus * 100)}%`;
-    sel.appendChild(opt);
-  });
-  // Pre-select current terminal if set
+  const isLng = cargoType === 'lng';
+  // Export terminals (load cargo) — filter by cargo type
+  const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  // Group by region
+  const byRegion = {};
+  for (const t of exports) {
+    const region = t.region || 'other';
+    if (!byRegion[region]) byRegion[region] = [];
+    byRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(byRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `${t.name} — Buy $${t.buyPrice || '?'}/${isLng ? 'MMBtu' : 'bbl'}`;
+      grp.appendChild(opt);
+    }
+    sel.appendChild(grp);
+  }
   const ap = shipAutopilot[ship.id];
   if (ap && ap.terminal) sel.value = ap.terminal.id;
+
+  // Import terminals (sell cargo)
+  const dropSel = document.getElementById('scp-ap-dropoff');
+  dropSel.innerHTML = '';
+  const imports = Object.values(IMPORT_TERMINALS);
+  const impByRegion = {};
+  for (const t of imports) {
+    const region = t.region || 'other';
+    if (!impByRegion[region]) impByRegion[region] = [];
+    impByRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(impByRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : (t.sellPrice || '?');
+      opt.textContent = `${t.name} — Sell $${price}/${isLng ? 'MMBtu' : 'bbl'}`;
+      grp.appendChild(opt);
+    }
+    dropSel.appendChild(grp);
+  }
+  if (ap && ap.dropoff) dropSel.value = ap.dropoff.id;
 }
 
 function getTerminalById(id) {
   return Object.values(OIL_TERMINALS).find(t => t.id === id);
 }
 
+function getDropoffById(id) {
+  return Object.values(IMPORT_TERMINALS).find(d => d.id === id);
+}
+
 function engageAutopilot(ship) {
   const sel = document.getElementById('scp-ap-terminal');
   const terminal = getTerminalById(sel.value);
   if (!terminal) return;
-  shipAutopilot[ship.id] = { active: true, terminal };
+  const dropSel = document.getElementById('scp-ap-dropoff');
+  const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+  shipAutopilot[ship.id] = { active: true, terminal, dropoff };
   // Reset escape state and clear old waypoints so it re-routes
   const state = shipStates[ship.id];
   if (state) { state.apCoastEscapeTimer = 0; state.apCoastEscapeHeading = 0; }
   shipWaypoints[ship.id] = [];
-  addTransitEvent('AUTOPILOT ON', `${ship.name}: Route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+  addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
   refreshUpgradeButtons();
 }
 
@@ -494,15 +597,17 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   const ship = getSelectedShipData();
   const state = shipStates[selectedShipId];
   if (!ship || !state) return;
+  if (state.destroyed || state.seized) return;
 
   const ap = shipAutopilot[ship.id];
   if (ap && ap.active) {
     // Toggle off — stop ship and clear waypoints
     ap.active = false;
     shipWaypoints[ship.id] = [];
-    const state = shipStates[ship.id];
-    if (state) { state.speed = 0; state.apCoastEscapeTimer = 0; }
+    const st = shipStates[ship.id];
+    if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
+    updateFleetPanel();
     refreshUpgradeButtons();
     return;
   }
@@ -514,11 +619,14 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
       document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for autopilot.`;
       return;
     }
-    socket.emit('upgrade_ship', { shipId: selectedShipId, type: 'autopilot', cost }, (res) => {
+    const sid = selectedShipId;
+    socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost }, (res) => {
       if (res?.success) {
-        ship.hasAutopilot = true;
-        populateApTerminalSelect(ship);
-        engageAutopilot(ship);
+        const fresh = getSelectedShipData();
+        if (!fresh) return;
+        fresh.hasAutopilot = true;
+        populateApTerminalSelect(fresh);
+        engageAutopilot(fresh);
       }
     });
   } else {
@@ -526,7 +634,35 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   }
 });
 
-// Change autopilot destination while running
+// Shared reroute logic for autopilot destination changes
+function autopilotReroute(ship) {
+  if (!ship || !ship.id) return;
+  const ap = shipAutopilot[ship.id];
+  if (!ap || !ap.active) return;
+  if (!ap.terminal || !ap.dropoff) return;
+  const state = shipStates[ship.id];
+  if (!state) return;
+  state.apCoastEscapeTimer = 0;
+  const cargo = shipCargo[ship.id];
+  let dest;
+  if (cargo && cargo.loaded) {
+    dest = { lat: ap.dropoff.lat, lon: ap.dropoff.lon };
+  } else {
+    dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
+  }
+  if (dest.lat == null || dest.lon == null) return;
+  const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+  shipWaypoints[ship.id] = route;
+  if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
+  if (route.length > 0) {
+    state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+  } else {
+    state.targetHeading = headingToTarget(state.lat, state.lon, dest.lat, dest.lon);
+  }
+  addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: ${ap.terminal.name} → ${ap.dropoff.name}`, 'success');
+}
+
+// Change autopilot load terminal while running
 document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   if (!selectedShipId) return;
   const ship = getSelectedShipData();
@@ -535,23 +671,19 @@ document.getElementById('scp-ap-terminal').addEventListener('change', () => {
   const terminal = getTerminalById(document.getElementById('scp-ap-terminal').value);
   if (!terminal) return;
   ap.terminal = terminal;
-  const state = shipStates[ship.id];
-  if (state) {
-    state.apCoastEscapeTimer = 0;
-    // Immediately compute new route to updated destination
-    const cargo = shipCargo[ship.id];
-    let dest;
-    if (cargo && cargo.loaded) {
-      dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
-    } else {
-      dest = { lat: terminal.lat, lon: terminal.lon };
-    }
-    const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
-    shipWaypoints[ship.id] = route;
-    if (state.speed === 0) state.speed = Math.round(ship.speed || 14);
-    state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
-  }
-  addTransitEvent('AUTOPILOT REROUTE', `${ship.name}: New route → ${terminal.name} ↔ ${DROPOFF_POINT.name}`, 'success');
+  autopilotReroute(ship);
+});
+
+// Change autopilot dropoff while running
+document.getElementById('scp-ap-dropoff').addEventListener('change', () => {
+  if (!selectedShipId) return;
+  const ship = getSelectedShipData();
+  const ap = shipAutopilot[ship.id];
+  if (!ship || !ap || !ap.active) return;
+  const dropoff = getDropoffById(document.getElementById('scp-ap-dropoff').value);
+  if (!dropoff) return;
+  ap.dropoff = dropoff;
+  autopilotReroute(ship);
 });
 
 function refreshUpgradeButtons() {
@@ -625,6 +757,371 @@ function refreshUpgradeButtons() {
   document.getElementById('scp-autorenew-cb').checked = ship.autoRenewInsurance !== false;
 
   document.getElementById('scp-upgrade-info').textContent = '';
+}
+
+// ============================================
+// FLEET MANAGER MODAL
+// ============================================
+function openFleetManager() {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me || me.fleet.length === 0) return;
+  closeShipControlPanel();
+  document.getElementById('fleet-manager-modal').classList.remove('hidden');
+  renderFleetManager();
+}
+
+function closeFleetManager() {
+  document.getElementById('fleet-manager-modal').classList.add('hidden');
+}
+
+document.getElementById('fm-close').addEventListener('click', closeFleetManager);
+document.getElementById('fleet-manager-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'fleet-manager-modal') closeFleetManager();
+});
+document.getElementById('btn-manage-all').addEventListener('click', openFleetManager);
+
+function renderFleetManager() {
+  const me = gameState?.players.find(p => p.id === myId);
+  if (!me) return;
+  const cash = me.cash || 0;
+  const container = document.getElementById('fm-ship-list');
+
+  container.innerHTML = me.fleet.map(ship => {
+    const state = shipStates[ship.id];
+    const cargo = shipCargo[ship.id];
+    const destroyed = state?.destroyed || state?.seized;
+    const hp = state ? Math.round((state.health - state.totalDamage) * 100) : Math.round(ship.health * 100);
+    const cargoText = destroyed ? 'LOST' : cargo?.delivered ? 'DELIVERED' : cargo?.loaded ? 'LOADED' : 'EMPTY';
+    const cargoClass = destroyed ? 'stat-bad' : cargo?.delivered ? 'stat-good' : cargo?.loaded ? 'stat-warn' : 'stat-warn';
+    const spd = state ? state.speed : 0;
+    const ratedSpeed = ship.speed || 16;
+    const spdLabel = spd > ratedSpeed ? `${spd} kts ⚠` : `${spd} kts`;
+    const aisId = ship.aisId || 'FULL_BROADCAST';
+    const insId = ship.insuranceId || 'FULL_WAR_RISK';
+    const ap = shipAutopilot[ship.id];
+    const apActive = ap && ap.active;
+
+    return `
+      <div class="fm-ship-row ${destroyed ? 'destroyed' : ''}" data-fm-ship="${ship.id}">
+        <div class="fm-ship-header">
+          <span class="fm-ship-name">${ship.name}</span>
+          <div class="fm-ship-badges">
+            <span class="stat">${(ship.cargoType || 'oil').toUpperCase()}</span>
+            <span class="stat">${(ship.capacity / 1000).toFixed(0)}K</span>
+            <span class="stat ${hp > 70 ? 'stat-good' : hp > 40 ? 'stat-warn' : 'stat-bad'}">HP:${hp}%</span>
+            <span class="stat ${cargoClass}">${cargoText}</span>
+          </div>
+        </div>
+        <div class="fm-controls">
+          <div class="fm-control-group">
+            <div class="fm-control-label">SPEED</div>
+            <div class="fm-speed-row">
+              <button class="btn btn-small fm-spd-down" data-sid="${ship.id}">-</button>
+              <span class="fm-speed-val" id="fm-spd-${ship.id}">${spdLabel}</span>
+              <button class="btn btn-small fm-spd-up" data-sid="${ship.id}">+</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">AIS</div>
+            <div class="fm-btn-group">
+              <button class="btn btn-small fm-ais-btn ${aisId === 'FULL_BROADCAST' ? 'active' : ''}" data-sid="${ship.id}" data-ais="FULL_BROADCAST">FULL</button>
+              <button class="btn btn-small fm-ais-btn ${aisId === 'REDUCED' ? 'active' : ''}" data-sid="${ship.id}" data-ais="REDUCED">RED</button>
+              <button class="btn btn-small fm-ais-btn ${aisId === 'DARK' ? 'active' : ''}" data-sid="${ship.id}" data-ais="DARK">DARK</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">INSURANCE</div>
+            <div class="fm-btn-group">
+              <button class="btn btn-small fm-ins-btn ${insId === 'FULL_WAR_RISK' ? 'active' : ''}" data-sid="${ship.id}" data-ins="FULL_WAR_RISK">WAR</button>
+              <button class="btn btn-small fm-ins-btn ${insId === 'STANDARD_MARINE' ? 'active' : ''}" data-sid="${ship.id}" data-ins="STANDARD_MARINE">STD</button>
+              <button class="btn btn-small fm-ins-btn ${insId === 'NONE' ? 'active' : ''}" data-sid="${ship.id}" data-ins="NONE">NONE</button>
+            </div>
+          </div>
+          <div class="fm-control-group">
+            <div class="fm-control-label">UPGRADES</div>
+            <div class="fm-upgrades">
+              ${state && state.totalDamage > 0 ? `<button class="btn btn-small fm-repair-btn" data-sid="${ship.id}">REPAIR</button>` : ''}
+              ${!ship.engineUpgrade ? `<button class="btn btn-small fm-engine-btn" data-sid="${ship.id}" ${cash < 25000000 ? 'disabled' : ''}>ENG</button>` : '<button class="btn btn-small owned" disabled>ENG</button>'}
+              ${!ship.defenseUpgrade ? `<button class="btn btn-small fm-def-btn" data-sid="${ship.id}" ${cash < 20000000 ? 'disabled' : ''}>DEF</button>` : '<button class="btn btn-small owned" disabled>DEF</button>'}
+              <button class="btn btn-small fm-ap-btn ${apActive ? 'owned' : ''}" data-sid="${ship.id}">${apActive ? 'AP ON' : ship.hasAutopilot ? 'AP OFF' : 'AP'}</button>
+            </div>
+          </div>
+        </div>
+        ${apActive || ship.hasAutopilot ? `
+        <div class="fm-ap-row" style="margin-top:6px;">
+          <span class="fm-control-label" style="margin-right:4px;">ROUTE:</span>
+          <select class="fm-ap-terminal" data-sid="${ship.id}"></select>
+          <span style="color:var(--text-muted);font-size:9px;">→</span>
+          <select class="fm-ap-dropoff" data-sid="${ship.id}"></select>
+          <button class="btn btn-small fm-ap-reroute" data-sid="${ship.id}">${apActive ? 'REROUTE' : 'START'}</button>
+        </div>` : ''}
+      </div>`;
+  }).join('');
+
+  // Populate autopilot selects
+  me.fleet.forEach(ship => {
+    const ap = shipAutopilot[ship.id];
+    const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${ship.id}"]`);
+    const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${ship.id}"]`);
+    if (termSel && dropSel) {
+      populateFmApSelect(termSel, dropSel, ship);
+      if (ap && ap.terminal) termSel.value = ap.terminal.id;
+      if (ap && ap.dropoff) dropSel.value = ap.dropoff.id;
+    }
+  });
+
+  // Helper: safe speed label update
+  function updateFmSpeedLabel(sid, st) {
+    const el = document.getElementById(`fm-spd-${sid}`);
+    if (!el) return;
+    const s = getShipData(sid);
+    const rated = s?.speed || 16;
+    const spd = st.speed || 0;
+    el.textContent = spd > rated ? `${spd} kts ⚠` : `${spd} kts`;
+  }
+
+  // Helper: check ship is alive and manageable
+  function fmShipAlive(sid) {
+    const st = shipStates[sid];
+    if (!st || st.destroyed || st.seized) return false;
+    return true;
+  }
+
+  // Wire up event handlers
+  container.querySelectorAll('.fm-spd-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const st = shipStates[sid];
+      st.speed = Math.max(0, Math.round(st.speed || 0) - 1);
+      updateFmSpeedLabel(sid, st);
+    });
+  });
+
+  container.querySelectorAll('.fm-spd-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const st = shipStates[sid];
+      st.speed = Math.min(20, Math.round(st.speed || 0) + 1);
+      updateFmSpeedLabel(sid, st);
+    });
+  });
+
+  container.querySelectorAll('.fm-ais-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const aisKey = btn.dataset.ais;
+      if (!aisKey) return;
+      const aisOpt = options?.aisOptions?.[aisKey];
+      const s = getShipData(sid);
+      if (!s || !aisOpt) return;
+      s.aisId = aisKey;
+      s.aisName = aisOpt.name;
+      container.querySelectorAll(`.fm-ais-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  container.querySelectorAll('.fm-ins-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const insKey = btn.dataset.ins;
+      if (!insKey) return;
+      const insOpt = options?.insuranceOptions?.[insKey];
+      const s = getShipData(sid);
+      if (!s || !insOpt) return;
+      s.insuranceId = insKey;
+      s.insuranceName = insOpt.name;
+      container.querySelectorAll(`.fm-ins-btn[data-sid="${sid}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  container.querySelectorAll('.fm-repair-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const st = shipStates[sid];
+      const s = getShipData(sid);
+      if (!st || !s) return;
+      if (!st.totalDamage || st.totalDamage <= 0) return;
+      const repairCost = Math.round((s.cost || 0) * st.totalDamage * 0.3);
+      if (repairCost <= 0) return;
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < repairCost) return;
+      btn.disabled = true;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
+        if (res?.success) { st.totalDamage = 0; renderFleetManager(); updateFleetPanel(); }
+        else { btn.disabled = false; }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-engine-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const s = getShipData(sid);
+      if (!s || s.engineUpgrade) return;
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < 25000000) return;
+      btn.disabled = true;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'engine', cost: 25000000 }, (res) => {
+        if (res?.success) {
+          // Re-fetch ship data in case game_update replaced the object
+          const fresh = getShipData(sid);
+          if (fresh) { fresh.engineUpgrade = 1; fresh.speed = (fresh.speed || 14) + 4; }
+          renderFleetManager(); updateFleetPanel();
+        } else { btn.disabled = false; }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-def-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const s = getShipData(sid);
+      if (!s || s.defenseUpgrade) return;
+      const me2 = gameState?.players.find(p => p.id === myId);
+      if (!me2 || me2.cash < DEFENSE_COST) return;
+      btn.disabled = true;
+      socket.emit('upgrade_ship', { shipId: sid, type: 'defense', cost: DEFENSE_COST }, (res) => {
+        if (res?.success) {
+          const fresh = getShipData(sid);
+          if (fresh) fresh.defenseUpgrade = 1;
+          renderFleetManager(); updateFleetPanel();
+        } else { btn.disabled = false; }
+      });
+    });
+  });
+
+  container.querySelectorAll('.fm-ap-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const s = getShipData(sid);
+      const st = shipStates[sid];
+      if (!s || !st) return;
+      const ap = shipAutopilot[s.id];
+      if (ap && ap.active) {
+        ap.active = false;
+        shipWaypoints[s.id] = [];
+        st.speed = 0;
+        st.apCoastEscapeTimer = 0;
+        renderFleetManager(); updateFleetPanel();
+        return;
+      }
+      if (!s.hasAutopilot) {
+        const me2 = gameState?.players.find(p => p.id === myId);
+        if (!me2 || me2.cash < 30000000) return;
+        btn.disabled = true;
+        socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 30000000 }, (res) => {
+          if (res?.success) {
+            const fresh = getShipData(sid);
+            if (fresh) fresh.hasAutopilot = true;
+            renderFleetManager(); updateFleetPanel();
+          } else { btn.disabled = false; }
+        });
+      } else {
+        // Engage autopilot using the selects in this row
+        const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
+        const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
+        if (!termSel || !dropSel) return;
+        const terminal = getTerminalById(termSel.value);
+        const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+        if (!terminal) return;
+        shipAutopilot[s.id] = { active: true, terminal, dropoff };
+        st.apCoastEscapeTimer = 0;
+        st.apCoastEscapeHeading = 0;
+        shipWaypoints[s.id] = [];
+        if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        renderFleetManager(); updateFleetPanel();
+      }
+    });
+  });
+
+  container.querySelectorAll('.fm-ap-reroute').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sid = btn.dataset.sid;
+      if (!fmShipAlive(sid)) return;
+      const s = getShipData(sid);
+      const st = shipStates[sid];
+      if (!s || !st) return;
+      const termSel = container.querySelector(`.fm-ap-terminal[data-sid="${sid}"]`);
+      const dropSel = container.querySelector(`.fm-ap-dropoff[data-sid="${sid}"]`);
+      if (!termSel || !dropSel) return;
+      const terminal = getTerminalById(termSel.value);
+      const dropoff = getDropoffById(dropSel.value) || DROPOFF_POINT;
+      if (!terminal) return;
+      const ap = shipAutopilot[s.id];
+      if (ap && ap.active) {
+        // Already active — reroute to new terminals
+        ap.terminal = terminal;
+        ap.dropoff = dropoff;
+        autopilotReroute(s);
+      } else {
+        // Not active — engage autopilot with selected terminals
+        shipAutopilot[s.id] = { active: true, terminal, dropoff };
+        st.apCoastEscapeTimer = 0;
+        st.apCoastEscapeHeading = 0;
+        shipWaypoints[s.id] = [];
+        if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+      }
+      renderFleetManager(); updateFleetPanel();
+    });
+  });
+}
+
+function getShipData(shipId) {
+  const me = gameState?.players.find(p => p.id === myId);
+  return me?.fleet.find(s => s.id === shipId);
+}
+
+function populateFmApSelect(termSel, dropSel, ship) {
+  termSel.innerHTML = '';
+  const cargoType = ship.cargoType || 'oil';
+  const isLng = cargoType === 'lng';
+  const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  const byRegion = {};
+  for (const t of exports) {
+    const region = t.region || 'other';
+    if (!byRegion[region]) byRegion[region] = [];
+    byRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(byRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      grp.appendChild(opt);
+    }
+    termSel.appendChild(grp);
+  }
+  dropSel.innerHTML = '';
+  const imports = Object.values(IMPORT_TERMINALS);
+  const impByRegion = {};
+  for (const t of imports) {
+    const region = t.region || 'other';
+    if (!impByRegion[region]) impByRegion[region] = [];
+    impByRegion[region].push(t);
+  }
+  for (const [region, terminals] of Object.entries(impByRegion)) {
+    const grp = document.createElement('optgroup');
+    grp.label = TERMINAL_REGIONS[region] || region;
+    for (const t of terminals) {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      grp.appendChild(opt);
+    }
+    dropSel.appendChild(grp);
+  }
 }
 
 // ============================================
@@ -722,6 +1219,8 @@ function enterGame() {
   simGameTime = 0;
   zoneCooldowns = {};
   lastEventCheck = 0;
+  campaignEnded = false;
+  campaignStats = { totalProfit: 0, totalRevenue: 0, totalCosts: 0, deliveries: 0, shipsBought: 0, shipsLost: 0, totalDamageTaken: 0, missileEvents: 0 };
 
 
   const me = gameState.players.find(p => p.id === myId);
@@ -749,9 +1248,12 @@ function enterGame() {
   requestAnimationFrame(transitLoop);
 }
 
-function spawnShipState(ship) {
-  const lat = SIM_CONFIG.SPAWN_LAT + (Math.random() - 0.5) * 0.3;
-  const lon = SIM_CONFIG.SPAWN_LON + (Math.random() - 0.5) * 0.3;
+function spawnShipState(ship, spawnLat, spawnLon) {
+  const baseLat = spawnLat != null ? spawnLat : SIM_CONFIG.SPAWN_LAT;
+  const baseLon = spawnLon != null ? spawnLon : SIM_CONFIG.SPAWN_LON;
+  const pos = randomWaterPos(baseLat - 0.15, baseLat + 0.15, baseLon - 0.15, baseLon + 0.15, 50);
+  const lat = pos.lat;
+  const lon = pos.lon;
   shipStates[ship.id] = {
     lat, lon, heading: 270, targetHeading: 270, speed: 0,
     health: ship.health, totalDamage: 0, totalMoneyLoss: 0, totalDelay: 0,
@@ -920,7 +1422,7 @@ function addWaypointForSelectedShip(target) {
   const state = shipStates[selectedShipId];
   if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); }
   if (wps.length === 1) {
-    state.targetHeading = normalizeAngle(Math.atan2(target.lon - state.lon, target.lat - state.lat) * 180 / Math.PI);
+    state.targetHeading = headingToTarget(state.lat, state.lon, target.lat, target.lon);
   }
 }
 
@@ -931,9 +1433,12 @@ function openShipPurchaseModal() {
   if (!options) return;
   const modal = document.getElementById('ship-purchase-modal');
   modal.classList.remove('hidden');
-  modalShipTypeId = null; modalAisId = null; modalInsuranceId = null;
+  modalShipTypeId = null; modalAisId = 'FULL_BROADCAST'; modalInsuranceId = 'FULL_WAR_RISK'; modalSpawnTerminalId = null;
   document.getElementById('modal-step-ship').classList.remove('hidden');
-  document.getElementById('modal-step-config').classList.add('hidden');
+  document.getElementById('modal-step-spawn').classList.add('hidden');
+  // Hide config step entirely — AIS/insurance managed from ship dashboard
+  const configStep = document.getElementById('modal-step-config');
+  if (configStep) configStep.classList.add('hidden');
 
   const me = gameState.players.find(p => p.id === myId);
   const shipList = document.getElementById('modal-ship-list');
@@ -956,54 +1461,78 @@ function openShipPurchaseModal() {
       const key = card.dataset.typeKey;
       if ((me?.cash || 0) < options.shipTypes[key].cost) { showError('Cannot afford'); return; }
       modalShipTypeId = key;
-      showModalConfigStep(options.shipTypes[key]);
+      // Go straight to spawn location selection
+      showModalSpawnStep();
     });
   });
 }
 
-function showModalConfigStep(shipType) {
+function showModalSpawnStep() {
   document.getElementById('modal-step-ship').classList.add('hidden');
-  document.getElementById('modal-step-config').classList.remove('hidden');
-  document.getElementById('modal-ship-name').textContent = shipType.name;
-  modalAisId = null; modalInsuranceId = null;
+  const configStep = document.getElementById('modal-step-config');
+  if (configStep) configStep.classList.add('hidden');
+  document.getElementById('modal-step-spawn').classList.remove('hidden');
 
-  const aisList = document.getElementById('modal-ais-list');
-  aisList.innerHTML = Object.entries(options.aisOptions).map(([key, opt]) => {
-    const detClass = opt.detectionMultiplier <= 0.5 ? 'stat-good' : opt.detectionMultiplier >= 1.2 ? 'stat-bad' : 'stat-warn';
-    return `<div class="option-card" data-ais-key="${key}">
-      <div class="option-name">${opt.name}</div>
-      <div class="option-desc">${opt.description}</div>
-      <div class="option-stats">
-        <span class="stat ${detClass}">Detection: ${opt.detectionMultiplier}x</span>
-        ${opt.legalPenalty > 0 ? `<span class="stat stat-bad">Fine: ${formatMoney(opt.legalPenalty)}</span>` : ''}
+  // All terminals organized by region with dropdown selectors
+  const allTerminals = Object.values(OIL_TERMINALS);
+  const byRegion = {};
+  for (const t of allTerminals) {
+    const region = t.region || 'other';
+    if (!byRegion[region]) byRegion[region] = [];
+    byRegion[region].push(t);
+  }
+
+  const spawnList = document.getElementById('modal-spawn-list');
+  modalSpawnTerminalId = null;
+  let html = '';
+  for (const [region, terminals] of Object.entries(byRegion)) {
+    const regionName = TERMINAL_REGIONS[region] || region;
+    html += `<div class="spawn-region">
+      <div class="spawn-region-header" data-region="${region}">
+        <span class="spawn-region-toggle">&#9654;</span> ${regionName} <span class="spawn-region-count">(${terminals.length})</span>
+      </div>
+      <div class="spawn-region-body hidden" data-region-body="${region}">
+        ${terminals.map(t => {
+          const roleLabel = t.role === 'import' ? 'IMPORT' : 'EXPORT';
+          const priceInfo = t.role === 'import'
+            ? `Sell $${t.sellPrice || '?'}/bbl`
+            : `Buy $${t.buyPrice || '?'}/bbl`;
+          return `<div class="option-card" data-spawn-id="${t.id}" data-spawn-lat="${t.lat}" data-spawn-lon="${t.lon}">
+            <div class="option-name">${t.name}</div>
+            <div class="option-desc">${t.country || ''} — ${roleLabel} — ${priceInfo}</div>
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
-  }).join('');
-  aisList.querySelectorAll('.option-card').forEach(card => {
-    card.addEventListener('click', () => {
-      aisList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-      modalAisId = card.dataset.aisKey;
+  }
+  spawnList.innerHTML = html;
+
+  // Region toggle behavior
+  spawnList.querySelectorAll('.spawn-region-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const region = header.dataset.region;
+      const body = spawnList.querySelector(`[data-region-body="${region}"]`);
+      const toggle = header.querySelector('.spawn-region-toggle');
+      if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        toggle.innerHTML = '&#9660;';
+      } else {
+        body.classList.add('hidden');
+        toggle.innerHTML = '&#9654;';
+      }
     });
   });
 
-  const insList = document.getElementById('modal-insurance-list');
-  insList.innerHTML = Object.entries(options.insuranceOptions).map(([key, opt]) => `
-    <div class="option-card" data-ins-key="${key}">
-      <div class="option-name">${opt.name}</div>
-      <div class="option-desc">${opt.description}</div>
-      <div class="option-stats">
-        <span class="stat">${(opt.weeklyPremiumPercent * 100).toFixed(1)}%/week</span>
-        <span class="stat ${opt.coveragePercent >= 0.8 ? 'stat-good' : opt.coveragePercent > 0 ? 'stat-warn' : 'stat-bad'}">
-          ${Math.round(opt.coveragePercent * 100)}% coverage
-        </span>
-      </div>
-    </div>`).join('');
-  insList.querySelectorAll('.option-card').forEach(card => {
+  // Terminal selection
+  spawnList.querySelectorAll('.option-card').forEach(card => {
     card.addEventListener('click', () => {
-      insList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      spawnList.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
-      modalInsuranceId = card.dataset.insKey;
+      modalSpawnTerminalId = {
+        id: card.dataset.spawnId,
+        lat: parseFloat(card.dataset.spawnLat),
+        lon: parseFloat(card.dataset.spawnLon)
+      };
     });
   });
 }
@@ -1014,17 +1543,27 @@ function closeShipPurchaseModal() {
 
 document.getElementById('modal-cancel').addEventListener('click', closeShipPurchaseModal);
 
+// Legacy step 2 → step 3 button — now hidden, but keep listener to avoid errors
+const modalToSpawnBtn = document.getElementById('modal-to-spawn');
+if (modalToSpawnBtn) {
+  modalToSpawnBtn.addEventListener('click', () => { showModalSpawnStep(); });
+}
+
 document.getElementById('modal-confirm-buy').addEventListener('click', () => {
-  if (!modalShipTypeId || !modalAisId || !modalInsuranceId) {
-    showError('Select AIS and insurance'); return;
+  if (!modalShipTypeId) {
+    showError('Select a ship type'); return;
+  }
+  if (!modalSpawnTerminalId) {
+    showError('Select a spawn location'); return;
   }
   socket.emit('buy_ship', {
     shipTypeId: modalShipTypeId, aisId: modalAisId, insuranceId: modalInsuranceId
   }, (res) => {
     if (res.success) {
       closeShipPurchaseModal();
+      campaignStats.shipsBought++;
       if (res.ship) {
-        spawnShipState(res.ship);
+        spawnShipState(res.ship, modalSpawnTerminalId.lat, modalSpawnTerminalId.lon);
         selectedShipId = res.ship.id;
         centerViewportOn(shipStates[res.ship.id].lat, shipStates[res.ship.id].lon);
       }
@@ -1046,9 +1585,13 @@ const NPC_STATE = {
   WAITING_SAFE: 'waiting_safe', // anchored outside danger zone, waiting for conditions to improve
 };
 
-// Safe anchorage zone — Gulf of Oman only
+// Safe anchorage zones — worldwide
 const SAFE_ANCHORAGES = [
   { lat: 24.5, lon: 57.8, name: 'Gulf of Oman' },
+  { lat: 1.2, lon: 104.0, name: 'Singapore Strait' },
+  { lat: 36.0, lon: 14.5, name: 'Central Mediterranean' },
+  { lat: 28.5, lon: -89.0, name: 'US Gulf Anchorage' },
+  { lat: -33.5, lon: 18.0, name: 'Cape Town Roads' },
 ];
 
 const NPC_SHIP_NAMES = [
@@ -1058,6 +1601,11 @@ const NPC_SHIP_NAMES = [
   'Pearl Venture', 'Crimson Tide', 'Blue Marlin', 'Iron Duke',
   'Swift Arrow', 'Amber Sun', 'Jade Empress', 'Ruby Crown',
   'Sapphire Wave', 'Diamond Crest', 'Emerald Bay', 'Crystal Sea',
+  'Atlantic Star', 'Rio Grande', 'Cape Runner', 'Nordic Spirit',
+  'Lagos Express', 'Maracaibo Sun', 'Bayou Queen', 'Texas Titan',
+  'Amazon Dawn', 'Bonny Light', 'Suez Passage', 'Panama Pride',
+  'North Star', 'Caspian Wind', 'Baltic Trader', 'Aegean Wave',
+  'Orinoco Dream', 'Alaskan Valor', 'Gulf Stream', 'Bering Scout',
 ];
 let npcNameIndex = 0;
 
@@ -1073,26 +1621,254 @@ function randomWaterPos(latMin, latMax, lonMin, lonMax, maxTries) {
 
 // Pick a random global dropoff point
 function randomDropoff() {
-  const all = Object.values(DROPOFF_POINTS);
+  const all = Object.values(IMPORT_TERMINALS);
   return all[Math.floor(Math.random() * all.length)];
 }
 
 // Global NPC spawn zones — spread NPCs across major shipping lanes
 const NPC_SPAWN_ZONES = [
-  { latMin: 24.0, latMax: 27.0, lonMin: 53.0, lonMax: 58.0 },   // Persian Gulf
-  { latMin: 0.0, latMax: 5.0, lonMin: 98.0, lonMax: 105.0 },     // Malacca Strait
-  { latMin: 8.0, latMax: 15.0, lonMin: 68.0, lonMax: 78.0 },     // Arabian Sea
-  { latMin: 28.0, latMax: 33.0, lonMin: 120.0, lonMax: 124.0 },   // East China Sea
-  { latMin: 12.0, latMax: 16.0, lonMin: 42.0, lonMax: 46.0 },     // Bab el-Mandeb
-  { latMin: 34.0, latMax: 38.0, lonMin: 10.0, lonMax: 20.0 },     // Mediterranean
-  { latMin: -2.0, latMax: 5.0, lonMin: 40.0, lonMax: 50.0 },      // East Africa
+  // Middle East / Indian Ocean
+  { latMin: 24.0, latMax: 27.0, lonMin: 53.0, lonMax: 58.0 },     // Persian Gulf / Hormuz
+  { latMin: 8.0, latMax: 15.0, lonMin: 68.0, lonMax: 78.0 },      // Arabian Sea
+  { latMin: 12.0, latMax: 16.0, lonMin: 42.0, lonMax: 46.0 },     // Bab el-Mandeb / Red Sea
+  // Asia / Pacific
+  { latMin: 0.0, latMax: 5.0, lonMin: 98.0, lonMax: 105.0 },      // Malacca Strait
+  { latMin: 28.0, latMax: 33.0, lonMin: 120.0, lonMax: 124.0 },    // East China Sea
+  { latMin: 5.0, latMax: 12.0, lonMin: 108.0, lonMax: 118.0 },     // South China Sea
+  // Mediterranean / Europe
+  { latMin: 34.0, latMax: 38.0, lonMin: 10.0, lonMax: 20.0 },      // Mediterranean
+  { latMin: 29.0, latMax: 31.5, lonMin: 31.0, lonMax: 34.0 },      // Suez Canal
+  { latMin: 48.0, latMax: 52.0, lonMin: -5.0, lonMax: 4.0 },       // English Channel
+  { latMin: 57.0, latMax: 62.0, lonMin: 2.0, lonMax: 10.0 },       // North Sea
+  // Africa
+  { latMin: -2.0, latMax: 5.0, lonMin: 40.0, lonMax: 50.0 },       // East Africa
+  { latMin: 2.0, latMax: 6.0, lonMin: 3.0, lonMax: 8.0 },          // Gulf of Guinea / Nigeria
+  { latMin: -35.0, latMax: -30.0, lonMin: 16.0, lonMax: 22.0 },    // Cape of Good Hope
+  // Americas
+  { latMin: 27.0, latMax: 30.0, lonMin: -97.0, lonMax: -88.0 },    // US Gulf Coast
+  { latMin: 8.0, latMax: 12.0, lonMin: -80.0, lonMax: -64.0 },     // Caribbean / Venezuela
+  { latMin: -25.0, latMax: -20.0, lonMin: -46.0, lonMax: -40.0 },   // Brazil
+  { latMin: 7.0, latMax: 10.0, lonMin: -81.0, lonMax: -78.0 },     // Panama Canal
 ];
+
+// ============================================
+// OCEAN WAYPOINT GRAPH — NPC route planning
+// ============================================
+// Waypoints at key ocean locations; NPCs navigate through these to avoid land
+const OCEAN_NODES = [
+  // Persian Gulf (dense waypoints for complex coastline)
+  { id: 'gulf_nw', lat: 29.4, lon: 48.5 },
+  { id: 'gulf_w', lat: 28.0, lon: 50.0 },
+  { id: 'gulf', lat: 27.0, lon: 50.0 },
+  { id: 'gulf_central', lat: 26.5, lon: 52.0 },
+  { id: 'gulf_qatar_e', lat: 25.5, lon: 53.0 },
+  { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
+  { id: 'hormuz_ch', lat: 26.5, lon: 57.0 },
+  { id: 'hormuz', lat: 26.5, lon: 56.5 },
+  { id: 'gulf_oman', lat: 25.5, lon: 58.5 },
+  { id: 'oman_se', lat: 24.5, lon: 59.0 },
+  { id: 'oman', lat: 24.0, lon: 60.0 },
+  // Indian Ocean
+  { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
+  { id: 'mumbai_app', lat: 18.5, lon: 71.0 },
+  { id: 'india_w', lat: 15.0, lon: 70.0 },
+  { id: 'india_s', lat: 5.0, lon: 76.0 },
+  { id: 'ceylon_e', lat: 5.5, lon: 83.0 },
+  // Red Sea / Suez — Bab el-Mandeb corridor
+  { id: 'bab_s', lat: 11.8, lon: 43.3 },    // south approach — Gulf of Aden side
+  { id: 'bab', lat: 12.4, lon: 43.3 },       // strait center — shifted west into channel
+  { id: 'bab_n', lat: 13.5, lon: 42.5 },     // north exit — open Red Sea
+  { id: 'red_sea', lat: 20.0, lon: 38.5 },
+  { id: 'red_sea_n', lat: 25.5, lon: 35.0 },
+  { id: 'suez_app', lat: 28.5, lon: 33.2 },
+  { id: 'suez_s', lat: 30.0, lon: 32.5 },
+  { id: 'suez_n', lat: 31.5, lon: 32.2 },
+  // Mediterranean / Europe
+  { id: 'med_e', lat: 34.0, lon: 28.0 },
+  { id: 'med_c', lat: 36.0, lon: 15.0 },
+  { id: 'sicily_ch', lat: 38.0, lon: 12.0 },
+  { id: 'med_w', lat: 38.0, lon: 3.0 },
+  { id: 'gib_strait', lat: 35.97, lon: -5.4 },
+  { id: 'gibraltar', lat: 36.1, lon: -6.2 },
+  { id: 'biscay', lat: 45.0, lon: -8.0 },
+  { id: 'channel', lat: 50.0, lon: -2.0 },
+  { id: 'dover', lat: 51.0, lon: 1.5 },
+  { id: 'north_sea', lat: 58.0, lon: 3.0 },
+  { id: 'skagerrak', lat: 57.8, lon: 9.5 },
+  { id: 'kattegat', lat: 56.5, lon: 11.0 },
+  { id: 'baltic_south', lat: 55.0, lon: 16.0 },
+  { id: 'baltic_east', lat: 57.5, lon: 20.0 },
+  { id: 'baltic', lat: 59.5, lon: 24.0 },
+  { id: 'primorsk_app', lat: 59.8, lon: 27.0 },
+  // Africa
+  { id: 'guinea', lat: 3.0, lon: -6.0 },  // offshore Ivory Coast/Liberia
+  { id: 'gulf_guinea', lat: 1.0, lon: -1.0 },  // offshore Gulf of Guinea — avoids West African coast bulge
+  { id: 'w_africa', lat: 4.0, lon: 3.0 },
+  { id: 'cameroon', lat: 3.5, lon: 9.5 },
+  { id: 'gabon', lat: -1.0, lon: 8.5 },
+  { id: 'e_africa', lat: 0.0, lon: 45.0 },
+  { id: 'angola', lat: -8.0, lon: 12.0 },
+  { id: 'namibia', lat: -22.0, lon: 10.0 },
+  { id: 'mozambique', lat: -15.0, lon: 42.0 },
+  { id: 'madagascar_s', lat: -25.0, lon: 47.0 },
+  { id: 'cape', lat: -34.5, lon: 18.5 },
+  // Atlantic
+  { id: 'atl_n', lat: 40.0, lon: -35.0 },
+  { id: 'atl_s', lat: -10.0, lon: -20.0 },
+  // Americas
+  { id: 'us_east', lat: 38.0, lon: -72.0 },
+  { id: 'florida_east', lat: 27.0, lon: -79.0 },
+  { id: 'florida_str', lat: 24.0, lon: -81.5 },
+  { id: 'us_gulf', lat: 28.0, lon: -90.0 },
+  { id: 'caribbean', lat: 15.0, lon: -70.0 },
+  { id: 'trinidad', lat: 11.0, lon: -62.0 },
+  { id: 'venezuela', lat: 11.0, lon: -66.0 },
+  { id: 'panama_c', lat: 9.4, lon: -79.6 },
+  { id: 'panama_p', lat: 7.5, lon: -79.6 },   // Pacific side — clear of canal/land
+  { id: 'brazil', lat: -23.0, lon: -42.0 },
+  { id: 'alaska', lat: 59.0, lon: -148.0 },
+  { id: 'alaska_pws', lat: 60.3, lon: -147.0 },  // Prince William Sound approach for Valdez
+  { id: 'pac_n', lat: 45.0, lon: -155.0 },
+  // Asia Pacific
+  { id: 'andaman', lat: 8.0, lon: 96.0 },
+  { id: 'malacca_n', lat: 5.5, lon: 97.5 },   // north entrance — off NW Sumatra tip
+  { id: 'malacca', lat: 2.5, lon: 100.0 },     // mid-strait — shifted west to stay in water
+  { id: 'malacca_se', lat: 0.5, lon: 103.5 },  // south exit — open water south of Singapore
+  { id: 'singapore', lat: 1.3, lon: 104.0 },
+  { id: 'gulf_thai', lat: 7.5, lon: 103.0 },
+  { id: 'natuna', lat: 3.0, lon: 108.0 },
+  { id: 'scs_south', lat: 7.0, lon: 112.0 },
+  { id: 'scs', lat: 12.0, lon: 114.0 },
+  { id: 'ecs', lat: 30.0, lon: 123.0 },
+  { id: 'korea', lat: 34.0, lon: 129.5 },
+  { id: 'japan', lat: 35.0, lon: 140.0 },
+];
+
+// Adjacency — pairs of connected waypoint IDs
+const OCEAN_EDGES = [
+  // Persian Gulf internal corridors
+  ['gulf_nw', 'gulf_w'], ['gulf_w', 'gulf'], ['gulf_nw', 'gulf'],
+  ['gulf', 'gulf_central'], ['gulf_central', 'gulf_qatar_e'],
+  ['gulf_qatar_e', 'gulf_uae'], ['gulf_uae', 'hormuz_ch'],
+  ['hormuz_ch', 'hormuz'], ['gulf_central', 'gulf_uae'],
+  // Strait of Hormuz to Gulf of Oman
+  ['hormuz_ch', 'hormuz'],
+  ['hormuz_ch', 'gulf_oman'], ['gulf_oman', 'oman_se'],
+  ['oman_se', 'oman'],
+  // Indian Ocean
+  ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
+  ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
+  // Red Sea route — Bab el-Mandeb corridor
+  ['arabian_sea', 'bab_s'], ['bab_s', 'bab'], ['bab', 'bab_n'],
+  ['bab_n', 'red_sea'], ['red_sea', 'red_sea_n'],
+  ['red_sea_n', 'suez_app'], ['suez_app', 'suez_s'],
+  ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
+  // East Africa
+  ['bab_s', 'e_africa'], ['e_africa', 'arabian_sea'],
+  // Mediterranean
+  ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
+  ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
+  ['gib_strait', 'gibraltar'],
+  // Europe
+  ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
+  ['dover', 'north_sea'],
+  ['north_sea', 'skagerrak'], ['skagerrak', 'kattegat'],
+  ['kattegat', 'baltic_south'],
+  ['baltic_south', 'baltic_east'], ['baltic_east', 'baltic'],
+  ['baltic', 'primorsk_app'],
+  // Atlantic crossings
+  ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
+  ['atl_n', 'atl_s'], ['gibraltar', 'guinea'],
+  // West Africa — coastal route avoids cutting across land
+  ['guinea', 'gulf_guinea'], ['gulf_guinea', 'w_africa'],  // route around West African coast
+  ['gulf_guinea', 'gabon'], ['gulf_guinea', 'atl_s'],      // offshore shortcuts
+  ['guinea', 'atl_n'], ['guinea', 'atl_s'],
+  ['w_africa', 'cameroon'], ['cameroon', 'gabon'],
+  ['gabon', 'angola'], ['angola', 'namibia'], ['namibia', 'cape'],
+  ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
+  ['angola', 'atl_s'],
+  // East Africa — Cape route to Indian Ocean
+  ['cape', 'madagascar_s'], ['madagascar_s', 'mozambique'],
+  ['mozambique', 'e_africa'],
+  // Americas (route around Florida via florida_str)
+  ['us_east', 'florida_east'], ['florida_east', 'florida_str'],
+  ['florida_str', 'us_gulf'],
+  ['us_east', 'caribbean'], ['florida_east', 'caribbean'],
+  ['florida_str', 'caribbean'],
+  ['caribbean', 'venezuela'], ['caribbean', 'panama_c'], ['florida_str', 'panama_c'],
+  ['caribbean', 'trinidad'], ['trinidad', 'venezuela'],
+  ['panama_c', 'panama_p'],
+  ['atl_s', 'brazil'], ['brazil', 'cape'],
+  // Pacific — full circumnavigation routes
+  ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['alaska', 'alaska_pws'], ['pac_n', 'japan'],
+  // Asia — Malacca Strait corridor (north entrance → mid-strait → south exit)
+  ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
+  ['andaman', 'malacca_n'], ['malacca_n', 'malacca'], ['malacca', 'malacca_se'],
+  ['malacca_se', 'singapore'],
+  // East connections — bypass Malacca for SCS traffic
+  ['singapore', 'gulf_thai'], ['gulf_thai', 'natuna'],
+  ['singapore', 'natuna'], ['natuna', 'scs_south'], ['scs_south', 'scs'],
+  ['gulf_thai', 'scs_south'], ['malacca_se', 'natuna'],
+  ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
+];
+
+// Build adjacency list
+const OCEAN_ADJ = {};
+for (const n of OCEAN_NODES) OCEAN_ADJ[n.id] = [];
+for (const [a, b] of OCEAN_EDGES) {
+  OCEAN_ADJ[a].push(b);
+  OCEAN_ADJ[b].push(a);
+}
+
+// Find nearest waypoint to a lat/lon (handles longitude wrapping)
+function nearestWaypoint(lat, lon) {
+  let best = OCEAN_NODES[0], bestD = Infinity;
+  for (const n of OCEAN_NODES) {
+    let dLon = n.lon - lon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    const d = (n.lat - lat) ** 2 + dLon * dLon;
+    if (d < bestD) { bestD = d; best = n; }
+  }
+  return best;
+}
+
+// BFS shortest path between two waypoint IDs
+function bfsRoute(startId, endId) {
+  if (startId === endId) return [];
+  const visited = new Set([startId]);
+  const queue = [[startId]];
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const curr = path[path.length - 1];
+    for (const next of (OCEAN_ADJ[curr] || [])) {
+      if (next === endId) return [...path.slice(1), next]; // exclude start
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push([...path, next]);
+      }
+    }
+  }
+  return []; // no path found
+}
+
+// Compute waypoint route from (lat,lon) to (lat,lon)
+function computeOceanRoute(fromLat, fromLon, toLat, toLon) {
+  const startNode = nearestWaypoint(fromLat, fromLon);
+  const endNode = nearestWaypoint(toLat, toLon);
+  // If close enough, just go direct
+  if (distanceDeg(fromLat, fromLon, toLat, toLon) < 2) return [];
+  const nodeIds = bfsRoute(startNode.id, endNode.id);
+  const nodeMap = {};
+  for (const n of OCEAN_NODES) nodeMap[n.id] = n;
+  return nodeIds.map(id => ({ lat: nodeMap[id].lat, lon: nodeMap[id].lon }));
+}
 
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
   // Pick a terminal matching the ship's cargo type
-  const allTerminals = Object.values(OIL_TERMINALS);
-  const matchingTerminals = allTerminals.filter(t => (t.cargoType || 'oil') === type.cargoType);
+  const exportTerminals = Object.values(EXPORT_TERMINALS);
+  const matchingTerminals = exportTerminals.filter(t => (t.cargoType || 'oil') === type.cargoType);
   const terminal = matchingTerminals[Math.floor(Math.random() * matchingTerminals.length)];
   const speed = type.speed + (Math.random() - 0.5) * 2;
   const shipName = NPC_SHIP_NAMES[npcNameIndex % NPC_SHIP_NAMES.length];
@@ -1119,8 +1895,10 @@ function createNPCTanker(staggered) {
     waitTimer: 0,
     safeAnchorage: null,
     loadTimer: 0, wanderTimer: 5 + Math.random() * 10, wanderOffset: 0, stuckCount: 0,
-    coastEscapeTimer: 0, coastEscapeHeading: 0,
+    coastEscapeTimer: 0, coastEscapeHeading: 0, progressTimer: 0, progressLat: 0, progressLon: 0,
     trail: [],
+    route: [],     // waypoint route [{lat,lon}, ...]
+    routeIdx: 0,   // current waypoint index
   };
 
   // Place based on state
@@ -1133,18 +1911,25 @@ function createNPCTanker(staggered) {
     npc.lat = dp.lat; npc.lon = dp.lon; npc.speed = 0;
     npc.loadTimer = 8 + Math.random() * 12;
   } else if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-    // Place somewhere along a shipping lane
     const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, terminal.lat, terminal.lon);
+    npc.route = computeOceanRoute(npc.lat, npc.lon, terminal.lat, terminal.lon);
+    npc.route.push({ lat: terminal.lat, lon: terminal.lon });
+    npc.routeIdx = 0;
+    const wp = npc.route[0];
+    npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
     npc.targetHeading = npc.heading;
   } else {
-    // HEADING_TO_DROPOFF — place somewhere along route to dropoff
+    // HEADING_TO_DROPOFF
     const zone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
     const mp = randomWaterPos(zone.latMin, zone.latMax, zone.lonMin, zone.lonMax);
     npc.lat = mp.lat; npc.lon = mp.lon;
-    npc.heading = headingToTarget(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
+    npc.route = computeOceanRoute(npc.lat, npc.lon, dropoff.lat, dropoff.lon);
+    npc.route.push({ lat: dropoff.lat, lon: dropoff.lon });
+    npc.routeIdx = 0;
+    const wp = npc.route[0];
+    npc.heading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
     npc.targetHeading = npc.heading;
   }
   return npc;
@@ -1175,17 +1960,31 @@ function spawnMilitaryShips() {
 }
 
 function headingToTarget(fromLat, fromLon, toLat, toLon) {
-  return normalizeAngle(Math.atan2(toLon - fromLon, toLat - fromLat) * 180 / Math.PI);
+  let dLon = toLon - fromLon;
+  if (dLon > 180) dLon -= 360;
+  if (dLon < -180) dLon += 360;
+  return normalizeAngle(Math.atan2(dLon, toLat - fromLat) * 180 / Math.PI);
+}
+
+function wrapLon(lon) {
+  while (lon > 180) lon -= 360;
+  while (lon < -180) lon += 360;
+  return lon;
 }
 
 function distanceDeg(lat1, lon1, lat2, lon2) {
-  return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
+  let dLon = lon2 - lon1;
+  // Shortest path around the globe
+  if (dLon > 180) dLon -= 360;
+  if (dLon < -180) dLon += 360;
+  return Math.sqrt(Math.pow(lat1 - lat2, 2) + dLon * dLon);
 }
 
-// Autopilot route is simply the destination waypoint.
-// Land avoidance is handled reactively (same as NPC ships) during movement.
+// Autopilot route uses the ocean waypoint graph (same as NPC ships).
 function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
-  return [{ lat: toLat, lon: toLon }];
+  const route = computeOceanRoute(fromLat, fromLon, toLat, toLon);
+  route.push({ lat: toLat, lon: toLon });
+  return route;
 }
 
 function npcShouldSeekSafety(npc) {
@@ -1231,11 +2030,13 @@ function updateNPCShips(dt, elapsed) {
             npc.speed = npc.baseSpeed || 13;
             npc.state = npc.savedState || NPC_STATE.HEADING_TO_TERMINAL;
             npc._cautionChecked = false;
-            if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
-            } else {
-              npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
-            }
+            // Recompute route from current position
+            const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+            npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
+            npc.route.push({ lat: dest.lat, lon: dest.lon });
+            npc.routeIdx = 0;
+            const wp = npc.route[0];
+            npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
           }
         }
         continue;
@@ -1249,15 +2050,23 @@ function updateNPCShips(dt, elapsed) {
         npc.speed = npc.baseSpeed || 13;
         if (npc.state === NPC_STATE.LOADING) {
           npc.state = NPC_STATE.HEADING_TO_DROPOFF;
-          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
+          npc.route = computeOceanRoute(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
+          npc.route.push({ lat: npc.dropoff.lat, lon: npc.dropoff.lon });
+          npc.routeIdx = 0;
+          const wp = npc.route[0];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
         } else {
           // Pick new terminal and new dropoff for return trip
-          const allT = Object.values(OIL_TERMINALS);
+          const allT = Object.values(EXPORT_TERMINALS);
           const matching = allT.filter(t => (t.cargoType || 'oil') === npc.cargoType);
           npc.targetTerminal = matching[Math.floor(Math.random() * matching.length)];
           npc.dropoff = randomDropoff();
           npc.state = NPC_STATE.HEADING_TO_TERMINAL;
-          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+          npc.route = computeOceanRoute(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
+          npc.route.push({ lat: npc.targetTerminal.lat, lon: npc.targetTerminal.lon });
+          npc.routeIdx = 0;
+          const wp = npc.route[0];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
         }
         npc.wanderOffset = 0;
         npc._cautionChecked = false; // re-evaluate caution on new leg
@@ -1291,19 +2100,58 @@ function updateNPCShips(dt, elapsed) {
       }
     }
 
-    // Moving states — check arrival
-    if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
-      const t = npc.targetTerminal;
-      if (distanceDeg(npc.lat, npc.lon, t.lat, t.lon) < (t.loadRadius || 0.15)) {
-        npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 25; npc.speed = 0; continue;
+    // Moving states — follow waypoint route, check arrival
+    if (npc.state === NPC_STATE.HEADING_TO_TERMINAL || npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
+      // Check arrival at final destination
+      const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+      const arriveR = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? (dest.loadRadius || 0.15) : (dest.radius || 0.3);
+      if (distanceDeg(npc.lat, npc.lon, dest.lat, dest.lon) < arriveR) {
+        if (npc.state === NPC_STATE.HEADING_TO_TERMINAL) {
+          npc.state = NPC_STATE.LOADING; npc.loadTimer = 15 + Math.random() * 25;
+        } else {
+          npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12;
+        }
+        npc.speed = 0; continue;
       }
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, t.lat, t.lon);
-    } else if (npc.state === NPC_STATE.HEADING_TO_DROPOFF) {
-      const dp = npc.dropoff;
-      if (distanceDeg(npc.lat, npc.lon, dp.lat, dp.lon) < (dp.radius || 0.3)) {
-        npc.state = NPC_STATE.UNLOADING; npc.loadTimer = 8 + Math.random() * 12; npc.speed = 0; continue;
+      // Follow waypoint route — advance to next waypoint when close
+      if (npc.route && npc.route.length > 0 && npc.routeIdx < npc.route.length) {
+        const wp = npc.route[npc.routeIdx];
+        const wpDist = distanceDeg(npc.lat, npc.lon, wp.lat, wp.lon);
+        if (wpDist < 1.5) {
+          // Reached this waypoint, advance to next
+          npc.routeIdx++;
+        }
+        if (npc.routeIdx < npc.route.length) {
+          const nextWp = npc.route[npc.routeIdx];
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, nextWp.lat, nextWp.lon);
+        } else {
+          // Past all waypoints, head directly to destination
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, dest.lat, dest.lon);
+        }
+      } else {
+        // No route — head directly (fallback for short distances)
+        npc.targetHeading = headingToTarget(npc.lat, npc.lon, dest.lat, dest.lon);
       }
-      npc.targetHeading = headingToTarget(npc.lat, npc.lon, dp.lat, dp.lon);
+    }
+
+    // Stuck detection: if ship hasn't made progress in 15 seconds, reroute
+    npc.progressTimer = (npc.progressTimer || 0) + dt;
+    if (npc.progressTimer > 15) {
+      const moved = distanceDeg(npc.lat, npc.lon, npc.progressLat || npc.lat, npc.progressLon || npc.lon);
+      if (moved < 0.3 && npc.speed > 0) {
+        // Stuck — recompute route from current position
+        const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+        if (dest) {
+          npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
+          npc.route.push({ lat: dest.lat, lon: dest.lon });
+          npc.routeIdx = 0;
+          npc.coastEscapeTimer = 0;
+          npc.stuckCount = 0;
+        }
+      }
+      npc.progressTimer = 0;
+      npc.progressLat = npc.lat;
+      npc.progressLon = npc.lon;
     }
 
     // Coast escape mode: after hitting land, commit to escape heading
@@ -1313,6 +2161,22 @@ function updateNPCShips(dt, elapsed) {
       // Keep heading locked to escape direction, no wander
       const diff = angleDiff(npc.heading, npc.coastEscapeHeading);
       if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
+      // When timer expires, check if target heading is still blocked
+      if (npc.coastEscapeTimer <= 0) {
+        const tgtRad = npc.targetHeading * Math.PI / 180;
+        if (isOnLand(npc.lat + Math.cos(tgtRad) * 0.5, npc.lon + Math.sin(tgtRad) * 0.5)) {
+          // Still blocked — find a new escape heading from current position
+          for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
+            const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
+              npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
+              npc.coastEscapeTimer = 5 + Math.random() * 3;
+              npc.wanderOffset = 0;
+              break;
+            }
+          }
+        }
+      }
     } else {
       // Normal steering toward target
       npc.wanderTimer -= dt;
@@ -1343,24 +2207,31 @@ function updateNPCShips(dt, elapsed) {
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
 
+    // Skip land avoidance when very close to destination (terminals are near coast)
+    const npcDest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
+    const nearDestR = (npcDest && npcDest.loadRadius) ? Math.max(0.5, npcDest.loadRadius * 4) : 0.5;
+    const nearDest = npcDest && distanceDeg(npc.lat, npc.lon, npcDest.lat, npcDest.lon) < nearDestR;
+
     // Land avoidance
-    if (!isOnLand(newLat, newLon)) {
+    if (!isOnLand(newLat, newLon) || nearDest) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
-      // Proactive: check multiple distances ahead for early avoidance
-      const lookAheads = [0.05, 0.1, 0.15];
-      for (const la of lookAheads) {
-        if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
-          // Find a clear direction and enter coast escape mode
-          for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
-            const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.15, npc.lon + Math.sin(tryRad) * 0.15)) {
-              npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
-              npc.coastEscapeTimer = 3 + Math.random() * 2; // commit for 3-5 seconds
-              npc.wanderOffset = 0;
-              break;
+      // Proactive: check multiple distances ahead for early avoidance (skip if near dest)
+      if (!nearDest) {
+        const lookAheads = [0.1, 0.2, 0.35, 0.5];
+        for (const la of lookAheads) {
+          if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
+            // Find a clear direction and enter coast escape mode
+            for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
+              const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+              if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
+                npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
+                npc.coastEscapeTimer = 5 + Math.random() * 4; // commit for 5-9 seconds
+                npc.wanderOffset = 0;
+                break;
+              }
             }
+            break;
           }
-          break;
         }
       }
     } else {
@@ -1376,7 +2247,7 @@ function updateNPCShips(dt, elapsed) {
           npc.lat += Math.cos(tr) * probeDist * 0.6;
           // Enter coast escape: commit to this heading for a while
           npc.coastEscapeHeading = th;
-          npc.coastEscapeTimer = 4 + Math.random() * 3; // commit for 4-7 seconds
+          npc.coastEscapeTimer = 6 + Math.random() * 4; // commit for 6-10 seconds
           escaped = true; break;
         }
       }
@@ -1391,9 +2262,9 @@ function updateNPCShips(dt, elapsed) {
       if (npc.stuckCount > 30) { npcShips[i] = createNPCTanker(false); continue; }
     }
 
-    // Clamp to world map
+    // Clamp latitude, wrap longitude
     npc.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, npc.lat));
-    npc.lon = Math.max(MAP_BOUNDS.west + 0.5, Math.min(MAP_BOUNDS.east - 0.5, npc.lon));
+    npc.lon = wrapLon(npc.lon);
 
   }
 }
@@ -1484,14 +2355,14 @@ function transitLoop(timestamp) {
       // Autopilot: auto-manage waypoints for terminal ↔ dropoff loop
       const ap = shipAutopilot[ship.id];
       const apActive = ap && ap.active;
-      if (apActive && ap.terminal) {
+      if (apActive && ap.terminal && ap.dropoff) {
         const cargo = shipCargo[ship.id];
         const curWps = shipWaypoints[ship.id] || [];
         if (curWps.length === 0 && state.speed === 0) {
-          // Need new destination — compute routed waypoints
+          // If empty → head to load terminal; if loaded → head to dropoff
           let dest;
           if (cargo && cargo.loaded) {
-            dest = { lat: DROPOFF_POINT.lat, lon: DROPOFF_POINT.lon };
+            dest = { lat: ap.dropoff.lat, lon: ap.dropoff.lon };
           } else {
             dest = { lat: ap.terminal.lat, lon: ap.terminal.lon };
           }
@@ -1509,18 +2380,38 @@ function transitLoop(timestamp) {
       const apEscaping = apActive && state.apCoastEscapeTimer > 0;
       if (wps.length > 0 && !apEscaping) {
         const wp = wps[0];
-        const dLon = wp.lon - state.lon;
-        const dLat = wp.lat - state.lat;
-        const distToWP = Math.sqrt(dLon * dLon + dLat * dLat);
+        const distToWP = distanceDeg(state.lat, state.lon, wp.lat, wp.lon);
         if (distToWP < 0.03) {
           wps.shift();
           if (ship.id === selectedShipId) updateClearWpButton();
           if (wps.length > 0) {
             const next = wps[0];
-            state.targetHeading = normalizeAngle(Math.atan2(next.lon - state.lon, next.lat - state.lat) * 180 / Math.PI);
+            state.targetHeading = headingToTarget(state.lat, state.lon, next.lat, next.lon);
           } else { state.speed = 0; }
         } else {
-          state.targetHeading = normalizeAngle(Math.atan2(dLon, dLat) * 180 / Math.PI);
+          state.targetHeading = headingToTarget(state.lat, state.lon, wp.lat, wp.lon);
+        }
+      }
+
+      // Autopilot stuck detection: if ship hasn't made progress in 15 seconds, reroute
+      if (apActive && state.speed > 0) {
+        state.progressTimer = (state.progressTimer || 0) + dt;
+        if (state.progressTimer > 15) {
+          const moved = distanceDeg(state.lat, state.lon, state.progressLat || state.lat, state.progressLon || state.lon);
+          if (moved < 0.3) {
+            // Stuck — recompute route from current position
+            const cargo = shipCargo[ship.id];
+            const dest = (cargo && cargo.loaded)
+              ? { lat: ap.dropoff.lat, lon: ap.dropoff.lon }
+              : { lat: ap.terminal.lat, lon: ap.terminal.lon };
+            const route = computeAutopilotRoute(state.lat, state.lon, dest.lat, dest.lon);
+            shipWaypoints[ship.id] = route;
+            state.apCoastEscapeTimer = 0;
+            state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
+          }
+          state.progressTimer = 0;
+          state.progressLat = state.lat;
+          state.progressLon = state.lon;
         }
       }
 
@@ -1535,16 +2426,37 @@ function transitLoop(timestamp) {
             state.heading = normalizeAngle(state.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
           }
           state.targetHeading = state.apCoastEscapeHeading;
+          // When timer expires, check if target heading is still blocked
+          if (state.apCoastEscapeTimer <= 0) {
+            const tgtRad = state.targetHeading * Math.PI / 180;
+            const wps = shipWaypoints[ship.id] || [];
+            const resumeHeading = wps.length > 0
+              ? headingToTarget(state.lat, state.lon, wps[0].lat, wps[0].lon)
+              : state.targetHeading;
+            const resumeRad = resumeHeading * Math.PI / 180;
+            if (isOnLand(state.lat + Math.cos(resumeRad) * 0.5, state.lon + Math.sin(resumeRad) * 0.5)) {
+              // Still blocked — find a new escape heading
+              for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
+                const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
+                  state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
+                  state.apCoastEscapeTimer = 5 + Math.random() * 3;
+                  state.targetHeading = state.apCoastEscapeHeading;
+                  break;
+                }
+              }
+            }
+          }
         } else {
           // Proactive lookahead: check ahead for land
           const headRad = state.heading * Math.PI / 180;
-          for (const la of [0.05, 0.1, 0.15]) {
+          for (const la of [0.1, 0.2, 0.35, 0.5]) {
             if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
-              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+              for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.15, state.lon + Math.sin(tryRad) * 0.15)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.5, state.lon + Math.sin(tryRad) * 0.5)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                  state.apCoastEscapeTimer = 3 + Math.random() * 2;
+                  state.apCoastEscapeTimer = 5 + Math.random() * 4;
                   state.targetHeading = state.apCoastEscapeHeading;
                   break;
                 }
@@ -1585,7 +2497,11 @@ function transitLoop(timestamp) {
       const headingRad = state.heading * Math.PI / 180;
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
-      if (!isOnLand(newLat, newLon)) { state.lon = newLon; state.lat = newLat; }
+      // Skip land check when very close to waypoint destination (terminals near coast)
+      const nextWpDest = (shipWaypoints[ship.id] || [])[0];
+      const wpDestR = (nextWpDest && nextWpDest.loadRadius) ? Math.max(0.5, nextWpDest.loadRadius * 4) : 0.5;
+      const nearWpDest = nextWpDest && distanceDeg(state.lat, state.lon, nextWpDest.lat, nextWpDest.lon) < wpDestR;
+      if (!isOnLand(newLat, newLon) || nearWpDest) { state.lon = newLon; state.lat = newLat; }
       else if (apActive) {
         // Autopilot hit land: same approach as NPC — probe for clear direction, nudge, commit
         const probeDist = 0.08;
@@ -1616,7 +2532,7 @@ function transitLoop(timestamp) {
       else { state.speed = Math.max(0, Math.round(state.speed * 0.5)); shipWaypoints[ship.id] = []; if (ship.id === selectedShipId) updateClearWpButton(); }
 
       state.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, state.lat));
-      state.lon = Math.max(MAP_BOUNDS.west + 0.5, Math.min(MAP_BOUNDS.east - 0.5, state.lon));
+      state.lon = wrapLon(state.lon);
 
       // Overspeed reliability check — pushing beyond rated speed risks malfunction
       const ratedSpeed = ship.speed || 16;
@@ -1654,41 +2570,50 @@ function transitLoop(timestamp) {
         while (trail.length > 0 && elapsed - trail[0].t > 4) trail.shift();
       }
 
-      // Terminal cargo loading (cargo type must match)
+      // Terminal cargo loading at EXPORT terminals (cargo type must match)
       const cargo = shipCargo[ship.id];
       if (cargo && !cargo.loaded) {
         const shipCargoType = ship.cargoType || 'oil';
-        for (const terminal of Object.values(OIL_TERMINALS)) {
+        for (const terminal of Object.values(EXPORT_TERMINALS)) {
           const terminalCargoType = terminal.cargoType || 'oil';
           if (shipCargoType !== terminalCargoType) continue;
           const dist = distanceDeg(state.lat, state.lon, terminal.lat, terminal.lon);
           if (dist < (terminal.loadRadius || SIM_CONFIG.LOAD_RADIUS)) {
+            const buyPrice = terminal.buyPrice || 70;
+            const cost = Math.round(ship.capacity * buyPrice);
             cargo.loaded = true; cargo.terminal = terminal; cargo.terminalId = terminal.id;
+            cargo.buyCost = cost;
             const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
-            addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name}.`, 'success');
+            addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name} for ${formatMoney(cost)}.`, 'success');
             updateFleetPanel(); break;
           }
         }
       }
 
-      // Dropoff delivery check — any global dropoff point
+      // Delivery check at IMPORT terminals
       if (cargo && cargo.loaded && !cargo.delivered) {
-        for (const dp of Object.values(DROPOFF_POINTS)) {
+        for (const dp of Object.values(IMPORT_TERMINALS)) {
           const dropDist = distanceDeg(state.lat, state.lon, dp.lat, dp.lon);
-          if (dropDist < (dp.radius || 0.3)) {
-            // Longer routes pay more (distance bonus)
-            const routeDist = distanceDeg(cargo.terminal?.lat || 26.68, cargo.terminal?.lon || 50.16, dp.lat, dp.lon);
-            const distBonus = Math.max(1.0, routeDist / 10); // baseline is Gulf of Oman distance (~10°)
-            const oilPrice = gameState.oilPrice || 80;
-            const bonus = (cargo.terminal?.loadingBonus || 1.0) * distBonus;
-            const revenue = Math.round(ship.capacity * oilPrice * bonus * (1 - state.totalDamage));
-            socket.emit('deliver_cargo', { shipId: ship.id, revenue }, (res) => {
+          if (dropDist < (dp.loadRadius || 0.3)) {
+            // Revenue = sell price × capacity × (1 - damage) - buy cost
+            const isLng = (ship.cargoType || 'oil') === 'lng';
+            const sellPrice = isLng ? (dp.lngSellPrice || dp.sellPrice || 85) : (dp.sellPrice || 85);
+            const grossRevenue = Math.round(ship.capacity * sellPrice * (1 - state.totalDamage));
+            const buyCost = cargo.buyCost || 0;
+            const profit = grossRevenue - buyCost;
+            const revenue = Math.max(0, grossRevenue);
+            socket.emit('deliver_cargo', { shipId: ship.id, revenue: profit }, (res) => {
               if (res?.success) {
-                addTransitEvent('CARGO DELIVERED', `${ship.name}: Delivered for ${formatMoney(revenue)}!`, 'success');
+                addTransitEvent('CARGO DELIVERED', `${ship.name}: Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})!`, 'success');
               }
             });
+            // Track campaign stats
+            campaignStats.deliveries++;
+            campaignStats.totalRevenue += grossRevenue;
+            campaignStats.totalCosts += buyCost;
+            campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
-            addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Revenue: ${formatMoney(revenue)}`, 'success');
+            addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
             updateFleetPanel();
             break;
           }
@@ -1698,6 +2623,7 @@ function transitLoop(timestamp) {
       // Destruction check
       if (state.totalDamage >= 0.9 && !state.destroyed) {
         state.destroyed = true;
+        campaignStats.shipsLost++;
         addTransitEvent('VESSEL DESTROYED', `${ship.name} has been destroyed!`, 'danger');
         // Report destruction to server for insurance payout and fleet removal
         socket.emit('ship_destroyed', { shipId: ship.id }, (res) => {
@@ -1739,6 +2665,12 @@ function transitLoop(timestamp) {
 
   updateHUD();
 
+  // Campaign end check
+  if (!campaignEnded && simGameTime >= CAMPAIGN_DURATION) {
+    campaignEnded = true;
+    showCampaignReport();
+  }
+
   // Render
   const selectedState = selectedShipId ? shipStates[selectedShipId] : null;
   const selectedWps = selectedShipId ? (shipWaypoints[selectedShipId] || []) : [];
@@ -1767,6 +2699,7 @@ function transitLoop(timestamp) {
     waypoints: selectedWps,
     npcShips, militaryShips, showMinimap: true, playerShips,
     labels: mapLabelSettings,
+    sunLon: getSunLon(),
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
@@ -1778,9 +2711,13 @@ function transitLoop(timestamp) {
 // HUD UPDATE
 // ============================================
 function updateHUD() {
-  const gameHours = Math.floor(simGameTime / 3600);
-  const gameMinutes = Math.floor((simGameTime % 3600) / 60);
-  document.getElementById('hud-time').textContent = `${String(gameHours).padStart(2,'0')}:${String(gameMinutes).padStart(2,'0')}`;
+  const day = getCampaignDay();
+  const hourOfDay = Math.floor(getGameHour());
+  const minuteOfDay = Math.floor((simGameTime % 3600) / 60);
+  const timeStr = `${String(hourOfDay).padStart(2,'0')}:${String(minuteOfDay).padStart(2,'0')}`;
+  const selState = selectedShipId ? shipStates[selectedShipId] : null;
+  const nightIcon = (selState && isNightAtLon(selState.lon)) ? ' [NIGHT]' : '';
+  document.getElementById('hud-time').textContent = `DAY ${Math.min(day, CAMPAIGN_DAYS)} - ${timeStr}${nightIcon}`;
 
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   const ship = getSelectedShipData();
@@ -1798,8 +2735,12 @@ function updateHUD() {
     const cargo = shipCargo[selectedShipId];
     const cargoEl = document.getElementById('hud-cargo-status');
     if (cargo?.delivered) { cargoEl.textContent = 'DELIVERED'; cargoEl.className = 'hud-cargo loaded'; }
-    else if (cargo?.loaded) { cargoEl.textContent = `LOADED - Head to ${DROPOFF_POINT.name}`; cargoEl.className = 'hud-cargo loading'; }
-    else { cargoEl.textContent = 'NAVIGATE TO TERMINAL'; cargoEl.className = 'hud-cargo loading'; }
+    else if (cargo?.loaded) {
+      const ap = shipAutopilot[selectedShipId];
+      const dropName = (ap && ap.dropoff) ? ap.dropoff.name : 'an import terminal';
+      cargoEl.textContent = `LOADED - Sell at ${dropName}`; cargoEl.className = 'hud-cargo loading';
+    }
+    else { cargoEl.textContent = 'BUY CARGO AT EXPORT TERMINAL'; cargoEl.className = 'hud-cargo loading'; }
     document.getElementById('hud-progress').textContent = cargo?.delivered ? 'DONE' : cargo?.loaded ? 'LOADED' : 'EMPTY';
   } else {
     document.getElementById('hud-speed').textContent = '-- kts';
@@ -1810,6 +2751,74 @@ function updateHUD() {
     document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
     document.getElementById('hud-progress').textContent = '--';
   }
+}
+
+// ============================================
+// CAMPAIGN REPORT CARD
+// ============================================
+function showCampaignReport() {
+  transitActive = false;
+  const me = gameState?.players.find(p => p.id === myId);
+  const cash = me?.cash || 0;
+  const fleetSize = me?.fleet.length || 0;
+
+  // Grade based on profit
+  let grade, gradeColor;
+  if (campaignStats.totalProfit >= 5000000) { grade = 'S'; gradeColor = '#ffd700'; }
+  else if (campaignStats.totalProfit >= 2000000) { grade = 'A'; gradeColor = '#40c070'; }
+  else if (campaignStats.totalProfit >= 1000000) { grade = 'B'; gradeColor = '#4090d0'; }
+  else if (campaignStats.totalProfit >= 500000) { grade = 'C'; gradeColor = '#f0a030'; }
+  else if (campaignStats.totalProfit >= 0) { grade = 'D'; gradeColor = '#e06040'; }
+  else { grade = 'F'; gradeColor = '#e04040'; }
+
+  const report = `
+    <div style="text-align:center; padding: 20px;">
+      <h1 style="color: var(--accent); margin-bottom: 5px;">CAMPAIGN COMPLETE</h1>
+      <p style="color: var(--text-muted); margin-bottom: 20px;">7-Day Campaign Report</p>
+      <div style="font-size: 64px; font-weight: bold; color: ${gradeColor}; margin: 10px 0;">${grade}</div>
+      <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 20px;">OVERALL GRADE</p>
+      <div style="text-align: left; max-width: 350px; margin: 0 auto;">
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Profit</span>
+          <span style="color: ${campaignStats.totalProfit >= 0 ? '#40c070' : '#e04040'}; font-weight: bold;">${formatMoney(campaignStats.totalProfit)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Revenue</span>
+          <span>${formatMoney(campaignStats.totalRevenue)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Cargo Costs</span>
+          <span>${formatMoney(campaignStats.totalCosts)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Deliveries</span>
+          <span>${campaignStats.deliveries}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Ships Bought</span>
+          <span>${campaignStats.shipsBought}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Ships Lost</span>
+          <span style="color: ${campaignStats.shipsLost > 0 ? '#e04040' : '#40c070'};">${campaignStats.shipsLost}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Missile Events</span>
+          <span>${campaignStats.missileEvents}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Damage Taken</span>
+          <span>${Math.round(campaignStats.totalDamageTaken * 100)}%</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0;">
+          <span style="color: var(--text-muted);">Final Cash</span>
+          <span style="font-weight: bold;">${formatMoney(cash)}</span>
+        </div>
+      </div>
+    </div>`;
+
+  showScreen('gameover');
+  document.getElementById('final-leaderboard').innerHTML = report;
 }
 
 // ============================================
@@ -1869,7 +2878,7 @@ function updateAmbientWar(elapsed) {
   const iranAirBases = MILITARY_BASES.filter(b => b.country === 'Iran' && b.type === 'air');
   const iranCities = CITIES.filter(c => c.country === 'Iran');
 
-  const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+  const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
   const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
   const alliedMissileBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && (b.type !== 'radar'));
   const alliedAirBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country) && b.type === 'air');
@@ -1971,7 +2980,8 @@ function checkDangerZonesAllShips(elapsed) {
       // Defense upgrades reduce event probability
       const defLevel = ship.defenseUpgrade || 0;
       const defReduction = 1 - defLevel * 0.2; // 20% reduction per level
-      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction;
+      const nightMult = getNightDetectionMultiplier(state.lon);
+      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
       if (Math.random() < prob) {
         const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
         const evt = EVENTS.find(e => e.id === eventId);
@@ -1988,10 +2998,12 @@ function checkDangerZonesAllShips(elapsed) {
         state.totalMoneyLoss += outcome.moneyLoss;
         if (outcome.delayHours >= 720) state.seized = true;
         if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
+        campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
+        if (eventId === 'missile_alert' || eventId === 'drone_swarm') campaignStats.missileEvents++;
         // Spawn missile animation for missile events
         if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');
-          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait'];
+          const alliedCountries = ['US', 'UAE', 'Oman', 'Qatar', 'Bahrain', 'Kuwait', 'Israel'];
           const alliedBases = MILITARY_BASES.filter(b => alliedCountries.includes(b.country));
           const alliedCities = CITIES.filter(c => alliedCountries.includes(c.country));
           if (iranBases.length > 0) {
@@ -2073,15 +3085,24 @@ function addTransitEvent(name, text, type) {
 function showTerminalPopup(terminal, screenX, screenY) {
   const popup = document.getElementById('terminal-info-popup');
   const isLng = terminal.cargoType === 'lng';
-  const oilPrice = gameState?.oilPrice || 80;
-  const ratePerBbl = (oilPrice * terminal.loadingBonus).toFixed(2);
-  const priceLabel = isLng ? 'LNG Price' : 'Oil Price';
+  const isExport = terminal.role === 'export';
   const unit = isLng ? 'MMBtu' : 'bbl';
   document.getElementById('terminal-popup-name').textContent = terminal.name;
+
+  let priceHtml;
+  if (isExport) {
+    const buyPrice = terminal.buyPrice || 70;
+    priceHtml = `<div class="terminal-popup-row"><span>Buy Price:</span><span class="stat-warn">$${buyPrice}/${unit}</span></div>`;
+  } else {
+    const sellPrice = isLng ? (terminal.lngSellPrice || terminal.sellPrice || 85) : (terminal.sellPrice || 85);
+    priceHtml = `<div class="terminal-popup-row"><span>Sell Price:</span><span class="stat-good">$${sellPrice}/${unit}</span></div>`;
+  }
+
   document.getElementById('terminal-popup-body').innerHTML = `
-    <div class="terminal-popup-row"><span>Type:</span><span>${isLng ? 'LNG' : 'Oil'}</span></div>
-    <div class="terminal-popup-row"><span>Capacity:</span><span>${terminal.capacity}</span></div>
-    <div class="terminal-popup-row"><span>${priceLabel}:</span><span class="${terminal.loadingBonus > 1 ? 'stat-good' : terminal.loadingBonus < 1 ? 'stat-bad' : 'stat-warn'}">$${ratePerBbl}/${unit} (${Math.round(terminal.loadingBonus * 100)}%)</span></div>
+    <div class="terminal-popup-row"><span>Type:</span><span>${isLng ? 'LNG' : 'Oil'} ${isExport ? 'EXPORT' : 'IMPORT'}</span></div>
+    <div class="terminal-popup-row"><span>Country:</span><span>${terminal.country || '—'}</span></div>
+    ${terminal.capacity ? `<div class="terminal-popup-row"><span>Capacity:</span><span>${terminal.capacity}</span></div>` : ''}
+    ${priceHtml}
     <div class="terminal-popup-desc">${terminal.description}</div>`;
   const popupW = 260, popupH = 200;
   let left = Math.min(screenX + 15, window.innerWidth - popupW - 10);
@@ -2127,15 +3148,13 @@ mapCanvas.addEventListener('click', (e) => {
     }
   }
 
-  // Check terminal click
+  // Check terminal click (all terminals — export and import)
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const tPos = latLonToCanvas(terminal.lat, terminal.lon, rect.width, rect.height);
     if (Math.sqrt(Math.pow(cx - tPos.x, 2) + Math.pow(cy - tPos.y, 2)) < 20) {
       if (selectedShipId && shipStates[selectedShipId]) {
-        // Ship selected → set waypoint to terminal
         addWaypointForSelectedShip({ lat: terminal.lat, lon: terminal.lon });
       } else {
-        // No ship selected → show terminal info
         showTerminalPopup(terminal, e.clientX, e.clientY);
       }
       return;

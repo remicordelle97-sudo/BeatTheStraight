@@ -1,6 +1,7 @@
 // World map renderer with pan/zoom (detailed Persian Gulf region)
 import {
-  MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, DEFAULT_VIEWPORT, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES
+  MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
+  DEFAULT_VIEWPORT, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES
 } from '../shared/constants.js';
 import { WORLD_POLYGONS, CHOKEPOINTS, SHIPPING_ROUTES } from './world-coastlines.js';
 
@@ -179,7 +180,12 @@ const QATAR = [
 // COORDINATE CONVERSION
 // ============================================
 function latLonToCanvas(lat, lon, drawW, drawH) {
-  const x = ((lon - viewport.west) / (viewport.east - viewport.west)) * drawW;
+  // Wrap lon to be closest to viewport center for correct display
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  let adjustedLon = lon;
+  while (adjustedLon - vpCenter > 180) adjustedLon -= 360;
+  while (adjustedLon - vpCenter < -180) adjustedLon += 360;
+  const x = ((adjustedLon - viewport.west) / (viewport.east - viewport.west)) * drawW;
   const y = ((viewport.north - lat) / (viewport.north - viewport.south)) * drawH;
   return { x, y };
 }
@@ -195,7 +201,7 @@ function canvasToLatLon(cx, cy, drawW, drawH) {
 // ============================================
 
 // Check if a polygon's bounding box intersects the current viewport
-function polyVisible(points) {
+function polyVisible(points, lonShift = 0) {
   let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
   for (const p of points) {
     if (p[0] < minLat) minLat = p[0];
@@ -203,8 +209,15 @@ function polyVisible(points) {
     if (p[1] < minLon) minLon = p[1];
     if (p[1] > maxLon) maxLon = p[1];
   }
-  return !(maxLat < viewport.south || minLat > viewport.north ||
-           maxLon < viewport.west || minLon > viewport.east);
+  if (maxLat < viewport.south || minLat > viewport.north) return false;
+  minLon += lonShift;
+  maxLon += lonShift;
+  // Handle longitude wrapping — adjust polygon lon range to viewport center
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  let adjMinLon = minLon, adjMaxLon = maxLon;
+  while (adjMinLon - vpCenter > 180) { adjMinLon -= 360; adjMaxLon -= 360; }
+  while (adjMaxLon - vpCenter < -180) { adjMinLon += 360; adjMaxLon += 360; }
+  return !(adjMaxLon < viewport.west || adjMinLon > viewport.east);
 }
 
 // Check if viewport is zoomed into the Persian Gulf detail region
@@ -215,10 +228,29 @@ function isGulfZoom() {
     viewport.west < GULF_BOUNDS.east && viewport.east > GULF_BOUNDS.west;
 }
 
-function drawCoastline(ctx, points, fillColor, drawW, drawH) {
+function drawCoastline(ctx, points, fillColor, drawW, drawH, lonShift = 0) {
+  // Use a single consistent longitude offset for the entire polygon
+  // to prevent vertices from wrapping differently and distorting the fill
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  let lonOffset;
+  if (lonShift !== 0) {
+    // Explicit shift requested (for wide polygons drawn at multiple offsets)
+    lonOffset = lonShift;
+  } else {
+    const refLon = points[0][1];
+    lonOffset = 0;
+    while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+    while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+  }
+
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+
   ctx.beginPath();
   points.forEach((p, i) => {
-    const { x, y } = latLonToCanvas(p[0], p[1], drawW, drawH);
+    const lon = p[1] + lonOffset;
+    const x = ((lon - viewport.west) / vpW) * drawW;
+    const y = ((viewport.north - p[0]) / vpH) * drawH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
@@ -230,24 +262,296 @@ function drawCoastline(ctx, points, fillColor, drawW, drawH) {
   ctx.stroke();
 }
 
+// Biome control points: each defines a center (lat,lon) with a color and radius of influence
+// The biome color at any point is a weighted blend of nearby control points
+const BIOME_POINTS = [
+  // Sahara
+  { lat: 25, lon: 5, r: 18, rgb: [176, 152, 96] },
+  { lat: 28, lon: 20, r: 14, rgb: [170, 148, 90] },
+  // Arabian Desert
+  { lat: 25, lon: 48, r: 14, rgb: [168, 144, 88] },
+  { lat: 22, lon: 55, r: 10, rgb: [165, 140, 85] },
+  // Sahel
+  { lat: 13, lon: 5, r: 10, rgb: [138, 128, 64] },
+  { lat: 13, lon: 20, r: 10, rgb: [130, 120, 60] },
+  // Tropical Africa
+  { lat: 2, lon: 10, r: 12, rgb: [58, 106, 42] },
+  { lat: 0, lon: 25, r: 12, rgb: [50, 100, 38] },
+  // East Africa savanna
+  { lat: -3, lon: 36, r: 10, rgb: [106, 122, 48] },
+  { lat: 5, lon: 42, r: 8, rgb: [100, 115, 45] },
+  // Southern Africa
+  { lat: -20, lon: 28, r: 14, rgb: [122, 122, 56] },
+  { lat: -30, lon: 25, r: 10, rgb: [110, 110, 52] },
+  // Mediterranean
+  { lat: 40, lon: 10, r: 10, rgb: [122, 128, 80] },
+  { lat: 38, lon: 25, r: 8, rgb: [118, 122, 75] },
+  // Northern Europe
+  { lat: 54, lon: 10, r: 12, rgb: [90, 122, 74] },
+  { lat: 52, lon: -2, r: 10, rgb: [80, 115, 68] },
+  // Scandinavia boreal
+  { lat: 63, lon: 18, r: 10, rgb: [74, 106, 74] },
+  // Siberia / Russia
+  { lat: 55, lon: 70, r: 18, rgb: [106, 122, 80] },
+  { lat: 55, lon: 110, r: 16, rgb: [100, 115, 75] },
+  // Arctic tundra
+  { lat: 70, lon: 0, r: 14, rgb: [138, 154, 138] },
+  { lat: 70, lon: 90, r: 18, rgb: [135, 150, 132] },
+  { lat: 70, lon: -100, r: 16, rgb: [130, 148, 130] },
+  // Indian subcontinent
+  { lat: 18, lon: 78, r: 12, rgb: [90, 138, 58] },
+  { lat: 25, lon: 82, r: 8, rgb: [85, 130, 55] },
+  // Himalayas / Tibet
+  { lat: 33, lon: 85, r: 10, rgb: [138, 138, 106] },
+  { lat: 35, lon: 95, r: 8, rgb: [132, 132, 100] },
+  // SE Asia tropical
+  { lat: 15, lon: 102, r: 12, rgb: [58, 122, 48] },
+  { lat: 5, lon: 110, r: 10, rgb: [55, 118, 45] },
+  // China temperate
+  { lat: 35, lon: 112, r: 12, rgb: [90, 122, 58] },
+  { lat: 28, lon: 115, r: 8, rgb: [80, 118, 50] },
+  // N America boreal
+  { lat: 55, lon: -100, r: 16, rgb: [74, 106, 58] },
+  { lat: 52, lon: -120, r: 12, rgb: [70, 100, 55] },
+  // US temperate
+  { lat: 40, lon: -90, r: 14, rgb: [90, 122, 58] },
+  { lat: 38, lon: -78, r: 10, rgb: [85, 118, 55] },
+  // US southwest arid
+  { lat: 33, lon: -110, r: 10, rgb: [154, 128, 80] },
+  // Central America tropical
+  { lat: 15, lon: -88, r: 10, rgb: [58, 122, 42] },
+  { lat: 20, lon: -100, r: 8, rgb: [60, 118, 40] },
+  // Amazon rainforest
+  { lat: -3, lon: -60, r: 16, rgb: [42, 106, 32] },
+  { lat: -8, lon: -50, r: 12, rgb: [45, 100, 35] },
+  // Patagonia / southern SA
+  { lat: -35, lon: -65, r: 12, rgb: [122, 138, 72] },
+  { lat: -45, lon: -70, r: 10, rgb: [115, 130, 68] },
+  // Australia arid interior
+  { lat: -25, lon: 134, r: 14, rgb: [160, 128, 72] },
+  // Australia green coast
+  { lat: -34, lon: 150, r: 8, rgb: [106, 128, 56] },
+  { lat: -17, lon: 146, r: 6, rgb: [80, 118, 48] },
+  // Greenland
+  { lat: 72, lon: -42, r: 12, rgb: [138, 154, 144] },
+];
+
+// Pre-parse biome point colors (done once)
+const _biomeRGB = BIOME_POINTS.map(bp => ({ ...bp, r2: bp.r * bp.r }));
+
+// Sample biome color at a lat/lon — weighted blend of nearby control points
+function sampleBiome(lat, lon) {
+  let rSum = 0, gSum = 0, bSum = 0, wSum = 0;
+  for (const bp of _biomeRGB) {
+    let dLon = lon - bp.lon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    const d2 = (lat - bp.lat) ** 2 + dLon * dLon;
+    if (d2 >= bp.r2 * 4) continue; // skip far-away points (2× radius cutoff)
+    const w = Math.max(0, 1 - Math.sqrt(d2) / (bp.r * 1.5));
+    const w2 = w * w; // quadratic falloff for smoother blending
+    rSum += bp.rgb[0] * w2;
+    gSum += bp.rgb[1] * w2;
+    bSum += bp.rgb[2] * w2;
+    wSum += w2;
+  }
+  if (wSum < 0.01) return null; // no nearby biome points — use base color
+  return [Math.round(rSum / wSum), Math.round(gSum / wSum), Math.round(bSum / wSum)];
+}
+
+// Global biome bitmap — rendered ONCE covering the entire world, then sliced per viewport
+const BIOME_WORLD_W = 720;   // 2 px per degree longitude
+const BIOME_WORLD_H = 290;   // 2 px per degree latitude
+const BIOME_WORLD_WEST = -180;
+const BIOME_WORLD_NORTH = 85;
+const BIOME_WORLD_SOUTH = -60;
+let _biomeWorldCvs = null;
+
+function _ensureBiomeWorld() {
+  if (_biomeWorldCvs) return _biomeWorldCvs;
+  _biomeWorldCvs = document.createElement('canvas');
+  _biomeWorldCvs.width = BIOME_WORLD_W;
+  _biomeWorldCvs.height = BIOME_WORLD_H;
+  const bctx = _biomeWorldCvs.getContext('2d');
+  const imgData = bctx.createImageData(BIOME_WORLD_W, BIOME_WORLD_H);
+  const data = imgData.data;
+  const lonRange = 360; // -180 to 180
+  const latRange = BIOME_WORLD_NORTH - BIOME_WORLD_SOUTH; // 145
+  for (let y = 0; y < BIOME_WORLD_H; y++) {
+    const lat = BIOME_WORLD_NORTH - (y + 0.5) / BIOME_WORLD_H * latRange;
+    for (let x = 0; x < BIOME_WORLD_W; x++) {
+      const lon = BIOME_WORLD_WEST + (x + 0.5) / BIOME_WORLD_W * lonRange;
+      const rgb = sampleBiome(lat, lon);
+      const idx = (y * BIOME_WORLD_W + x) * 4;
+      if (rgb) {
+        data[idx] = rgb[0];
+        data[idx + 1] = rgb[1];
+        data[idx + 2] = rgb[2];
+        data[idx + 3] = 255;
+      } else {
+        data[idx + 3] = 0;
+      }
+    }
+  }
+  bctx.putImageData(imgData, 0, 0);
+  return _biomeWorldCvs;
+}
+
 // Draw all world coastline polygons (skip off-screen ones)
 function drawWorldCoastlines(ctx, drawW, drawH) {
+  // 1. Draw base land polygons
   for (const { poly, color } of WORLD_POLYGONS) {
-    if (!polyVisible(poly)) continue;
-    drawCoastline(ctx, poly, color, drawW, drawH);
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      drawCoastline(ctx, poly, color, drawW, drawH, shift);
+    }
   }
+
+  // 2. Create clipping region from all visible land polygons
+  ctx.save();
+  ctx.beginPath();
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+  for (const { poly } of WORLD_POLYGONS) {
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      const vpCenter = (viewport.west + viewport.east) / 2;
+      let lonOffset = shift;
+      if (shift === 0) {
+        const refLon = poly[0][1];
+        lonOffset = 0;
+        while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+        while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+      }
+      poly.forEach((p, i) => {
+        const x = ((p[1] + lonOffset - viewport.west) / vpW) * drawW;
+        const y = ((viewport.north - p[0]) / vpH) * drawH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+    }
+  }
+  ctx.clip();
+
+  // 3. Paint biome colors — slice from pre-rendered world bitmap (computed once)
+  const biomeWorld = _ensureBiomeWorld();
+  const lonRange = 360;
+  const latRange = BIOME_WORLD_NORTH - BIOME_WORLD_SOUTH;
+  // Map viewport to source rect in the world bitmap
+  const sx = ((viewport.west - BIOME_WORLD_WEST) / lonRange) * BIOME_WORLD_W;
+  const sy = ((BIOME_WORLD_NORTH - viewport.north) / latRange) * BIOME_WORLD_H;
+  const sw = (vpW / lonRange) * BIOME_WORLD_W;
+  const sh = (vpH / latRange) * BIOME_WORLD_H;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(biomeWorld, sx, sy, sw, sh, 0, 0, drawW, drawH);
+
+  ctx.restore(); // remove clip
+
+  // 4. Re-draw coastline strokes on top
+  ctx.strokeStyle = '#2a3a2a';
+  ctx.lineWidth = 1.5;
+  for (const { poly } of WORLD_POLYGONS) {
+    for (const shift of [0, -360, 360]) {
+      if (!polyVisible(poly, shift)) continue;
+      const vpCenter = (viewport.west + viewport.east) / 2;
+      let lonOffset = shift;
+      if (shift === 0) {
+        const refLon = poly[0][1];
+        lonOffset = 0;
+        while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+        while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+      }
+      ctx.beginPath();
+      poly.forEach((p, i) => {
+        const x = ((p[1] + lonOffset - viewport.west) / vpW) * drawW;
+        const y = ((viewport.north - p[0]) / vpH) * drawH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
+  // Canal water cuts — draw ocean-colored polygons on top of land to create passages
+  drawCanalCuts(ctx, drawW, drawH);
+}
+
+// Water openings at major canals (drawn on top of land polygons)
+const SUEZ_CANAL = [
+  [31.3, 32.2], [31.3, 32.45],   // north entrance (Mediterranean)
+  [30.85, 32.45], [30.45, 32.6],  // through canal
+  [30.0, 32.6], [29.9, 32.5],     // south entrance (Gulf of Suez)
+  [29.9, 32.35],                   // west bank south
+  [30.0, 32.4], [30.45, 32.4],    // through canal west bank
+  [30.85, 32.25], [31.3, 32.2]    // close
+];
+
+const PANAMA_CANAL = [
+  [9.55, -80.1], [9.55, -79.3],    // north (Caribbean side) — wide entrance
+  [9.1, -79.2], [8.7, -79.3],      // east bank through canal
+  [8.0, -79.3], [7.3, -79.3],      // extended south into Gulf of Panama
+  [7.3, -79.9], [8.0, -79.9],      // west bank extension
+  [8.7, -79.8], [9.1, -79.8],      // west bank through canal
+  [9.55, -80.1]                     // close
+];
+
+function drawCanalCuts(ctx, drawW, drawH) {
+  const oceanColor = '#0a1520';
+  if (polyVisible(SUEZ_CANAL)) {
+    drawCanalWater(ctx, SUEZ_CANAL, oceanColor, drawW, drawH);
+  }
+  if (polyVisible(PANAMA_CANAL)) {
+    drawCanalWater(ctx, PANAMA_CANAL, oceanColor, drawW, drawH);
+  }
+}
+
+function drawCanalWater(ctx, points, fillColor, drawW, drawH) {
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  const refLon = points[0][1];
+  let lonOffset = 0;
+  while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+  while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const lon = p[1] + lonOffset;
+    const x = ((lon - viewport.west) / vpW) * drawW;
+    const y = ((viewport.north - p[0]) / vpH) * drawH;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
 }
 
 // Draw shipping route lines
 function drawShippingRoutes(ctx, drawW, drawH) {
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
   for (const route of SHIPPING_ROUTES) {
     if (!polyVisible(route.points)) continue;
+    // Consistent offset for entire route line
+    const refLon = route.points[0][1];
+    let lonOffset = 0;
+    while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+    while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+
     ctx.beginPath();
     ctx.setLineDash([6, 4]);
     for (let i = 0; i < route.points.length; i++) {
-      const pos = latLonToCanvas(route.points[i][0], route.points[i][1], drawW, drawH);
-      if (i === 0) ctx.moveTo(pos.x, pos.y);
-      else ctx.lineTo(pos.x, pos.y);
+      const lon = route.points[i][1] + lonOffset;
+      const x = ((lon - viewport.west) / vpW) * drawW;
+      const y = ((viewport.north - route.points[i][0]) / vpH) * drawH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
     ctx.strokeStyle = route.color;
     ctx.lineWidth = 2;
@@ -317,76 +621,68 @@ function drawDangerZones(ctx, drawW, drawH, lbl = {}) {
 }
 
 function drawOilTerminals(ctx, drawW, drawH, selectedTerminalId, lbl = {}) {
+  // Draw ALL terminals (export + import) with distinct styling
   for (const terminal of Object.values(OIL_TERMINALS)) {
     const { x, y } = latLonToCanvas(terminal.lat, terminal.lon, drawW, drawH);
-
-    // Skip if off screen
     if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) continue;
 
     const isSelected = selectedTerminalId === terminal.id;
     const isLng = terminal.cargoType === 'lng';
-    const baseColor = isLng ? '#4090e0' : '#40c070';
+    const isImport = terminal.role === 'import';
 
-    // Terminal icon (diamond)
-    const sz = isSelected ? 8 : 6;
-    ctx.beginPath();
-    ctx.moveTo(x, y - sz);
-    ctx.lineTo(x + sz, y);
-    ctx.lineTo(x, y + sz);
-    ctx.lineTo(x - sz, y);
-    ctx.closePath();
-    ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Color: export = green/blue, import = orange/gold
+    const baseColor = isImport ? '#f0a030' : (isLng ? '#4090e0' : '#40c070');
 
-    // Label
-    if (lbl.terminalNames !== false) {
+    if (isImport) {
+      // Import terminal — square icon
+      const sz = isSelected ? 8 : 6;
+      ctx.fillStyle = isSelected ? '#fff' : baseColor;
+      ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - sz, y - sz, sz * 2, sz * 2);
+
+      if (lbl.terminalNames !== false) {
+        ctx.fillStyle = isSelected ? '#fff' : baseColor;
+        ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
+        ctx.textAlign = 'left';
+        ctx.fillText(terminal.name, x + sz + 4, y - 2);
+        ctx.fillStyle = '#a0a8c0';
+        ctx.font = '9px Courier New';
+        const sellP = isLng ? (terminal.lngSellPrice || terminal.sellPrice || '') : (terminal.sellPrice || '');
+        ctx.fillText(`SELL $${sellP}`, x + sz + 4, y + 9);
+      }
+    } else {
+      // Export terminal — diamond icon
+      const sz = isSelected ? 8 : 6;
+      ctx.beginPath();
+      ctx.moveTo(x, y - sz);
+      ctx.lineTo(x + sz, y);
+      ctx.lineTo(x, y + sz);
+      ctx.lineTo(x - sz, y);
+      ctx.closePath();
       ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
-      ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
-      ctx.textAlign = 'left';
-      ctx.fillText(terminal.name, x + sz + 4, y - 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      if (lbl.terminalNames !== false) {
+        ctx.fillStyle = isSelected ? '#f0a030' : baseColor;
+        ctx.font = `${isSelected ? 'bold ' : ''}10px Courier New`;
+        ctx.textAlign = 'left';
+        ctx.fillText(terminal.name, x + sz + 4, y - 2);
+        ctx.fillStyle = '#a0a8c0';
+        ctx.font = '9px Courier New';
+        ctx.fillText(`BUY $${terminal.buyPrice || ''}`, x + sz + 4, y + 9);
+      }
     }
     ctx.textAlign = 'left';
   }
 }
 
 function drawDropoffPoint(ctx, drawW, drawH) {
-  // Draw all global dropoff points
-  for (const dp of Object.values(DROPOFF_POINTS)) {
-    const { x, y } = latLonToCanvas(dp.lat, dp.lon, drawW, drawH);
-    if (x < -20 || x > drawW + 20 || y < -20 || y > drawH + 20) continue;
-
-    // Radius circle
-    const radiusPx = ((dp.radius || 0.3) / (viewport.east - viewport.west)) * drawW;
-    ctx.beginPath();
-    ctx.arc(x, y, radiusPx, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(240, 160, 48, 0.08)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(240, 160, 48, 0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Icon (anchor / square marker)
-    const sz = 7;
-    ctx.fillStyle = '#f0a030';
-    ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - sz, y - sz, sz * 2, sz * 2);
-
-    // Label
-    ctx.fillStyle = '#f0a030';
-    ctx.font = 'bold 10px Courier New';
-    ctx.textAlign = 'left';
-    ctx.fillText(dp.name, x + sz + 4, y - 2);
-    ctx.fillStyle = '#a0a8c0';
-    ctx.font = '9px Courier New';
-    ctx.fillText('DROPOFF', x + sz + 4, y + 9);
-  }
+  // Legacy — no longer draws separate dropoffs since they're now in OIL_TERMINALS
 }
 
 function drawShip(ctx, lat, lon, heading, drawW, drawH, options = {}) {
@@ -481,12 +777,15 @@ function drawTrail(ctx, trail, drawW, drawH, colorBase) {
   const len = trail.length;
   const base = colorBase || 'rgba(240, 160, 48,';
   ctx.lineWidth = 1.5;
+  const halfW = drawW / 2;
   for (let i = 1; i < len; i++) {
     const alpha = (i / len) * 0.45;
-    ctx.beginPath();
-    ctx.strokeStyle = `${base} ${alpha.toFixed(3)})`;
     const p0 = latLonToCanvas(trail[i - 1].lat, trail[i - 1].lon, drawW, drawH);
     const p1 = latLonToCanvas(trail[i].lat, trail[i].lon, drawW, drawH);
+    // Skip segments that wrap across the screen (longitude boundary)
+    if (Math.abs(p1.x - p0.x) > halfW) continue;
+    ctx.beginPath();
+    ctx.strokeStyle = `${base} ${alpha.toFixed(3)})`;
     ctx.moveTo(p0.x, p0.y);
     ctx.lineTo(p1.x, p1.y);
     ctx.stroke();
@@ -641,10 +940,12 @@ function updateAndDrawMissiles(ctx, drawW, drawH) {
 
       // Draw trail (smoke/exhaust)
       if (m.trail.length > 1) {
+        const halfW = drawW / 2;
         for (let j = 1; j < m.trail.length; j++) {
           const alpha = (j / m.trail.length) * 0.6;
           const p0 = latLonToCanvas(m.trail[j - 1].lat, m.trail[j - 1].lon, drawW, drawH);
           const p1 = latLonToCanvas(m.trail[j].lat, m.trail[j].lon, drawW, drawH);
+          if (Math.abs(p1.x - p0.x) > halfW) continue;
           ctx.beginPath();
           ctx.strokeStyle = `rgba(255, 140, 40, ${alpha})`;
           ctx.lineWidth = 2;
@@ -1030,10 +1331,12 @@ function updateAndDrawPlanes(ctx, drawW, drawH) {
     p.trail.push({ lat: currentLat, lon: currentLon, time: now });
     p.trail = p.trail.filter(pt => now - pt.time < 3000);
     if (p.trail.length > 1) {
+      const halfW = drawW / 2;
       for (let j = 1; j < p.trail.length; j++) {
         const alpha = (j / p.trail.length) * 0.4;
         const p0 = latLonToCanvas(p.trail[j - 1].lat, p.trail[j - 1].lon, drawW, drawH);
         const p1 = latLonToCanvas(p.trail[j].lat, p.trail[j].lon, drawW, drawH);
+        if (Math.abs(p1.x - p0.x) > halfW) continue;
         ctx.beginPath();
         ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
         ctx.lineWidth = 1.5;
@@ -1143,18 +1446,9 @@ function drawMap(canvas, options = {}) {
   // Chokepoint markers
   drawChokepointMarkers(ctx, drawW, drawH);
 
-  // Persian Gulf detail coastlines (drawn on top when zoomed in)
-  // Colors match world-level polygons to prevent color shift on zoom
+  // Gulf islands (always rendered via WORLD_POLYGONS now)
+  // Gulf detail coastlines (IRAN_COAST, ARAB_COAST) retained for collision only
   const gulfVisible = isGulfZoom();
-  if (gulfVisible) {
-    drawCoastline(ctx, IRAN_COAST, '#6a7050', drawW, drawH);   // matches ASIA_MAINLAND
-    drawCoastline(ctx, ARAB_COAST, '#c4a86a', drawW, drawH);   // matches ARABIA
-    drawCoastline(ctx, QESHM, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, LARAK, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, HORMUZ_ISLAND, '#7a7050', drawW, drawH);
-    drawCoastline(ctx, BAHRAIN, '#c4a86a', drawW, drawH);
-    drawCoastline(ctx, QATAR, '#c4a86a', drawW, drawH);
-  }
 
   const lbl = options.labels || {};
 
@@ -1270,6 +1564,29 @@ function drawMap(canvas, options = {}) {
   updateAndDrawMissiles(ctx, drawW, drawH);
   updateAndDrawPlanes(ctx, drawW, drawH);
 
+  // Night overlay — rotating shadow based on sun longitude using gradient
+  if (options.sunLon !== undefined) {
+    const sunLon = options.sunLon;
+    const vpSpan = viewport.east - viewport.west;
+    const grad = ctx.createLinearGradient(0, 0, drawW, 0);
+    const stops = 24;
+    for (let i = 0; i <= stops; i++) {
+      const frac = i / stops;
+      const lon = viewport.west + frac * vpSpan;
+      let diff = lon - sunLon;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      const absDiff = Math.abs(diff);
+      let darkness;
+      if (absDiff <= 75) darkness = 0;
+      else if (absDiff >= 105) darkness = 0.55;
+      else darkness = 0.55 * (absDiff - 75) / 30;
+      grad.addColorStop(frac, `rgba(5, 8, 20, ${darkness})`);
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, drawW, drawH);
+  }
+
   // Minimap
   if (options.showMinimap && options.ship) {
     drawMinimap(ctx, drawW, drawH, options.ship, options.npcShips, options.militaryShips, options.playerShips);
@@ -1292,9 +1609,12 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
   ctx.lineWidth = 1;
   ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-  // Convert world coords to minimap pixels
+  // Convert world coords to minimap pixels (wrap lon to -180..180)
   function mmPos(lat, lon) {
-    const x = mmX + ((lon - MAP_BOUNDS.west) / (MAP_BOUNDS.east - MAP_BOUNDS.west)) * mmW;
+    let wLon = lon;
+    while (wLon > 180) wLon -= 360;
+    while (wLon < -180) wLon += 360;
+    const x = mmX + ((wLon - MAP_BOUNDS.west) / (MAP_BOUNDS.east - MAP_BOUNDS.west)) * mmW;
     const y = mmY + ((MAP_BOUNDS.north - lat) / (MAP_BOUNDS.north - MAP_BOUNDS.south)) * mmH;
     return { x, y };
   }
@@ -1442,6 +1762,9 @@ function pointInPolygon(lat, lon, polygon) {
 }
 
 function isOnLand(lat, lon) {
+  // Canal cuts — these areas are water even though they're inside land polygons
+  if (pointInPolygon(lat, lon, SUEZ_CANAL)) return false;
+  if (pointInPolygon(lat, lon, PANAMA_CANAL)) return false;
   // Check Gulf detail polygons first (higher precision)
   if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
       lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
@@ -1463,17 +1786,21 @@ function drawWaypoints(ctx, waypoints, ship, drawW, drawH) {
   if (!waypoints || waypoints.length === 0) return;
 
   // Draw lines connecting ship → wp1 → wp2 → ...
-  ctx.beginPath();
   ctx.strokeStyle = 'rgba(240, 160, 48, 0.3)';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
-  const shipPos = latLonToCanvas(ship.lat, ship.lon, drawW, drawH);
-  ctx.moveTo(shipPos.x, shipPos.y);
+  const halfW = drawW / 2;
+  const allPts = [latLonToCanvas(ship.lat, ship.lon, drawW, drawH)];
   for (const wp of waypoints) {
-    const p = latLonToCanvas(wp.lat, wp.lon, drawW, drawH);
-    ctx.lineTo(p.x, p.y);
+    allPts.push(latLonToCanvas(wp.lat, wp.lon, drawW, drawH));
   }
-  ctx.stroke();
+  for (let i = 1; i < allPts.length; i++) {
+    if (Math.abs(allPts[i].x - allPts[i - 1].x) > halfW) continue;
+    ctx.beginPath();
+    ctx.moveTo(allPts[i - 1].x, allPts[i - 1].y);
+    ctx.lineTo(allPts[i].x, allPts[i].y);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
 
   // Draw waypoint markers

@@ -31,7 +31,7 @@ export const SIM_CONFIG = {
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
-  NPC_COUNT: 20,             // number of NPC traffic ships (global routes)
+  NPC_COUNT: 40,             // number of NPC traffic ships (global routes)
   MILITARY_COUNT: 4,         // number of military ships
   SPAWN_LAT: 25.3,          // Gulf of Oman spawn point (open water)
   SPAWN_LON: 58.8,
@@ -45,10 +45,13 @@ export const OIL_TERMINALS = {
     name: 'Ras Tanura',
     country: 'Saudi Arabia',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 26.68,
     lon: 50.16,
     capacity: 'Large',
     loadingBonus: 1.0,
+    buyPrice: 70,
     description: 'Largest oil terminal in the world. Fast loading, standard rates.',
     loadRadius: 0.15
   },
@@ -57,10 +60,13 @@ export const OIL_TERMINALS = {
     name: 'Kharg Island',
     country: 'Iran',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 29.23,
     lon: 50.20,
     capacity: 'Large',
     loadingBonus: 1.15,
+    buyPrice: 62,
     description: 'Major Iranian export terminal. Cheaper oil but riskier transit.',
     loadRadius: 0.15
   },
@@ -69,10 +75,13 @@ export const OIL_TERMINALS = {
     name: 'Al Basrah Oil Terminal',
     country: 'Iraq',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 29.68,
     lon: 48.80,
     capacity: 'Large',
     loadingBonus: 1.10,
+    buyPrice: 65,
     description: 'Iraqi offshore terminal near Basra. Good prices, long transit.',
     loadRadius: 0.15
   },
@@ -81,10 +90,13 @@ export const OIL_TERMINALS = {
     name: 'Jebel Dhanna',
     country: 'UAE',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 24.50,
     lon: 51.80,
     capacity: 'Medium',
     loadingBonus: 0.95,
+    buyPrice: 74,
     description: 'ADNOC terminal in Abu Dhabi. Premium pricing.',
     loadRadius: 0.15
   },
@@ -93,10 +105,13 @@ export const OIL_TERMINALS = {
     name: 'Das Island',
     country: 'UAE',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 25.06,
     lon: 52.87,
     capacity: 'Medium',
     loadingBonus: 0.95,
+    buyPrice: 74,
     description: 'Offshore UAE terminal. Close to strait, shorter transit.',
     loadRadius: 0.12
   },
@@ -105,10 +120,13 @@ export const OIL_TERMINALS = {
     name: 'Mina al-Ahmadi',
     country: 'Kuwait',
     cargoType: 'oil',
+    role: 'export',
+    region: 'gulf',
     lat: 29.07,
     lon: 48.17,
     capacity: 'Large',
     loadingBonus: 1.05,
+    buyPrice: 68,
     description: 'Kuwait\'s main oil export terminal. Competitive rates.',
     loadRadius: 0.15
   },
@@ -117,84 +135,308 @@ export const OIL_TERMINALS = {
     name: 'Ras Laffan',
     country: 'Qatar',
     cargoType: 'lng',
+    role: 'export',
+    region: 'gulf',
     lat: 25.95,
     lon: 51.55,
     capacity: 'Large',
     loadingBonus: 1.20,
+    buyPrice: 8,
     description: 'World\'s largest LNG export facility. Only LNG carriers can load here.',
     loadRadius: 0.15
-  }
-};
-
-// Dropoff points — global delivery destinations
-export const DROPOFF_POINTS = {
-  GULF_OF_OMAN: {
-    id: 'gulf_oman',
-    name: 'Gulf of Oman Anchorage',
-    lat: 25.3,
-    lon: 59.2,
-    radius: 0.3,
-    region: 'gulf',
-    description: 'International shipping anchorage near Strait of Hormuz.'
   },
+  // Americas
+  HOUSTON: {
+    id: 'houston',
+    name: 'Houston Ship Channel',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: 29.35,
+    lon: -94.77,
+    capacity: 'Large',
+    loadingBonus: 0.90,
+    buyPrice: 78,
+    description: 'Largest US petroleum port. Hub of Gulf Coast refining.',
+    loadRadius: 0.15
+  },
+  LOOP: {
+    id: 'loop',
+    name: 'Louisiana Offshore Oil Port',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: 28.88,
+    lon: -90.03,
+    capacity: 'Large',
+    loadingBonus: 0.95,
+    buyPrice: 76,
+    description: 'Only US deepwater port for VLCCs. Handles 15% of US imports.',
+    loadRadius: 0.15
+  },
+  CORPUS_CHRISTI: {
+    id: 'corpus_christi',
+    name: 'Corpus Christi',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: 27.81,
+    lon: -97.07,
+    capacity: 'Large',
+    loadingBonus: 0.90,
+    buyPrice: 77,
+    description: 'Fastest growing US crude export port. Eagle Ford shale hub.',
+    loadRadius: 0.15
+  },
+  JOSE: {
+    id: 'jose',
+    name: 'Jose Terminal',
+    country: 'Venezuela',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: 10.17,
+    lon: -64.75,
+    capacity: 'Large',
+    loadingBonus: 1.25,
+    buyPrice: 58,
+    description: 'Venezuela\'s main crude and heavy oil export terminal.',
+    loadRadius: 0.15
+  },
+  ANGRA_DOS_REIS: {
+    id: 'angra_dos_reis',
+    name: 'Angra dos Reis',
+    country: 'Brazil',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: -23.01,
+    lon: -44.32,
+    capacity: 'Large',
+    loadingBonus: 1.10,
+    buyPrice: 66,
+    description: 'Petrobras terminal serving pre-salt deepwater oil fields.',
+    loadRadius: 0.15
+  },
+  VALDEZ: {
+    id: 'valdez',
+    name: 'Valdez Marine Terminal',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'americas',
+    lat: 61.13,
+    lon: -146.35,
+    capacity: 'Medium',
+    loadingBonus: 0.85,
+    buyPrice: 80,
+    description: 'Trans-Alaska Pipeline terminus. North Slope crude exports.',
+    loadRadius: 0.15
+  },
+  // West Africa
+  BONNY: {
+    id: 'bonny',
+    name: 'Bonny Island Terminal',
+    country: 'Nigeria',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'africa',
+    lat: 4.42,
+    lon: 7.15,
+    capacity: 'Large',
+    loadingBonus: 1.15,
+    buyPrice: 63,
+    description: 'Nigeria\'s largest oil and LNG export terminal.',
+    loadRadius: 0.15
+  },
+  LUANDA: {
+    id: 'luanda',
+    name: 'Luanda Terminal',
+    country: 'Angola',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'africa',
+    lat: -8.80,
+    lon: 13.24,
+    capacity: 'Large',
+    loadingBonus: 1.20,
+    buyPrice: 60,
+    description: 'Major Angolan crude oil export hub.',
+    loadRadius: 0.15
+  },
+  // North Sea / Russia
+  PRIMORSK: {
+    id: 'primorsk',
+    name: 'Primorsk Terminal',
+    country: 'Russia',
+    cargoType: 'oil',
+    role: 'export',
+    region: 'europe',
+    lat: 60.35,
+    lon: 28.68,
+    capacity: 'Large',
+    loadingBonus: 1.15,
+    buyPrice: 63,
+    description: 'Russia\'s largest Baltic Sea oil export terminal.',
+    loadRadius: 0.15
+  },
+  // Import terminals (former dropoff points)
   SHANGHAI: {
     id: 'shanghai',
     name: 'Shanghai Terminal',
+    country: 'China',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'asia',
     lat: 30.6,
     lon: 122.3,
-    radius: 0.4,
-    region: 'china',
-    description: 'China\'s largest port. Major crude oil import hub.'
+    capacity: 'Large',
+    sellPrice: 95,
+    description: 'China\'s largest port. Major crude oil import hub.',
+    loadRadius: 0.4
   },
   YOKOHAMA: {
     id: 'yokohama',
     name: 'Yokohama Terminal',
+    country: 'Japan',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'asia',
     lat: 35.4,
     lon: 139.7,
-    radius: 0.4,
-    region: 'japan',
-    description: 'Japan\'s main oil import terminal in Tokyo Bay.'
+    capacity: 'Large',
+    sellPrice: 100,
+    lngSellPrice: 18,
+    description: 'Japan\'s main oil import terminal in Tokyo Bay.',
+    loadRadius: 0.4
   },
   BUSAN: {
     id: 'busan',
     name: 'Busan Terminal',
+    country: 'South Korea',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'asia',
     lat: 35.1,
     lon: 129.1,
-    radius: 0.4,
-    region: 'korea',
-    description: 'South Korea\'s largest port and oil import hub.'
+    capacity: 'Large',
+    sellPrice: 97,
+    lngSellPrice: 17,
+    description: 'South Korea\'s largest port and oil import hub.',
+    loadRadius: 0.4
   },
   MUMBAI: {
     id: 'mumbai',
     name: 'Mumbai Terminal',
+    country: 'India',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'asia',
     lat: 18.9,
     lon: 72.8,
-    radius: 0.4,
-    region: 'india',
-    description: 'India\'s busiest port for crude oil imports.'
+    capacity: 'Large',
+    sellPrice: 88,
+    description: 'India\'s busiest port for crude oil imports.',
+    loadRadius: 0.4
   },
   ROTTERDAM: {
     id: 'rotterdam',
     name: 'Rotterdam Terminal',
+    country: 'Netherlands',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'europe',
     lat: 51.9,
     lon: 4.0,
-    radius: 0.4,
-    region: 'europe',
-    description: 'Europe\'s largest port. Key oil refining hub.'
+    capacity: 'Large',
+    sellPrice: 90,
+    lngSellPrice: 14,
+    description: 'Europe\'s largest port. Key oil refining hub.',
+    loadRadius: 0.4
   },
-  SINGAPORE: {
-    id: 'singapore',
+  SINGAPORE_IMP: {
+    id: 'singapore_imp',
     name: 'Singapore Terminal',
+    country: 'Singapore',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'asia',
     lat: 1.3,
     lon: 103.8,
-    radius: 0.3,
-    region: 'singapore',
-    description: 'World\'s busiest transshipment port and oil trading hub.'
+    capacity: 'Large',
+    sellPrice: 85,
+    description: 'World\'s busiest transshipment port and oil trading hub.',
+    loadRadius: 0.3
+  },
+  HOUSTON_IMP: {
+    id: 'houston_imp',
+    name: 'Houston Anchorage',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'americas',
+    lat: 29.0,
+    lon: -94.5,
+    capacity: 'Large',
+    sellPrice: 82,
+    description: 'US Gulf Coast receiving hub for crude oil imports.',
+    loadRadius: 0.4
+  },
+  NEW_YORK: {
+    id: 'new_york',
+    name: 'New York Harbor',
+    country: 'USA',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'americas',
+    lat: 40.5,
+    lon: -73.8,
+    capacity: 'Large',
+    sellPrice: 84,
+    description: 'Major US East Coast petroleum receiving port.',
+    loadRadius: 0.4
+  },
+  CAPE_TOWN: {
+    id: 'cape_town',
+    name: 'Cape Town Anchorage',
+    country: 'South Africa',
+    cargoType: 'oil',
+    role: 'import',
+    region: 'africa',
+    lat: -33.9,
+    lon: 18.4,
+    capacity: 'Medium',
+    sellPrice: 86,
+    description: 'Waypoint anchorage off Cape of Good Hope.',
+    loadRadius: 0.4
   },
 };
 
-// Legacy single dropoff for backward compatibility
-export const DROPOFF_POINT = DROPOFF_POINTS.GULF_OF_OMAN;
+// Derived views for convenience
+export const EXPORT_TERMINALS = Object.fromEntries(
+  Object.entries(OIL_TERMINALS).filter(([, t]) => t.role === 'export')
+);
+export const IMPORT_TERMINALS = Object.fromEntries(
+  Object.entries(OIL_TERMINALS).filter(([, t]) => t.role === 'import')
+);
+
+// Legacy backward compatibility — DROPOFF_POINTS maps to import terminals
+export const DROPOFF_POINTS = Object.fromEntries(
+  Object.entries(OIL_TERMINALS).filter(([, t]) => t.role === 'import').map(([k, t]) => [k, { ...t, radius: t.loadRadius }])
+);
+export const DROPOFF_POINT = DROPOFF_POINTS.SHANGHAI || Object.values(DROPOFF_POINTS)[0];
+
+// Terminal region groupings (for UI dropdowns)
+export const TERMINAL_REGIONS = {
+  gulf: 'Persian Gulf',
+  asia: 'Asia Pacific',
+  europe: 'Europe',
+  americas: 'Americas',
+  africa: 'Africa',
+};
 
 // Danger zones on the map
 export const DANGER_ZONES = [
@@ -276,6 +518,24 @@ export const MILITARY_BASES = [
     lat: 25.12, lon: 56.33, color: '#44aa88', icon: 'anchor' },
   { id: 'musandam', name: 'Oman Radar Station', country: 'Oman', type: 'radar',
     lat: 26.15, lon: 56.25, color: '#44aa88', icon: 'radar' },
+  // US bases in Saudi Arabia
+  { id: 'prince_sultan', name: 'Prince Sultan Air Base', country: 'US', type: 'air',
+    lat: 24.07, lon: 47.58, color: '#4488cc', icon: 'plane' },
+  { id: 'eskan_village', name: 'Eskan Village', country: 'US', type: 'air',
+    lat: 24.63, lon: 46.71, color: '#4488cc', icon: 'plane' },
+  { id: 'king_abdulaziz', name: 'King Abdulaziz Naval Base', country: 'Saudi Arabia', type: 'naval',
+    lat: 21.34, lon: 39.17, color: '#44aa88', icon: 'anchor' },
+  // Israel
+  { id: 'haifa_naval', name: 'Haifa Naval Base', country: 'Israel', type: 'naval',
+    lat: 32.82, lon: 34.98, color: '#4488cc', icon: 'anchor' },
+  { id: 'eilat_naval', name: 'Eilat Naval Base', country: 'Israel', type: 'naval',
+    lat: 29.55, lon: 34.95, color: '#4488cc', icon: 'anchor' },
+  { id: 'palmachim', name: 'Palmachim Air Base', country: 'Israel', type: 'air',
+    lat: 31.90, lon: 34.69, color: '#4488cc', icon: 'plane' },
+  { id: 'nevatim', name: 'Nevatim Air Base', country: 'Israel', type: 'air',
+    lat: 31.21, lon: 34.82, color: '#4488cc', icon: 'plane' },
+  { id: 'sdot_micha', name: 'Sdot Micha Missile Base', country: 'Israel', type: 'missile',
+    lat: 31.73, lon: 34.93, color: '#4488cc', icon: 'missile' },
 ];
 
 // Cities around the Persian Gulf (missile targets)
