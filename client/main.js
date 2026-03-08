@@ -1263,7 +1263,8 @@ const OCEAN_NODES = [
   { id: 'atl_s', lat: -10.0, lon: -20.0 },
   // Americas
   { id: 'us_east', lat: 38.0, lon: -72.0 },
-  { id: 'florida_str', lat: 24.5, lon: -81.0 },
+  { id: 'florida_east', lat: 27.0, lon: -79.0 },
+  { id: 'florida_str', lat: 24.0, lon: -81.5 },
   { id: 'us_gulf', lat: 28.0, lon: -90.0 },
   { id: 'caribbean', lat: 15.0, lon: -70.0 },
   { id: 'trinidad', lat: 11.0, lon: -62.0 },
@@ -1316,8 +1317,10 @@ const OCEAN_EDGES = [
   ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
   ['angola', 'cape'], ['angola', 'atl_s'],
   // Americas (route around Florida via florida_str)
-  ['us_east', 'florida_str'], ['florida_str', 'us_gulf'],
-  ['us_east', 'caribbean'], ['florida_str', 'caribbean'],
+  ['us_east', 'florida_east'], ['florida_east', 'florida_str'],
+  ['florida_str', 'us_gulf'],
+  ['us_east', 'caribbean'], ['florida_east', 'caribbean'],
+  ['florida_str', 'caribbean'],
   ['caribbean', 'venezuela'], ['caribbean', 'panama_c'],
   ['caribbean', 'trinidad'], ['trinidad', 'venezuela'],
   ['panama_c', 'panama_p'],
