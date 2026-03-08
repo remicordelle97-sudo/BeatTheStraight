@@ -1225,8 +1225,9 @@ const OCEAN_NODES = [
   { id: 'gulf_central', lat: 26.5, lon: 52.0 },
   { id: 'gulf_qatar_e', lat: 25.5, lon: 53.0 },
   { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
-  { id: 'hormuz_ch', lat: 26.3, lon: 56.3 },
+  { id: 'hormuz_ch', lat: 26.5, lon: 57.0 },
   { id: 'hormuz', lat: 26.5, lon: 56.5 },
+  { id: 'gulf_oman', lat: 25.5, lon: 58.5 },
   { id: 'oman_se', lat: 24.5, lon: 59.0 },
   { id: 'oman', lat: 24.0, lon: 60.0 },
   // Indian Ocean
@@ -1242,6 +1243,8 @@ const OCEAN_NODES = [
   // Mediterranean / Europe
   { id: 'med_e', lat: 34.0, lon: 28.0 },
   { id: 'med_c', lat: 36.0, lon: 15.0 },
+  { id: 'sicily_ch', lat: 38.0, lon: 12.0 },
+  { id: 'med_w', lat: 38.0, lon: 3.0 },
   { id: 'gibraltar', lat: 36.0, lon: -6.0 },
   { id: 'biscay', lat: 45.0, lon: -8.0 },
   { id: 'channel', lat: 50.0, lon: -2.0 },
@@ -1276,8 +1279,9 @@ const OCEAN_NODES = [
   { id: 'alaska', lat: 59.0, lon: -148.0 },
   { id: 'pac_n', lat: 45.0, lon: -155.0 },
   // Asia Pacific
-  { id: 'malacca', lat: 4.0, lon: 96.0 },
-  { id: 'singapore', lat: 1.3, lon: 103.5 },
+  { id: 'andaman', lat: 8.0, lon: 96.0 },
+  { id: 'malacca', lat: 4.0, lon: 99.5 },
+  { id: 'singapore', lat: 1.3, lon: 104.0 },
   { id: 'scs_south', lat: 5.0, lon: 108.0 },
   { id: 'scs', lat: 12.0, lon: 112.0 },
   { id: 'ecs', lat: 30.0, lon: 123.0 },
@@ -1293,7 +1297,9 @@ const OCEAN_EDGES = [
   ['gulf_qatar_e', 'gulf_uae'], ['gulf_uae', 'hormuz_ch'],
   ['hormuz_ch', 'hormuz'], ['gulf_central', 'gulf_uae'],
   // Strait of Hormuz to Gulf of Oman
-  ['hormuz_ch', 'oman_se'], ['oman_se', 'oman'], ['hormuz', 'oman'],
+  ['hormuz_ch', 'hormuz'],
+  ['hormuz_ch', 'gulf_oman'], ['gulf_oman', 'oman_se'],
+  ['oman_se', 'oman'],
   // Indian Ocean
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
   ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
@@ -1304,7 +1310,8 @@ const OCEAN_EDGES = [
   ['bab', 'e_africa'], ['e_africa', 'mozambique'], ['mozambique', 'cape'],
   ['e_africa', 'arabian_sea'],
   // Mediterranean
-  ['med_e', 'med_c'], ['med_c', 'gibraltar'],
+  ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
+  ['sicily_ch', 'med_w'], ['med_w', 'gibraltar'],
   // Europe
   ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
   ['dover', 'north_sea'],
@@ -1329,7 +1336,7 @@ const OCEAN_EDGES = [
   // Pacific — full circumnavigation routes
   ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
   // Asia
-  ['india_s', 'malacca'], ['malacca', 'singapore'],
+  ['india_s', 'andaman'], ['andaman', 'malacca'], ['malacca', 'singapore'],
   ['singapore', 'scs_south'], ['scs_south', 'scs'],
   ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
