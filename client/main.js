@@ -36,6 +36,21 @@ let lastFrameTime = 0;
 let zoneCooldowns = {};
 let lastEventCheck = 0;
 
+// Campaign state
+const CAMPAIGN_DAYS = 7;
+const CAMPAIGN_DURATION = CAMPAIGN_DAYS * 24 * 3600; // 7 days in game seconds
+let campaignStats = {
+  totalProfit: 0,
+  totalRevenue: 0,
+  totalCosts: 0,
+  deliveries: 0,
+  shipsBought: 0,
+  shipsLost: 0,
+  totalDamageTaken: 0,
+  missileEvents: 0,
+};
+let campaignEnded = false;
+
 // Multi-ship state
 let shipStates = {};
 let shipWaypoints = {};
@@ -80,6 +95,12 @@ function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
   if (screens[name]) screens[name].classList.add('active');
 }
+
+// Campaign time helpers
+function getCampaignDay() { return Math.floor(simGameTime / (24 * 3600)) + 1; }
+function getGameHour() { return (simGameTime % (24 * 3600)) / 3600; }
+function isNightTime() { const h = getGameHour(); return h < 6 || h >= 20; }
+function getNightDetectionMultiplier() { return isNightTime() ? 0.4 : 1.0; }
 
 function formatMoney(n) {
   if (Math.abs(n) >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
@@ -784,6 +805,8 @@ function enterGame() {
   simGameTime = 0;
   zoneCooldowns = {};
   lastEventCheck = 0;
+  campaignEnded = false;
+  campaignStats = { totalProfit: 0, totalRevenue: 0, totalCosts: 0, deliveries: 0, shipsBought: 0, shipsLost: 0, totalDamageTaken: 0, missileEvents: 0 };
 
 
   const me = gameState.players.find(p => p.id === myId);
@@ -1124,6 +1147,7 @@ document.getElementById('modal-confirm-buy').addEventListener('click', () => {
   }, (res) => {
     if (res.success) {
       closeShipPurchaseModal();
+      campaignStats.shipsBought++;
       if (res.ship) {
         spawnShipState(res.ship, modalSpawnTerminalId.lat, modalSpawnTerminalId.lon);
         selectedShipId = res.ship.id;
@@ -2127,6 +2151,11 @@ function transitLoop(timestamp) {
                 addTransitEvent('CARGO DELIVERED', `${ship.name}: Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})!`, 'success');
               }
             });
+            // Track campaign stats
+            campaignStats.deliveries++;
+            campaignStats.totalRevenue += grossRevenue;
+            campaignStats.totalCosts += buyCost;
+            campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
             addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
             updateFleetPanel();
@@ -2138,6 +2167,7 @@ function transitLoop(timestamp) {
       // Destruction check
       if (state.totalDamage >= 0.9 && !state.destroyed) {
         state.destroyed = true;
+        campaignStats.shipsLost++;
         addTransitEvent('VESSEL DESTROYED', `${ship.name} has been destroyed!`, 'danger');
         // Report destruction to server for insurance payout and fleet removal
         socket.emit('ship_destroyed', { shipId: ship.id }, (res) => {
@@ -2179,6 +2209,12 @@ function transitLoop(timestamp) {
 
   updateHUD();
 
+  // Campaign end check
+  if (!campaignEnded && simGameTime >= CAMPAIGN_DURATION) {
+    campaignEnded = true;
+    showCampaignReport();
+  }
+
   // Render
   const selectedState = selectedShipId ? shipStates[selectedShipId] : null;
   const selectedWps = selectedShipId ? (shipWaypoints[selectedShipId] || []) : [];
@@ -2207,6 +2243,7 @@ function transitLoop(timestamp) {
     waypoints: selectedWps,
     npcShips, militaryShips, showMinimap: true, playerShips,
     labels: mapLabelSettings,
+    nightOverlay: isNightTime(),
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
@@ -2218,9 +2255,12 @@ function transitLoop(timestamp) {
 // HUD UPDATE
 // ============================================
 function updateHUD() {
-  const gameHours = Math.floor(simGameTime / 3600);
-  const gameMinutes = Math.floor((simGameTime % 3600) / 60);
-  document.getElementById('hud-time').textContent = `${String(gameHours).padStart(2,'0')}:${String(gameMinutes).padStart(2,'0')}`;
+  const day = getCampaignDay();
+  const hourOfDay = Math.floor(getGameHour());
+  const minuteOfDay = Math.floor((simGameTime % 3600) / 60);
+  const timeStr = `${String(hourOfDay).padStart(2,'0')}:${String(minuteOfDay).padStart(2,'0')}`;
+  const nightIcon = isNightTime() ? ' [NIGHT]' : '';
+  document.getElementById('hud-time').textContent = `DAY ${Math.min(day, CAMPAIGN_DAYS)} - ${timeStr}${nightIcon}`;
 
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   const ship = getSelectedShipData();
@@ -2254,6 +2294,74 @@ function updateHUD() {
     document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
     document.getElementById('hud-progress').textContent = '--';
   }
+}
+
+// ============================================
+// CAMPAIGN REPORT CARD
+// ============================================
+function showCampaignReport() {
+  transitActive = false;
+  const me = gameState?.players.find(p => p.id === myId);
+  const cash = me?.cash || 0;
+  const fleetSize = me?.fleet.length || 0;
+
+  // Grade based on profit
+  let grade, gradeColor;
+  if (campaignStats.totalProfit >= 5000000) { grade = 'S'; gradeColor = '#ffd700'; }
+  else if (campaignStats.totalProfit >= 2000000) { grade = 'A'; gradeColor = '#40c070'; }
+  else if (campaignStats.totalProfit >= 1000000) { grade = 'B'; gradeColor = '#4090d0'; }
+  else if (campaignStats.totalProfit >= 500000) { grade = 'C'; gradeColor = '#f0a030'; }
+  else if (campaignStats.totalProfit >= 0) { grade = 'D'; gradeColor = '#e06040'; }
+  else { grade = 'F'; gradeColor = '#e04040'; }
+
+  const report = `
+    <div style="text-align:center; padding: 20px;">
+      <h1 style="color: var(--accent); margin-bottom: 5px;">CAMPAIGN COMPLETE</h1>
+      <p style="color: var(--text-muted); margin-bottom: 20px;">7-Day Campaign Report</p>
+      <div style="font-size: 64px; font-weight: bold; color: ${gradeColor}; margin: 10px 0;">${grade}</div>
+      <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 20px;">OVERALL GRADE</p>
+      <div style="text-align: left; max-width: 350px; margin: 0 auto;">
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Profit</span>
+          <span style="color: ${campaignStats.totalProfit >= 0 ? '#40c070' : '#e04040'}; font-weight: bold;">${formatMoney(campaignStats.totalProfit)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Revenue</span>
+          <span>${formatMoney(campaignStats.totalRevenue)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Cargo Costs</span>
+          <span>${formatMoney(campaignStats.totalCosts)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Deliveries</span>
+          <span>${campaignStats.deliveries}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Ships Bought</span>
+          <span>${campaignStats.shipsBought}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Ships Lost</span>
+          <span style="color: ${campaignStats.shipsLost > 0 ? '#e04040' : '#40c070'};">${campaignStats.shipsLost}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Missile Events</span>
+          <span>${campaignStats.missileEvents}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0; border-bottom: 1px solid rgba(240,160,48,0.15);">
+          <span style="color: var(--text-muted);">Total Damage Taken</span>
+          <span>${Math.round(campaignStats.totalDamageTaken * 100)}%</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding: 6px 0;">
+          <span style="color: var(--text-muted);">Final Cash</span>
+          <span style="font-weight: bold;">${formatMoney(cash)}</span>
+        </div>
+      </div>
+    </div>`;
+
+  showScreen('gameover');
+  document.getElementById('final-leaderboard').innerHTML = report;
 }
 
 // ============================================
@@ -2415,7 +2523,8 @@ function checkDangerZonesAllShips(elapsed) {
       // Defense upgrades reduce event probability
       const defLevel = ship.defenseUpgrade || 0;
       const defReduction = 1 - defLevel * 0.2; // 20% reduction per level
-      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction;
+      const nightMult = getNightDetectionMultiplier();
+      let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
       if (Math.random() < prob) {
         const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
         const evt = EVENTS.find(e => e.id === eventId);
@@ -2432,6 +2541,8 @@ function checkDangerZonesAllShips(elapsed) {
         state.totalMoneyLoss += outcome.moneyLoss;
         if (outcome.delayHours >= 720) state.seized = true;
         if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, ship.speed * (1 - state.totalDamage * 0.5)));
+        campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
+        if (eventId === 'missile_alert' || eventId === 'drone_swarm') campaignStats.missileEvents++;
         // Spawn missile animation for missile events
         if (eventId === 'missile_alert' || eventId === 'drone_swarm') {
           const iranBases = MILITARY_BASES.filter(b => b.country === 'Iran');

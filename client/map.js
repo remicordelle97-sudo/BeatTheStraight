@@ -1359,6 +1359,12 @@ function drawMap(canvas, options = {}) {
   updateAndDrawMissiles(ctx, drawW, drawH);
   updateAndDrawPlanes(ctx, drawW, drawH);
 
+  // Night overlay — dark blue tint over the entire map
+  if (options.nightOverlay) {
+    ctx.fillStyle = 'rgba(5, 8, 20, 0.35)';
+    ctx.fillRect(0, 0, drawW, drawH);
+  }
+
   // Minimap
   if (options.showMinimap && options.ship) {
     drawMinimap(ctx, drawW, drawH, options.ship, options.npcShips, options.militaryShips, options.playerShips);
