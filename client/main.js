@@ -99,8 +99,32 @@ function showScreen(name) {
 // Campaign time helpers
 function getCampaignDay() { return Math.floor(simGameTime / (24 * 3600)) + 1; }
 function getGameHour() { return (simGameTime % (24 * 3600)) / 3600; }
-function isNightTime() { const h = getGameHour(); return h < 6 || h >= 20; }
-function getNightDetectionMultiplier() { return isNightTime() ? 0.4 : 1.0; }
+// Sun longitude: at hour 0 (midnight UTC), the sun is at lon 180 (opposite side).
+// The sun moves west at 15°/hour. At hour 12 (noon UTC), sun is at lon 0.
+function getSunLon() {
+  const h = getGameHour();
+  let sunLon = 180 - h * 15; // midnight UTC → sun at 180°, noon UTC → sun at 0°
+  while (sunLon > 180) sunLon -= 360;
+  while (sunLon < -180) sunLon += 360;
+  return sunLon;
+}
+// Returns 0 (full night) to 1 (full day) for a given longitude
+function getDaylightAt(lon) {
+  const sunLon = getSunLon();
+  let diff = lon - sunLon;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  const absDiff = Math.abs(diff);
+  // Day within 90° of sun, night beyond 90°, with 15° twilight transition
+  if (absDiff <= 75) return 1.0;
+  if (absDiff >= 105) return 0.0;
+  return 1.0 - (absDiff - 75) / 30;
+}
+function isNightAtLon(lon) { return getDaylightAt(lon) < 0.3; }
+function getNightDetectionMultiplier(lon) {
+  const daylight = getDaylightAt(lon);
+  return 0.4 + 0.6 * daylight; // 0.4 at full night, 1.0 at full day
+}
 
 function formatMoney(n) {
   if (Math.abs(n) >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
@@ -1263,6 +1287,8 @@ const OCEAN_NODES = [
   // Red Sea / Suez
   { id: 'bab', lat: 12.5, lon: 43.5 },
   { id: 'red_sea', lat: 20.0, lon: 38.5 },
+  { id: 'red_sea_n', lat: 25.5, lon: 35.0 },
+  { id: 'suez_app', lat: 28.5, lon: 33.2 },
   { id: 'suez_s', lat: 30.0, lon: 32.5 },
   { id: 'suez_n', lat: 31.5, lon: 32.2 },
   // Mediterranean / Europe
@@ -1270,6 +1296,7 @@ const OCEAN_NODES = [
   { id: 'med_c', lat: 36.0, lon: 15.0 },
   { id: 'sicily_ch', lat: 38.0, lon: 12.0 },
   { id: 'med_w', lat: 38.0, lon: 3.0 },
+  { id: 'gib_strait', lat: 35.95, lon: -5.5 },
   { id: 'gibraltar', lat: 36.0, lon: -6.0 },
   { id: 'biscay', lat: 45.0, lon: -8.0 },
   { id: 'channel', lat: 50.0, lon: -2.0 },
@@ -1331,14 +1358,16 @@ const OCEAN_EDGES = [
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
   ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
   // Red Sea route
-  ['arabian_sea', 'bab'], ['bab', 'red_sea'], ['red_sea', 'suez_s'],
+  ['arabian_sea', 'bab'], ['bab', 'red_sea'], ['red_sea', 'red_sea_n'],
+  ['red_sea_n', 'suez_app'], ['suez_app', 'suez_s'],
   ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
   // East Africa
   ['bab', 'e_africa'], ['e_africa', 'mozambique'], ['mozambique', 'cape'],
   ['e_africa', 'arabian_sea'],
   // Mediterranean
   ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
-  ['sicily_ch', 'med_w'], ['med_w', 'gibraltar'],
+  ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
+  ['gib_strait', 'gibraltar'],
   // Europe
   ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
   ['dover', 'north_sea'],
@@ -2247,7 +2276,7 @@ function transitLoop(timestamp) {
     waypoints: selectedWps,
     npcShips, militaryShips, showMinimap: true, playerShips,
     labels: mapLabelSettings,
-    nightOverlay: isNightTime(),
+    sunLon: getSunLon(),
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
@@ -2263,7 +2292,8 @@ function updateHUD() {
   const hourOfDay = Math.floor(getGameHour());
   const minuteOfDay = Math.floor((simGameTime % 3600) / 60);
   const timeStr = `${String(hourOfDay).padStart(2,'0')}:${String(minuteOfDay).padStart(2,'0')}`;
-  const nightIcon = isNightTime() ? ' [NIGHT]' : '';
+  const selState = selectedShipId ? shipStates[selectedShipId] : null;
+  const nightIcon = (selState && isNightAtLon(selState.lon)) ? ' [NIGHT]' : '';
   document.getElementById('hud-time').textContent = `DAY ${Math.min(day, CAMPAIGN_DAYS)} - ${timeStr}${nightIcon}`;
 
   const state = selectedShipId ? shipStates[selectedShipId] : null;
@@ -2527,7 +2557,7 @@ function checkDangerZonesAllShips(elapsed) {
       // Defense upgrades reduce event probability
       const defLevel = ship.defenseUpgrade || 0;
       const defReduction = 1 - defLevel * 0.2; // 20% reduction per level
-      const nightMult = getNightDetectionMultiplier();
+      const nightMult = getNightDetectionMultiplier(state.lon);
       let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
       if (Math.random() < prob) {
         const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];

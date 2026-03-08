@@ -1359,10 +1359,28 @@ function drawMap(canvas, options = {}) {
   updateAndDrawMissiles(ctx, drawW, drawH);
   updateAndDrawPlanes(ctx, drawW, drawH);
 
-  // Night overlay — dark blue tint over the entire map
-  if (options.nightOverlay) {
-    ctx.fillStyle = 'rgba(5, 8, 20, 0.35)';
-    ctx.fillRect(0, 0, drawW, drawH);
+  // Night overlay — rotating shadow based on sun longitude
+  if (options.sunLon !== undefined) {
+    const sunLon = options.sunLon;
+    const stripCount = 72; // 5° strips across the viewport
+    const vpSpan = viewport.east - viewport.west;
+    const stripWidthDeg = vpSpan / stripCount;
+    const stripWidthPx = drawW / stripCount;
+    for (let i = 0; i < stripCount; i++) {
+      const lon = viewport.west + (i + 0.5) * stripWidthDeg;
+      let diff = lon - sunLon;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      const absDiff = Math.abs(diff);
+      let darkness;
+      if (absDiff <= 75) darkness = 0;
+      else if (absDiff >= 105) darkness = 0.4;
+      else darkness = 0.4 * (absDiff - 75) / 30;
+      if (darkness > 0.01) {
+        ctx.fillStyle = `rgba(5, 8, 20, ${darkness})`;
+        ctx.fillRect(Math.floor(i * stripWidthPx), 0, Math.ceil(stripWidthPx) + 1, drawH);
+      }
+    }
   }
 
   // Minimap
