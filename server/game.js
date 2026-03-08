@@ -1,7 +1,8 @@
 import {
   SHIP_TYPES, AIS_OPTIONS, INSURANCE_OPTIONS,
   RISK_LEVELS, BASE_OIL_PRICE, TIME_OPTIONS,
-  GAME_PHASES, STARTING_CASH, OIL_TERMINALS
+  GAME_PHASES, STARTING_CASH, OIL_TERMINALS,
+  getAllTerminalPrices
 } from '../shared/constants.js';
 
 function generateGameId() {
@@ -15,6 +16,7 @@ class GameState {
     this.phase = GAME_PHASES.LOBBY;
     this.riskLevel = 'CRITICAL';
     this.oilPrice = BASE_OIL_PRICE * RISK_LEVELS.CRITICAL.oilPriceMultiplier;
+    this.terminalPrices = getAllTerminalPrices(this.riskLevel);
     this.players = {};
     this.transitLog = [];
     this.transitCount = 0;
@@ -62,6 +64,7 @@ class GameState {
     const risk = RISK_LEVELS[this.riskLevel];
     const volatility = 0.9 + Math.random() * 0.2;
     this.oilPrice = Math.round(BASE_OIL_PRICE * risk.oilPriceMultiplier * volatility * 100) / 100;
+    this.terminalPrices = getAllTerminalPrices(this.riskLevel);
 
     // Weekly insurance billing
     for (const player of Object.values(this.players)) {
@@ -282,6 +285,7 @@ class GameState {
       riskLevel: this.riskLevel,
       riskInfo: RISK_LEVELS[this.riskLevel],
       oilPrice: this.oilPrice,
+      terminalPrices: this.terminalPrices,
       players: Object.values(this.players).map(p => ({
         id: p.id,
         name: p.name,

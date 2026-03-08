@@ -29,6 +29,15 @@ let modalSpawnTerminalId = null;
 
 let gameSpeedMultiplier = 1;
 
+// Get live terminal price from server state, falling back to static base price
+function getLivePrice(terminal) {
+  if (gameState && gameState.terminalPrices && gameState.terminalPrices[terminal.id]) {
+    return gameState.terminalPrices[terminal.id].price;
+  }
+  // Fallback to static base price
+  return terminal.buyPrice || terminal.sellPrice || 75;
+}
+
 let transitActive = false;
 let simStartTime = 0;
 let simGameTime = 0;
@@ -764,7 +773,7 @@ function renderMobileControls(container) {
       <select id="mobile-ap-terminal" class="mobile-select">`;
     for (const t of exports) {
       const sel = (apState?.terminal?.id === t.id) ? 'selected' : '';
-      html += `<option value="${t.id}" ${sel}>${t.name} — $${t.buyPrice || '?'}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
+      html += `<option value="${t.id}" ${sel}>${t.name} — $${getLivePrice(t)}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
     }
     html += `</select></div>`;
     html += `<div class="mobile-ctrl-row">
@@ -772,7 +781,7 @@ function renderMobileControls(container) {
       <select id="mobile-ap-dropoff" class="mobile-select">`;
     for (const t of imports) {
       const sel = (apState?.dropoff?.id === t.id) ? 'selected' : '';
-      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : (t.sellPrice || '?');
+      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : getLivePrice(t);
       html += `<option value="${t.id}" ${sel}>${t.name} — $${price}/${isLng ? 'MMBtu' : 'bbl'}</option>`;
     }
     html += `</select></div>`;
@@ -1283,7 +1292,7 @@ function populateApTerminalSelect(ship) {
     for (const t of terminals) {
       const opt = document.createElement('option');
       opt.value = t.id;
-      opt.textContent = `${t.name} — Buy $${t.buyPrice || '?'}/${isLng ? 'MMBtu' : 'bbl'}`;
+      opt.textContent = `${t.name} — Buy $${getLivePrice(t)}/${isLng ? 'MMBtu' : 'bbl'}`;
       grp.appendChild(opt);
     }
     sel.appendChild(grp);
@@ -1307,7 +1316,7 @@ function populateApTerminalSelect(ship) {
     for (const t of terminals) {
       const opt = document.createElement('option');
       opt.value = t.id;
-      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : (t.sellPrice || '?');
+      const price = isLng ? (t.lngSellPrice || t.sellPrice || '?') : getLivePrice(t);
       opt.textContent = `${t.name} — Sell $${price}/${isLng ? 'MMBtu' : 'bbl'}`;
       grp.appendChild(opt);
     }
@@ -2626,8 +2635,8 @@ function showModalSpawnStep() {
         ${terminals.map(t => {
           const roleLabel = t.role === 'import' ? 'IMPORT' : 'EXPORT';
           const priceInfo = t.role === 'import'
-            ? `Sell $${t.sellPrice || '?'}/bbl`
-            : `Buy $${t.buyPrice || '?'}/bbl`;
+            ? `Sell $${getLivePrice(t)}/bbl`
+            : `Buy $${getLivePrice(t)}/bbl`;
           return `<div class="option-card" data-spawn-id="${t.id}" data-spawn-lat="${t.lat}" data-spawn-lon="${t.lon}">
             <div class="option-name">${t.name}</div>
             <div class="option-desc">${t.country || ''} — ${roleLabel} — ${priceInfo}</div>
@@ -3728,7 +3737,7 @@ function transitLoop(timestamp) {
           if (shipCargoType !== terminalCargoType) continue;
           const dist = distanceDeg(state.lat, state.lon, terminal.lat, terminal.lon);
           if (dist < (terminal.loadRadius || SIM_CONFIG.LOAD_RADIUS)) {
-            const buyPrice = terminal.buyPrice || 70;
+            const buyPrice = getLivePrice(terminal);
             const cost = Math.round(ship.capacity * buyPrice);
             cargo.loaded = true; cargo.terminal = terminal; cargo.terminalId = terminal.id;
             cargo.buyCost = cost;
@@ -3746,7 +3755,7 @@ function transitLoop(timestamp) {
           if (dropDist < (dp.loadRadius || 0.3)) {
             // Revenue = sell price × capacity × (1 - damage) - buy cost
             const isLng = (ship.cargoType || 'oil') === 'lng';
-            const sellPrice = isLng ? (dp.lngSellPrice || dp.sellPrice || 85) : (dp.sellPrice || 85);
+            const sellPrice = isLng ? (dp.lngSellPrice || dp.sellPrice || 85) : getLivePrice(dp);
             const grossRevenue = Math.round(ship.capacity * sellPrice * (1 - state.totalDamage));
             const buyCost = cargo.buyCost || 0;
             const profit = grossRevenue - buyCost;
@@ -4457,11 +4466,15 @@ function showTerminalPopup(terminal, screenX, screenY) {
 
   let priceHtml;
   if (isExport) {
-    const buyPrice = terminal.buyPrice || 70;
-    priceHtml = `<div class="terminal-popup-row"><span>Buy Price:</span><span class="stat-warn">$${buyPrice}/${unit}</span></div>`;
+    const buyPrice = getLivePrice(terminal);
+    const basePrice = terminal.buyPrice || 70;
+    const changed = buyPrice !== basePrice;
+    priceHtml = `<div class="terminal-popup-row"><span>Buy Price:</span><span class="stat-warn">$${buyPrice}/${unit}${changed ? ` <small style="opacity:0.6">(base $${basePrice})</small>` : ''}</span></div>`;
   } else {
-    const sellPrice = isLng ? (terminal.lngSellPrice || terminal.sellPrice || 85) : (terminal.sellPrice || 85);
-    priceHtml = `<div class="terminal-popup-row"><span>Sell Price:</span><span class="stat-good">$${sellPrice}/${unit}</span></div>`;
+    const sellPrice = isLng ? (terminal.lngSellPrice || terminal.sellPrice || 85) : getLivePrice(terminal);
+    const basePrice = terminal.sellPrice || 85;
+    const changed = sellPrice !== basePrice;
+    priceHtml = `<div class="terminal-popup-row"><span>Sell Price:</span><span class="stat-good">$${sellPrice}/${unit}${changed ? ` <small style="opacity:0.6">(base $${basePrice})</small>` : ''}</span></div>`;
   }
 
   document.getElementById('terminal-popup-body').innerHTML = `

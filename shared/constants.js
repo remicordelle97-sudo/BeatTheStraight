@@ -914,6 +914,46 @@ export const RISK_LEVELS = {
 
 export const BASE_OIL_PRICE = 75;
 
+// Dynamic terminal pricing multipliers by risk level and terminal context
+// Gulf export: oversupply drives prices DOWN during conflict (oil is stuck)
+// Non-gulf export: slight premium as "safe" alternative sources
+// Import: shortage drives prices UP during conflict (less oil reaching market)
+export const TERMINAL_PRICE_MULTIPLIERS = {
+  LOW:      { gulfExport: 1.0,  nonGulfExport: 1.0,  import: 1.0  },
+  MODERATE: { gulfExport: 0.85, nonGulfExport: 1.05, import: 1.15 },
+  HIGH:     { gulfExport: 0.65, nonGulfExport: 1.15, import: 1.45 },
+  CRITICAL: { gulfExport: 0.40, nonGulfExport: 1.25, import: 2.0  }
+};
+
+// Compute the live buy/sell price for a terminal given the current risk level
+export function getTerminalPrice(terminal, riskLevel) {
+  const mult = TERMINAL_PRICE_MULTIPLIERS[riskLevel] || TERMINAL_PRICE_MULTIPLIERS.LOW;
+  if (terminal.role === 'export') {
+    const base = terminal.buyPrice || 70;
+    const m = terminal.region === 'gulf' ? mult.gulfExport : mult.nonGulfExport;
+    return Math.round(base * m * 100) / 100;
+  } else if (terminal.role === 'import') {
+    const base = terminal.sellPrice || 85;
+    return Math.round(base * mult.import * 100) / 100;
+  }
+  return terminal.buyPrice || terminal.sellPrice || 75;
+}
+
+// Compute all terminal prices at once for a given risk level
+export function getAllTerminalPrices(riskLevel) {
+  const prices = {};
+  for (const [key, terminal] of Object.entries(OIL_TERMINALS)) {
+    const price = getTerminalPrice(terminal, riskLevel);
+    prices[terminal.id] = {
+      id: terminal.id,
+      price,
+      role: terminal.role,
+      base: terminal.role === 'export' ? terminal.buyPrice : terminal.sellPrice
+    };
+  }
+  return prices;
+}
+
 // Random events
 export const EVENTS = [
   {
