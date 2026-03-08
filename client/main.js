@@ -1197,11 +1197,20 @@ const NPC_SPAWN_ZONES = [
 // ============================================
 // Waypoints at key ocean locations; NPCs navigate through these to avoid land
 const OCEAN_NODES = [
-  // Persian Gulf / Indian Ocean
+  // Persian Gulf (dense waypoints for complex coastline)
+  { id: 'gulf_nw', lat: 29.4, lon: 48.5 },
+  { id: 'gulf_w', lat: 28.0, lon: 50.0 },
   { id: 'gulf', lat: 27.0, lon: 50.0 },
+  { id: 'gulf_central', lat: 26.5, lon: 52.0 },
+  { id: 'gulf_qatar_e', lat: 25.5, lon: 53.0 },
+  { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
+  { id: 'hormuz_ch', lat: 26.3, lon: 56.3 },
   { id: 'hormuz', lat: 26.5, lon: 56.5 },
+  { id: 'oman_se', lat: 24.5, lon: 59.0 },
   { id: 'oman', lat: 24.0, lon: 60.0 },
+  // Indian Ocean
   { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
+  { id: 'mumbai_app', lat: 18.5, lon: 71.0 },
   { id: 'india_w', lat: 15.0, lon: 70.0 },
   { id: 'india_s', lat: 7.0, lon: 78.0 },
   // Red Sea / Suez
@@ -1217,9 +1226,12 @@ const OCEAN_NODES = [
   { id: 'channel', lat: 50.0, lon: -2.0 },
   { id: 'north_sea', lat: 58.0, lon: 3.0 },
   { id: 'baltic', lat: 60.0, lon: 25.0 },
+  { id: 'primorsk_app', lat: 59.5, lon: 26.0 },
   // Africa
+  { id: 'guinea', lat: 4.0, lon: -5.0 },
   { id: 'w_africa', lat: 4.0, lon: 3.0 },
   { id: 'e_africa', lat: 0.0, lon: 45.0 },
+  { id: 'angola', lat: -8.0, lon: 12.0 },
   { id: 'mozambique', lat: -15.0, lon: 42.0 },
   { id: 'cape', lat: -34.5, lon: 18.5 },
   // Atlantic
@@ -1229,6 +1241,7 @@ const OCEAN_NODES = [
   { id: 'us_east', lat: 38.0, lon: -72.0 },
   { id: 'us_gulf', lat: 28.0, lon: -90.0 },
   { id: 'caribbean', lat: 15.0, lon: -70.0 },
+  { id: 'trinidad', lat: 11.0, lon: -62.0 },
   { id: 'venezuela', lat: 11.0, lon: -66.0 },
   { id: 'panama_c', lat: 9.3, lon: -79.8 },
   { id: 'panama_p', lat: 8.5, lon: -80.0 },
@@ -1240,15 +1253,22 @@ const OCEAN_NODES = [
   { id: 'singapore', lat: 1.3, lon: 103.5 },
   { id: 'scs', lat: 12.0, lon: 112.0 },
   { id: 'ecs', lat: 30.0, lon: 123.0 },
+  { id: 'korea', lat: 34.0, lon: 129.5 },
   { id: 'japan', lat: 35.0, lon: 140.0 },
 ];
 
 // Adjacency — pairs of connected waypoint IDs
 const OCEAN_EDGES = [
-  // Gulf exits
-  ['gulf', 'hormuz'], ['hormuz', 'oman'],
+  // Persian Gulf internal corridors
+  ['gulf_nw', 'gulf_w'], ['gulf_w', 'gulf'], ['gulf_nw', 'gulf'],
+  ['gulf', 'gulf_central'], ['gulf_central', 'gulf_qatar_e'],
+  ['gulf_qatar_e', 'gulf_uae'], ['gulf_uae', 'hormuz_ch'],
+  ['hormuz_ch', 'hormuz'], ['gulf_central', 'gulf_uae'],
+  // Strait of Hormuz to Gulf of Oman
+  ['hormuz_ch', 'oman_se'], ['oman_se', 'oman'], ['hormuz', 'oman'],
   // Indian Ocean
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
+  ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
   // Red Sea route
   ['arabian_sea', 'bab'], ['bab', 'red_sea'], ['red_sea', 'suez_s'],
   ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
@@ -1259,23 +1279,25 @@ const OCEAN_EDGES = [
   ['med_e', 'med_c'], ['med_c', 'gibraltar'],
   // Europe
   ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'north_sea'],
-  ['north_sea', 'baltic'],
+  ['north_sea', 'baltic'], ['baltic', 'primorsk_app'],
   // Atlantic crossings
   ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
   ['atl_n', 'atl_s'], ['gibraltar', 'w_africa'],
   // West Africa
+  ['guinea', 'w_africa'], ['w_africa', 'angola'],
   ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
-  ['w_africa', 'cape'],
+  ['angola', 'cape'], ['angola', 'atl_s'],
   // Americas
   ['us_east', 'us_gulf'], ['us_east', 'caribbean'], ['caribbean', 'us_gulf'],
   ['caribbean', 'venezuela'], ['caribbean', 'panama_c'],
+  ['caribbean', 'trinidad'], ['trinidad', 'venezuela'],
   ['panama_c', 'panama_p'],
   ['atl_s', 'brazil'], ['brazil', 'cape'],
   // Pacific
   ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['pac_n', 'japan'],
   // Asia
   ['india_s', 'malacca'], ['malacca', 'singapore'], ['singapore', 'scs'],
-  ['scs', 'ecs'], ['ecs', 'japan'],
+  ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
 ];
 
 // Build adjacency list
@@ -1320,7 +1342,7 @@ function computeOceanRoute(fromLat, fromLon, toLat, toLon) {
   const startNode = nearestWaypoint(fromLat, fromLon);
   const endNode = nearestWaypoint(toLat, toLon);
   // If close enough, just go direct
-  if (distanceDeg(fromLat, fromLon, toLat, toLon) < 5) return [];
+  if (distanceDeg(fromLat, fromLon, toLat, toLon) < 2) return [];
   const nodeIds = bfsRoute(startNode.id, endNode.id);
   const nodeMap = {};
   for (const n of OCEAN_NODES) nodeMap[n.id] = n;
@@ -1430,10 +1452,11 @@ function distanceDeg(lat1, lon1, lat2, lon2) {
   return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
 }
 
-// Autopilot route is simply the destination waypoint.
-// Land avoidance is handled reactively (same as NPC ships) during movement.
+// Autopilot route uses the ocean waypoint graph (same as NPC ships).
 function computeAutopilotRoute(fromLat, fromLon, toLat, toLon) {
-  return [{ lat: toLat, lon: toLon }];
+  const route = computeOceanRoute(fromLat, fromLon, toLat, toLon);
+  route.push({ lat: toLat, lon: toLon });
+  return route;
 }
 
 function npcShouldSeekSafety(npc) {
@@ -1590,6 +1613,22 @@ function updateNPCShips(dt, elapsed) {
       // Keep heading locked to escape direction, no wander
       const diff = angleDiff(npc.heading, npc.coastEscapeHeading);
       if (Math.abs(diff) > 0.5) npc.heading = normalizeAngle(npc.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
+      // When timer expires, check if target heading is still blocked
+      if (npc.coastEscapeTimer <= 0) {
+        const tgtRad = npc.targetHeading * Math.PI / 180;
+        if (isOnLand(npc.lat + Math.cos(tgtRad) * 0.25, npc.lon + Math.sin(tgtRad) * 0.25)) {
+          // Still blocked — find a new escape heading from current position
+          for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+            const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.25, npc.lon + Math.sin(tryRad) * 0.25)) {
+              npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
+              npc.coastEscapeTimer = 3 + Math.random() * 2;
+              npc.wanderOffset = 0;
+              break;
+            }
+          }
+        }
+      }
     } else {
       // Normal steering toward target
       npc.wanderTimer -= dt;
@@ -1624,13 +1663,13 @@ function updateNPCShips(dt, elapsed) {
     if (!isOnLand(newLat, newLon)) {
       npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
       // Proactive: check multiple distances ahead for early avoidance
-      const lookAheads = [0.05, 0.1, 0.15];
+      const lookAheads = [0.05, 0.1, 0.15, 0.25];
       for (const la of lookAheads) {
         if (isOnLand(npc.lat + Math.cos(rad) * la, npc.lon + Math.sin(rad) * la)) {
           // Find a clear direction and enter coast escape mode
           for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
             const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
-            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.15, npc.lon + Math.sin(tryRad) * 0.15)) {
+            if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.25, npc.lon + Math.sin(tryRad) * 0.25)) {
               npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
               npc.coastEscapeTimer = 3 + Math.random() * 2; // commit for 3-5 seconds
               npc.wanderOffset = 0;
@@ -1812,14 +1851,35 @@ function transitLoop(timestamp) {
             state.heading = normalizeAngle(state.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
           }
           state.targetHeading = state.apCoastEscapeHeading;
+          // When timer expires, check if target heading is still blocked
+          if (state.apCoastEscapeTimer <= 0) {
+            const tgtRad = state.targetHeading * Math.PI / 180;
+            const wps = shipWaypoints[ship.id] || [];
+            const resumeHeading = wps.length > 0
+              ? headingToTarget(state.lat, state.lon, wps[0].lat, wps[0].lon)
+              : state.targetHeading;
+            const resumeRad = resumeHeading * Math.PI / 180;
+            if (isOnLand(state.lat + Math.cos(resumeRad) * 0.25, state.lon + Math.sin(resumeRad) * 0.25)) {
+              // Still blocked — find a new escape heading
+              for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
+                const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.25, state.lon + Math.sin(tryRad) * 0.25)) {
+                  state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
+                  state.apCoastEscapeTimer = 3 + Math.random() * 2;
+                  state.targetHeading = state.apCoastEscapeHeading;
+                  break;
+                }
+              }
+            }
+          }
         } else {
           // Proactive lookahead: check ahead for land
           const headRad = state.heading * Math.PI / 180;
-          for (const la of [0.05, 0.1, 0.15]) {
+          for (const la of [0.05, 0.1, 0.15, 0.25]) {
             if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
               for (const angle of [30, -30, 60, -60, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.15, state.lon + Math.sin(tryRad) * 0.15)) {
+                if (!isOnLand(state.lat + Math.cos(tryRad) * 0.25, state.lon + Math.sin(tryRad) * 0.25)) {
                   state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
                   state.apCoastEscapeTimer = 3 + Math.random() * 2;
                   state.targetHeading = state.apCoastEscapeHeading;
