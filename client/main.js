@@ -3496,6 +3496,15 @@ const ALLIED_INTERVAL = 3;   // seconds between allied launch checks
 let iranianOffset = 0;
 let alliedOffset = 1.5 + Math.random() * 1.5; // 1.5-3s after Iranian
 
+// War zone bounds — missiles only target ships within this region
+// Covers the Persian Gulf, Strait of Hormuz, Gulf of Oman, and Arabian Sea approaches
+const WAR_ZONE = { north: 33, south: 10, west: 32, east: 65 };
+
+function isInWarZone(lat, lon) {
+  return lat >= WAR_ZONE.south && lat <= WAR_ZONE.north &&
+         lon >= WAR_ZONE.west && lon <= WAR_ZONE.east;
+}
+
 // Add slight randomness to impact point (scatter around target)
 function scatterTarget(lat, lon) {
   const scatter = 0.08; // ~8km spread
@@ -3577,8 +3586,9 @@ function updateAmbientWar(elapsed) {
 
       // --- Missiles targeting NPC ships (small chance, Iranian only) ---
       // Damage is handled by the global impact handler (proximity-based)
+      // Only target ships within the gulf war zone (not ships sailing near New York, etc.)
       if (npcShips.length > 0 && iranMissileBases.length > 0 && Math.random() < 0.15) {
-        const movingNpcs = npcShips.filter(n => n.speed > 0);
+        const movingNpcs = npcShips.filter(n => n.speed > 0 && isInWarZone(n.lat, n.lon));
         if (movingNpcs.length > 0) {
           const targetNpc = movingNpcs[Math.floor(Math.random() * movingNpcs.length)];
           const launcher = iranMissileBases[Math.floor(Math.random() * iranMissileBases.length)];
