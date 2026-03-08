@@ -579,6 +579,65 @@ export const DANGER_ZONES = [
     baseProbability: 0.05,
     label: 'PIRATE RISK',
     region: 'singapore'
+  },
+  // --- Panama Canal ---
+  {
+    id: 'panama_canal',
+    name: 'Panama Canal Zone',
+    color: 'rgba(200, 200, 50, 0.08)',
+    borderColor: 'rgba(200, 200, 50, 0.20)',
+    bounds: { north: 10.0, south: 8.0, west: -80.5, east: -78.5 },
+    events: ['pirate_skiff', 'collision_warning'],
+    baseProbability: 0.04,
+    label: 'PANAMA CANAL',
+    region: 'panama'
+  },
+  // --- Gulf of Mexico ---
+  {
+    id: 'gulf_mexico',
+    name: 'Gulf of Mexico',
+    color: 'rgba(100, 100, 200, 0.06)',
+    borderColor: 'rgba(100, 100, 200, 0.18)',
+    bounds: { north: 30.0, south: 22.0, west: -97.0, east: -84.0 },
+    events: ['sandstorm', 'collision_warning', 'pirate_skiff'],
+    baseProbability: 0.03,
+    label: 'GULF OF MEXICO',
+    region: 'gulf_mexico'
+  },
+  // --- Cape Horn ---
+  {
+    id: 'cape_horn',
+    name: 'Cape Horn',
+    color: 'rgba(50, 100, 200, 0.08)',
+    borderColor: 'rgba(50, 100, 200, 0.20)',
+    bounds: { north: -54.0, south: -57.0, west: -70.0, east: -65.0 },
+    events: ['sandstorm', 'collision_warning'],
+    baseProbability: 0.05,
+    label: 'CAPE HORN',
+    region: 'cape_horn'
+  },
+  // --- South China Sea ---
+  {
+    id: 'south_china_sea',
+    name: 'South China Sea',
+    color: 'rgba(180, 50, 50, 0.07)',
+    borderColor: 'rgba(180, 50, 50, 0.20)',
+    bounds: { north: 22.0, south: 5.0, west: 108.0, east: 120.0 },
+    events: ['patrol_boat', 'missile_alert', 'submarine'],
+    baseProbability: 0.05,
+    label: 'SOUTH CHINA SEA',
+    region: 'south_china_sea'
+  },
+  {
+    id: 'spratlys',
+    name: 'Spratly Islands Disputed Zone',
+    color: 'rgba(200, 60, 60, 0.10)',
+    borderColor: 'rgba(200, 60, 60, 0.25)',
+    bounds: { north: 12.0, south: 7.0, west: 111.0, east: 117.0 },
+    events: ['patrol_boat', 'missile_alert', 'drone_swarm'],
+    baseProbability: 0.08,
+    label: 'DISPUTED ZONE',
+    region: 'south_china_sea'
   }
 ];
 

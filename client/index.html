@@ -24,16 +24,11 @@
           <button id="btn-logout" class="btn btn-ghost btn-small">LOGOUT</button>
         </div>
 
-        <!-- Main menu buttons -->
-        <div class="menu-buttons" id="menu-buttons">
-          <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
-          <button id="btn-join" class="btn btn-secondary btn-large">JOIN GAME</button>
-        </div>
-
-        <!-- Auth buttons (shown when not logged in) -->
+        <!-- Auth buttons (shown when NOT logged in — primary landing) -->
         <div id="auth-buttons" class="menu-buttons">
-          <button id="btn-login" class="btn btn-ghost btn-small">LOGIN</button>
-          <button id="btn-register" class="btn btn-ghost btn-small">REGISTER</button>
+          <button id="btn-login" class="btn btn-primary btn-large">LOGIN</button>
+          <button id="btn-register" class="btn btn-secondary btn-large">REGISTER</button>
+          <button id="btn-guest" class="btn btn-ghost btn-small" style="margin-top:8px;">PLAY AS GUEST</button>
         </div>
 
         <!-- Login/Register form -->
@@ -43,6 +38,12 @@
           <input type="password" id="input-auth-pass" class="input" placeholder="Password" maxlength="64" autocomplete="current-password">
           <button id="btn-auth-submit" class="btn btn-primary">SUBMIT</button>
           <button id="btn-auth-back" class="btn btn-ghost">BACK</button>
+        </div>
+
+        <!-- Main menu buttons (shown AFTER login or guest) -->
+        <div class="menu-buttons hidden" id="menu-buttons">
+          <button id="btn-create" class="btn btn-primary btn-large">CREATE GAME</button>
+          <button id="btn-join" class="btn btn-secondary btn-large">JOIN GAME</button>
         </div>
 
         <!-- Game name/code input area -->
@@ -121,6 +122,15 @@
         </div>
         <div id="terminal-popup-body"></div>
         <button id="terminal-popup-select" class="btn btn-small btn-primary" style="width:100%;margin-top:6px;">OK</button>
+      </div>
+
+      <!-- Chokepoint Threat Assessment Popup -->
+      <div id="chokepoint-popup" class="terminal-popup hidden">
+        <div class="terminal-popup-header">
+          <span id="chokepoint-popup-name"></span>
+          <button id="chokepoint-popup-close" class="btn btn-small btn-ghost">&times;</button>
+        </div>
+        <div id="chokepoint-popup-body"></div>
       </div>
 
       <!-- Ship Purchase Modal -->

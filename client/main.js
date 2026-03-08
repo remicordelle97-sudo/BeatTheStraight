@@ -62,6 +62,10 @@ const REGION_DEFINITIONS = {
   malacca: { name: 'Malacca Strait', baseLevel: 0 },
   singapore: { name: 'Singapore Strait', baseLevel: 0 },
   guinea: { name: 'Gulf of Guinea', baseLevel: 1 },
+  panama: { name: 'Panama Canal', baseLevel: 0 },
+  gulf_mexico: { name: 'Gulf of Mexico', baseLevel: 0 },
+  cape_horn: { name: 'Cape Horn', baseLevel: 0 },
+  south_china_sea: { name: 'South China Sea', baseLevel: 1 },
 };
 
 // Multi-ship state
@@ -779,7 +783,11 @@ function renderMobileControls(container) {
         socket.emit('upgrade_ship', { shipId: sid, type: 'repair' }, (res) => {
           if (res?.success) {
             const st = shipStates[sid];
-            if (st) st.totalDamage = 0;
+            if (st) {
+              st.totalDamage = 0;
+              const shipData = getSelectedShipData();
+              if (shipData) st.speed = shipData.speed || st.speed;
+            }
             addTransitEvent('SHIP REPAIRED', `Ship fully repaired.`, 'success');
             updateFleetPanel();
             renderMobileControls(container);
@@ -1044,7 +1052,12 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
     if (res?.success) {
       const st = shipStates[sid];
-      if (st) st.totalDamage = 0;
+      if (st) {
+        st.totalDamage = 0;
+        // Restore original speed
+        const s2 = getSelectedShipData();
+        if (s2) st.speed = s2.speed || st.speed;
+      }
       addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
       updateFleetPanel();
       refreshUpgradeButtons();
@@ -1436,6 +1449,38 @@ function renderSituationMonitor() {
       risks: ['Armed robbery', 'Kidnap for ransom', 'Hijacking'],
       description: 'Most violent piracy region globally. Well-armed groups known for crew kidnapping.',
     },
+    {
+      name: 'SOUTH CHINA SEA',
+      region: 'south_china_sea',
+      belligerents: 'PRC Navy / Coast Guard vs regional claimants',
+      zones: DANGER_ZONES.filter(z => z.region === 'south_china_sea'),
+      risks: ['Naval patrols', 'Missile systems', 'Drone surveillance', 'Submarine activity'],
+      description: 'Heavily militarized disputed waters. Chinese naval forces assert territorial claims across the region.',
+    },
+    {
+      name: 'PANAMA CANAL',
+      region: 'panama',
+      belligerents: 'Criminal groups / congestion risk',
+      zones: DANGER_ZONES.filter(z => z.region === 'panama'),
+      risks: ['Transit delays', 'Piracy', 'Collision risk'],
+      description: 'Critical Atlantic-Pacific link. Drought-related draft restrictions and congestion create delays and vulnerability.',
+    },
+    {
+      name: 'GULF OF MEXICO',
+      region: 'gulf_mexico',
+      belligerents: 'Cartel-linked piracy / weather',
+      zones: DANGER_ZONES.filter(z => z.region === 'gulf_mexico'),
+      risks: ['Piracy', 'Severe weather', 'Collision risk'],
+      description: 'Major oil production region. Seasonal hurricane risk and sporadic piracy near Mexican waters.',
+    },
+    {
+      name: 'CAPE HORN',
+      region: 'cape_horn',
+      belligerents: 'Extreme weather',
+      zones: DANGER_ZONES.filter(z => z.region === 'cape_horn'),
+      risks: ['Extreme seas', 'High winds', 'Icebergs'],
+      description: 'Notorious for extreme weather. Alternative route when Suez/Panama are disrupted. High natural hazard risk.',
+    },
   ];
 
   let html = '';
@@ -1771,7 +1816,11 @@ function renderFleetManager() {
       if (!me2 || me2.cash < repairCost) return;
       btn.disabled = true;
       socket.emit('upgrade_ship', { shipId: sid, type: 'repair', cost: repairCost }, (res) => {
-        if (res?.success) { st.totalDamage = 0; renderFleetManager(); updateFleetPanel(); }
+        if (res?.success) {
+          st.totalDamage = 0;
+          if (s) st.speed = s.speed || st.speed;
+          renderFleetManager(); updateFleetPanel();
+        }
         else { btn.disabled = false; }
       });
     });
@@ -1948,21 +1997,31 @@ let authToken = localStorage.getItem('bts_token') || null;
 let authUser = null;
 let authMode = null; // 'login' or 'register'
 
+let isGuest = false;
+
 function updateAuthUI() {
   const statusEl = document.getElementById('auth-status');
   const usernameEl = document.getElementById('auth-username');
   const authBtns = document.getElementById('auth-buttons');
+  const menuBtns = document.getElementById('menu-buttons');
   const nameInput = document.getElementById('input-name');
 
   if (authUser) {
     statusEl.classList.remove('hidden');
     usernameEl.textContent = authUser.username;
     authBtns.classList.add('hidden');
+    menuBtns.classList.remove('hidden');
     nameInput.value = authUser.username;
     nameInput.readOnly = true;
+  } else if (isGuest) {
+    statusEl.classList.add('hidden');
+    authBtns.classList.add('hidden');
+    menuBtns.classList.remove('hidden');
+    nameInput.readOnly = false;
   } else {
     statusEl.classList.add('hidden');
     authBtns.classList.remove('hidden');
+    menuBtns.classList.add('hidden');
     nameInput.readOnly = false;
   }
 }
@@ -1973,12 +2032,13 @@ function showAuthForm(mode) {
   document.getElementById('auth-form-area').classList.remove('hidden');
   document.getElementById('menu-buttons').classList.add('hidden');
   document.getElementById('auth-buttons').classList.add('hidden');
+  document.getElementById('input-auth-user').value = '';
+  document.getElementById('input-auth-pass').value = '';
   document.getElementById('input-auth-user').focus();
 }
 
 function hideAuthForm() {
   document.getElementById('auth-form-area').classList.add('hidden');
-  document.getElementById('menu-buttons').classList.remove('hidden');
   updateAuthUI();
 }
 
@@ -2043,7 +2103,15 @@ document.getElementById('btn-login').addEventListener('click', () => showAuthFor
 document.getElementById('btn-register').addEventListener('click', () => showAuthForm('register'));
 document.getElementById('btn-auth-back').addEventListener('click', hideAuthForm);
 document.getElementById('btn-auth-submit').addEventListener('click', submitAuth);
-document.getElementById('btn-logout').addEventListener('click', logout);
+document.getElementById('btn-logout').addEventListener('click', () => {
+  logout();
+  isGuest = false;
+  updateAuthUI();
+});
+document.getElementById('btn-guest').addEventListener('click', () => {
+  isGuest = true;
+  updateAuthUI();
+});
 
 ['input-auth-user', 'input-auth-pass'].forEach(id => {
   document.getElementById(id).addEventListener('keydown', (e) => {
@@ -4104,6 +4172,13 @@ function checkDangerZonesAllShips(elapsed) {
         campaignStats.totalDamageTaken += outcome.damagePercent * damageReduction;
         const isHouthiEvent = eventId === 'houthi_missile' || eventId === 'houthi_drone';
         const isIranEvent = eventId === 'missile_alert' || eventId === 'drone_swarm';
+        const isMissileHit = (isIranEvent || isHouthiEvent) && outcome.damagePercent >= 0.15;
+        // Missile/drone hits stop the ship and clear waypoints
+        if (isMissileHit) {
+          state.speed = 0;
+          shipWaypoints[ship.id] = [];
+          if (shipAutopilot[ship.id]) shipAutopilot[ship.id].active = false;
+        }
         if (isIranEvent || isHouthiEvent) campaignStats.missileEvents++;
         // Spawn missile animation for missile/drone events
         if (isIranEvent) {
@@ -4264,6 +4339,77 @@ document.getElementById('terminal-popup-close').addEventListener('click', hideTe
 document.getElementById('terminal-popup-select').addEventListener('click', hideTerminalPopup);
 
 // ============================================
+// CHOKEPOINT THREAT ASSESSMENT POPUP
+// ============================================
+function showChokepointPopup(cp, screenX, screenY) {
+  const popup = document.getElementById('chokepoint-popup');
+  document.getElementById('chokepoint-popup-name').textContent = cp.name;
+
+  // Find nearby danger zones
+  const nearbyZones = DANGER_ZONES.filter(z => {
+    const zCenterLat = (z.bounds.north + z.bounds.south) / 2;
+    const zCenterLon = (z.bounds.east + z.bounds.west) / 2;
+    const dist = Math.sqrt(Math.pow(cp.lat - zCenterLat, 2) + Math.pow(cp.lon - zCenterLon, 2));
+    return dist < 15;
+  });
+
+  // Find region intensity
+  const cpRegions = new Set(nearbyZones.map(z => z.region || 'gulf'));
+  let maxThreat = 'LOW';
+  let maxLevel = 0;
+  for (const regionId of cpRegions) {
+    const ri = campaignStats.regionIntensity[regionId];
+    if (ri && ri.level > maxLevel) {
+      maxLevel = ri.level;
+      maxThreat = ri.levelName;
+    }
+  }
+
+  const threatClass = maxLevel >= 2 ? 'sitmon-stat-bad' : maxLevel === 1 ? 'sitmon-stat-warn' : 'sitmon-stat-ok';
+  const risks = [...new Set(nearbyZones.flatMap(z => z.events))];
+  const riskLabels = risks.map(r => {
+    const evtDef = EVENTS.find(e => e.id === r);
+    return evtDef ? evtDef.name : r;
+  });
+
+  // Recent attacks near this chokepoint
+  const recentAttacks = campaignStats.attackLog.filter(a => {
+    for (const regionId of cpRegions) {
+      if (a.region === regionId) return true;
+    }
+    return false;
+  }).length;
+
+  // Ships near chokepoint
+  const me = gameState?.players.find(p => p.id === myId);
+  const shipsNear = me ? me.fleet.filter(s => {
+    const st = shipStates[s.id];
+    if (!st) return false;
+    return Math.sqrt(Math.pow(st.lat - cp.lat, 2) + Math.pow(st.lon - cp.lon, 2)) < 5;
+  }).length : 0;
+
+  let html = `
+    <div class="ship-info-row"><span>Flow:</span><span>${cp.flowMbpd} mb/d</span></div>
+    <div class="ship-info-row"><span>Threat:</span><span class="${threatClass}" style="font-weight:bold;">${maxThreat}</span></div>
+    <div class="ship-info-row"><span>Danger Zones:</span><span>${nearbyZones.length}</span></div>
+    <div class="ship-info-row"><span>Active Risks:</span><span style="font-size:10px;">${riskLabels.length > 0 ? riskLabels.join(', ') : 'None'}</span></div>
+    <div class="ship-info-row"><span>Recent Attacks:</span><span>${recentAttacks}</span></div>
+    <div class="ship-info-row"><span>Your Ships Nearby:</span><span>${shipsNear}</span></div>
+    <div style="margin-top:6px;font-size:10px;color:var(--text-muted);">${cp.description}</div>`;
+
+  document.getElementById('chokepoint-popup-body').innerHTML = html;
+  popup.style.left = Math.min(screenX + 10, window.innerWidth - 280) + 'px';
+  popup.style.top = Math.min(screenY - 10, window.innerHeight - 250) + 'px';
+  popup.classList.remove('hidden');
+}
+
+function hideChokepointPopup() {
+  document.getElementById('chokepoint-popup').classList.add('hidden');
+}
+
+document.getElementById('chokepoint-popup-close').addEventListener('click', hideChokepointPopup);
+
+// ============================================
 // SHIP INFO DIALOG (mobile tap)
 // ============================================
 function showShipInfoDialog(ship, state) {
@@ -4347,11 +4493,8 @@ mapCanvas.addEventListener('click', (e) => {
       if (!state || state.destroyed || state.seized) continue;
       const shipPos = latLonToCanvas(state.lat, state.lon, rect.width, rect.height);
       if (Math.sqrt(Math.pow(cx - shipPos.x, 2) + Math.pow(cy - shipPos.y, 2)) < (mobile ? 30 : 20)) {
-        if (mobile) {
-          showShipInfoDialog(ship, state);
-        } else if (ship.id === selectedShipId) {
-          deselectShip();
-        } else {
+        showShipInfoDialog(ship, state);
+        if (!mobile && ship.id !== selectedShipId) {
           selectShip(ship.id);
         }
         return;
@@ -4359,14 +4502,21 @@ mapCanvas.addEventListener('click', (e) => {
     }
   }
 
-  // Check NPC ship click on mobile
-  if (mobile) {
-    for (const npc of npcShips) {
-      const npcPos = latLonToCanvas(npc.lat, npc.lon, rect.width, rect.height);
-      if (Math.sqrt(Math.pow(cx - npcPos.x, 2) + Math.pow(cy - npcPos.y, 2)) < 30) {
-        showNpcInfoDialog(npc);
-        return;
-      }
+  // Check NPC ship click (both desktop and mobile)
+  for (const npc of npcShips) {
+    const npcPos = latLonToCanvas(npc.lat, npc.lon, rect.width, rect.height);
+    if (Math.sqrt(Math.pow(cx - npcPos.x, 2) + Math.pow(cy - npcPos.y, 2)) < (mobile ? 30 : 15)) {
+      showNpcInfoDialog(npc);
+      return;
+    }
+  }
+
+  // Check chokepoint click
+  for (const cp of CHOKEPOINTS) {
+    const cpPos = latLonToCanvas(cp.lat, cp.lon, rect.width, rect.height);
+    if (Math.sqrt(Math.pow(cx - cpPos.x, 2) + Math.pow(cy - cpPos.y, 2)) < (mobile ? 35 : 20)) {
+      showChokepointPopup(cp, e.clientX, e.clientY);
+      return;
     }
   }
 
@@ -4385,6 +4535,7 @@ mapCanvas.addEventListener('click', (e) => {
 
   if (shipControlOpen) closeShipControlPanel();
   hideTerminalPopup();
+  hideChokepointPopup();
   hideShipInfoDialog();
 
   // Add waypoint for selected ship

@@ -404,7 +404,7 @@ h1 {
 
 /* Situation Monitor */
 .sitmon-panel {
-  width: 820px;
+  width: 960px;
   max-width: 95vw;
   max-height: 85vh;
   overflow-y: auto;
@@ -421,7 +421,8 @@ h1 {
   background: rgba(20, 28, 45, 0.8);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: 10px 14px;
+  min-width: 0;
 }
 
 .sitmon-zone-header {
