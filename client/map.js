@@ -227,9 +227,22 @@ function isGulfZoom() {
 }
 
 function drawCoastline(ctx, points, fillColor, drawW, drawH) {
+  // Use a single consistent longitude offset for the entire polygon
+  // to prevent vertices from wrapping differently and distorting the fill
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  const refLon = points[0][1];
+  let lonOffset = 0;
+  while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+  while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+
   ctx.beginPath();
   points.forEach((p, i) => {
-    const { x, y } = latLonToCanvas(p[0], p[1], drawW, drawH);
+    const lon = p[1] + lonOffset;
+    const x = ((lon - viewport.west) / vpW) * drawW;
+    const y = ((viewport.north - p[0]) / vpH) * drawH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
@@ -280,28 +293,49 @@ function drawCanalCuts(ctx, drawW, drawH) {
 }
 
 function drawCanalWater(ctx, points, fillColor, drawW, drawH) {
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  const refLon = points[0][1];
+  let lonOffset = 0;
+  while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+  while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
+
   ctx.beginPath();
   points.forEach((p, i) => {
-    const { x, y } = latLonToCanvas(p[0], p[1], drawW, drawH);
+    const lon = p[1] + lonOffset;
+    const x = ((lon - viewport.west) / vpW) * drawW;
+    const y = ((viewport.north - p[0]) / vpH) * drawH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.closePath();
   ctx.fillStyle = fillColor;
   ctx.fill();
-  // No stroke — seamless water
 }
 
 // Draw shipping route lines
 function drawShippingRoutes(ctx, drawW, drawH) {
+  const vpCenter = (viewport.west + viewport.east) / 2;
+  const vpW = viewport.east - viewport.west;
+  const vpH = viewport.north - viewport.south;
   for (const route of SHIPPING_ROUTES) {
     if (!polyVisible(route.points)) continue;
+    // Consistent offset for entire route line
+    const refLon = route.points[0][1];
+    let lonOffset = 0;
+    while (refLon + lonOffset - vpCenter > 180) lonOffset -= 360;
+    while (refLon + lonOffset - vpCenter < -180) lonOffset += 360;
+
     ctx.beginPath();
     ctx.setLineDash([6, 4]);
     for (let i = 0; i < route.points.length; i++) {
-      const pos = latLonToCanvas(route.points[i][0], route.points[i][1], drawW, drawH);
-      if (i === 0) ctx.moveTo(pos.x, pos.y);
-      else ctx.lineTo(pos.x, pos.y);
+      const lon = route.points[i][1] + lonOffset;
+      const x = ((lon - viewport.west) / vpW) * drawW;
+      const y = ((viewport.north - route.points[i][0]) / vpH) * drawH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
     ctx.strokeStyle = route.color;
     ctx.lineWidth = 2;
@@ -1329,9 +1363,12 @@ function drawMinimap(ctx, drawW, drawH, ship, npcShips, militaryShips, playerShi
   ctx.lineWidth = 1;
   ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-  // Convert world coords to minimap pixels
+  // Convert world coords to minimap pixels (wrap lon to -180..180)
   function mmPos(lat, lon) {
-    const x = mmX + ((lon - MAP_BOUNDS.west) / (MAP_BOUNDS.east - MAP_BOUNDS.west)) * mmW;
+    let wLon = lon;
+    while (wLon > 180) wLon -= 360;
+    while (wLon < -180) wLon += 360;
+    const x = mmX + ((wLon - MAP_BOUNDS.west) / (MAP_BOUNDS.east - MAP_BOUNDS.west)) * mmW;
     const y = mmY + ((MAP_BOUNDS.north - lat) / (MAP_BOUNDS.north - MAP_BOUNDS.south)) * mmH;
     return { x, y };
   }
