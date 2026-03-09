@@ -3028,6 +3028,7 @@ const OCEAN_NODES = [
   { id: 'gib_strait', lat: 35.97, lon: -5.4 },
   { id: 'gibraltar', lat: 36.1, lon: -6.2 },
   { id: 'biscay', lat: 45.0, lon: -8.0 },
+  { id: 'brittany_w', lat: 48.3, lon: -8.0 },  // west of Brittany peninsula — avoids cutting across land
   { id: 'channel', lat: 50.0, lon: -2.0 },
   { id: 'dover', lat: 51.0, lon: 1.5 },
   { id: 'north_sea', lat: 58.0, lon: 3.0 },
@@ -3115,7 +3116,7 @@ const OCEAN_EDGES = [
   ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
   ['gib_strait', 'gibraltar'],
   // Europe
-  ['gibraltar', 'biscay'], ['biscay', 'channel'], ['channel', 'dover'],
+  ['gibraltar', 'biscay'], ['biscay', 'brittany_w'], ['brittany_w', 'channel'], ['channel', 'dover'],
   ['dover', 'north_sea'],
   ['north_sea', 'skagerrak'], ['skagerrak', 'kattegat'],
   ['kattegat', 'baltic_south'],
