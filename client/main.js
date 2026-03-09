@@ -99,6 +99,8 @@ let selectedShipId = null;
 
 let npcShips = [];
 let militaryShips = [];
+let _currentFrame = 0;
+let _fleetPanelDirty = false; // batch updateFleetPanel calls per frame
 
 // Map label visibility settings
 const mapLabelSettings = {
@@ -2446,7 +2448,7 @@ setImpactHandler((impactLat, impactLon, type) => {
         const pct = Math.round(dmg * 100);
         const label = type === 'bomb' ? 'AIRSTRIKE HIT' : 'MISSILE HIT';
         addTransitEvent(`${ship.name}: ${label}`, `${dist < 0.03 ? 'Direct hit' : 'Near miss shrapnel'}! [Dmg: ${pct}%]`, 'danger');
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
     }
   }
@@ -2784,8 +2786,15 @@ function randomDropoff() {
 // NPC SUPPLY/DEMAND — traffic tracking & profit-weighted routing
 // ============================================
 
+// Cached traffic data — recomputed at most once per frame
+let _trafficCache = null;
+let _trafficCacheFrame = -1;
+
 // Count how many ships (NPC + player) are heading to or at each terminal
 function computeNpcTraffic() {
+  // Return cached result if already computed this frame
+  if (_trafficCache && _trafficCacheFrame === _currentFrame) return _trafficCache;
+
   const traffic = {};
   for (const t of Object.values(OIL_TERMINALS)) traffic[t.id] = 0;
   // NPC ships
@@ -2803,7 +2812,7 @@ function computeNpcTraffic() {
     for (const ship of me.fleet) {
       const ap = shipAutopilot[ship.id];
       if (!ap || !ap.active) continue;
-      const cargo = ship.cargo;
+      const cargo = shipCargo[ship.id];
       if (cargo && cargo.loaded) {
         // Heading to sell — counts toward import terminal traffic
         if (ap.dropoff) traffic[ap.dropoff.id] = (traffic[ap.dropoff.id] || 0) + 1;
@@ -2813,6 +2822,8 @@ function computeNpcTraffic() {
       }
     }
   }
+  _trafficCache = traffic;
+  _trafficCacheFrame = _currentFrame;
   return traffic;
 }
 
@@ -3660,6 +3671,12 @@ function updateMilitaryShips(dt) {
 // ============================================
 function transitLoop(timestamp) {
   if (!transitActive) return;
+  _currentFrame++;
+  try { _transitLoopInner(timestamp); } catch (e) { console.error('Transit loop fatal error:', e); }
+  requestAnimationFrame(transitLoop);
+}
+
+function _transitLoopInner(timestamp) {
 
   // Real frame delta for consistent speed
   const realDt = Math.min((timestamp - lastFrameTime) / 1000, 0.1);
@@ -3892,7 +3909,7 @@ function transitLoop(timestamp) {
             state.speed = 0;
             addTransitEvent('FUEL SYSTEM FAILURE', `${ship.name}: Fuel line rupture from overspeed! Engines offline.`, 'danger');
           }
-          updateFleetPanel();
+          _fleetPanelDirty = true;
         }
       }
 
@@ -3920,7 +3937,7 @@ function transitLoop(timestamp) {
             cargo.buyCost = cost;
             const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
             addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name} for ${formatMoney(cost)}.`, 'success');
-            updateFleetPanel(); break;
+            _fleetPanelDirty = true; break;
           }
         }
       }
@@ -3949,7 +3966,7 @@ function transitLoop(timestamp) {
             campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
             addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
-            updateFleetPanel();
+            _fleetPanelDirty = true;
             break;
           }
         }
@@ -3977,13 +3994,14 @@ function transitLoop(timestamp) {
             delete shipWaypoints[ship.id];
             delete shipTrails[ship.id];
             delete shipCargo[ship.id];
+            delete shipAutopilot[ship.id];
             if (selectedShipId === ship.id) {
               selectedShipId = me?.fleet[0]?.id || null;
             }
             updateFleetPanel();
           }
         });
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
       } catch (e) {
         console.error(`Transit loop error for ship ${ship.id}:`, e);
@@ -3991,17 +4009,23 @@ function transitLoop(timestamp) {
     }
   }
 
-  updateNPCShips(dt, elapsed);
+  try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
   updateMilitaryShips(dt);
 
   if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
-    checkDangerZonesAllShips(elapsed);
-    checkAisFines(elapsed);
+    try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
+    try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
   }
 
-  updateAmbientWar(elapsed);
+  try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
   updateRegionIntensity(elapsed);
+
+  // Batch fleet panel updates — only rebuild DOM once per frame
+  if (_fleetPanelDirty) {
+    _fleetPanelDirty = false;
+    updateFleetPanel();
+  }
 
   updateHUD();
 
@@ -4031,10 +4055,13 @@ function transitLoop(timestamp) {
     if (npc.trail && npc.trail.length > 1) allTrails.push({ trail: npc.trail, color: 'rgba(100, 120, 160,' });
   }
 
+  let termPrices;
+  try { termPrices = computeLocalTerminalPrices(); } catch (e) { termPrices = gameState?.terminalPrices || null; }
+
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
-    terminalPrices: computeLocalTerminalPrices(),
+    terminalPrices: termPrices,
     ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
@@ -4044,8 +4071,6 @@ function transitLoop(timestamp) {
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
-
-  requestAnimationFrame(transitLoop);
 }
 
 // ============================================
@@ -4468,7 +4493,7 @@ function updateRegionIntensity(elapsed) {
 function checkDangerZonesAllShips(elapsed) {
   const me = getMe();
   if (!me) return;
-  const risk = RISK_LEVELS[gameState.riskLevel];
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
 
   for (const ship of me.fleet) {
     const state = shipStates[ship.id];
@@ -4545,7 +4570,7 @@ function checkDangerZonesAllShips(elapsed) {
         if (outcome.moneyLoss > 0) extra += ` [Loss: ${Math.round(outcome.moneyLoss * 100)}%]`;
         addTransitEvent(`${ship.name}: ${evt.name}`, outcome.text + extra,
           outcome.damagePercent > 0 || outcome.moneyLoss > 0 ? 'danger' : outcome.delayHours < 0 ? 'success' : '');
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
     }
   }
