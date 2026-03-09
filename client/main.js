@@ -2757,11 +2757,12 @@ const NPC_STATE = {
 
 // Safe anchorage zones — worldwide
 const SAFE_ANCHORAGES = [
-  { lat: 24.5, lon: 57.8, name: 'Gulf of Oman' },
-  { lat: 1.2, lon: 104.0, name: 'Singapore Strait' },
+  { lat: 23.0, lon: 60.5, name: 'Gulf of Oman' },           // well outside missile_range zone (ends 24.5N/58E)
+  { lat: 0.5, lon: 105.5, name: 'South of Singapore' },     // outside singapore_pirates zone
   { lat: 36.0, lon: 14.5, name: 'Central Mediterranean' },
   { lat: 28.5, lon: -89.0, name: 'US Gulf Anchorage' },
   { lat: -33.5, lon: 18.0, name: 'Cape Town Roads' },
+  { lat: 2.0, lon: -5.0, name: 'West Africa Offshore' },    // offshore from Gulf of Guinea pirates
 ];
 
 const NPC_SHIP_NAMES = [
@@ -3033,10 +3034,10 @@ const OCEAN_NODES = [
   { id: 'primorsk_app', lat: 59.8, lon: 27.0 },
   // Africa
   { id: 'guinea', lat: 3.0, lon: -6.0 },  // offshore Ivory Coast/Liberia
-  { id: 'gulf_guinea', lat: 1.0, lon: -1.0 },  // offshore Gulf of Guinea — avoids West African coast bulge
-  { id: 'w_africa', lat: 4.0, lon: 3.0 },
-  { id: 'cameroon', lat: 3.5, lon: 9.5 },
-  { id: 'gabon', lat: -1.0, lon: 8.5 },
+  { id: 'gulf_guinea', lat: 2.0, lon: 1.0 },  // offshore Gulf of Guinea — clear of West African coast
+  { id: 'w_africa', lat: 3.5, lon: 5.0 },     // offshore Nigeria/Benin coast
+  { id: 'cameroon', lat: 2.5, lon: 8.0 },     // offshore Cameroon — clear of Bioko Island
+  { id: 'gabon', lat: -1.0, lon: 7.5 },       // offshore Gabon
   { id: 'e_africa', lat: 0.0, lon: 45.0 },
   { id: 'angola', lat: -8.0, lon: 12.0 },
   { id: 'namibia', lat: -22.0, lon: 10.0 },
@@ -3372,7 +3373,7 @@ function updateNPCShips(dt, elapsed) {
           } else {
             npc.speed = npc.baseSpeed || 13;
             npc.state = npc.savedState || NPC_STATE.HEADING_TO_TERMINAL;
-            npc._cautionChecked = false;
+            npc._cautionChecked = true; // stay true so NPC doesn't immediately re-divert
             // Recompute route from current position
             const dest = npc.state === NPC_STATE.HEADING_TO_TERMINAL ? npc.targetTerminal : npc.dropoff;
             npc.route = computeOceanRoute(npc.lat, npc.lon, dest.lat, dest.lon);
