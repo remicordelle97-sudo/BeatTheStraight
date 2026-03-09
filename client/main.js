@@ -639,6 +639,7 @@ function renderMobileSitrep(container) {
 }
 
 function renderMobileFleet(container) {
+  try {
   // Try exact ID match first, then fallback to single-player (first player)
   const me = getMe();
   if (!me) { container.innerHTML = '<div class="muted">Connecting...</div>'; return; }
@@ -690,9 +691,11 @@ function renderMobileFleet(container) {
   });
   const buyBtn = document.getElementById('mobile-buy-ship');
   if (buyBtn) buyBtn.addEventListener('click', () => openShipPurchaseModal());
+  } catch (e) { console.error('renderMobileFleet error:', e); }
 }
 
 function renderMobileControls(container) {
+  try {
   const ship = getSelectedShipData();
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   if (!ship || !state) {
@@ -935,6 +938,7 @@ function renderMobileControls(container) {
       }
     });
   });
+  } catch (e) { console.error('renderMobileControls error:', e); }
 }
 
 function renderMobileLog(container) {
@@ -1113,6 +1117,7 @@ function getSelectedShipData() {
 }
 
 function openShipControlPanel() {
+  try {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const panel = document.getElementById('ship-control-panel');
   panel.classList.remove('hidden');
@@ -1125,6 +1130,7 @@ function openShipControlPanel() {
     btn.classList.toggle('active', btn.dataset.ais === currentAisId);
   });
   refreshUpgradeButtons();
+  } catch (e) { console.error('openShipControlPanel error:', e); }
 }
 
 function closeShipControlPanel() {
@@ -1460,6 +1466,7 @@ document.getElementById('scp-ap-dropoff').addEventListener('change', () => {
 });
 
 function refreshUpgradeButtons() {
+  try {
   const ship = getSelectedShipData();
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   if (!ship || !state) return;
@@ -1530,6 +1537,7 @@ function refreshUpgradeButtons() {
   document.getElementById('scp-autorenew-cb').checked = ship.autoRenewInsurance !== false;
 
   document.getElementById('scp-upgrade-info').textContent = '';
+  } catch (e) { console.error('refreshUpgradeButtons error:', e); }
 }
 
 // ============================================
@@ -1805,6 +1813,7 @@ function renderSituationMonitor() {
 }
 
 function renderFleetManager() {
+  try {
   const me = getMe();
   if (!me) return;
   const cash = me.cash || 0;
@@ -2115,6 +2124,7 @@ function renderFleetManager() {
       renderFleetManager(); updateFleetPanel();
     });
   });
+  } catch (e) { console.error('renderFleetManager error:', e); }
 }
 
 function getShipData(shipId) {
@@ -2490,6 +2500,7 @@ setImpactHandler((impactLat, impactLon, type) => {
 // FLEET PANEL (top-left, always visible during transit)
 // ============================================
 function updateFleetPanel() {
+  try {
   const me = getMe();
   if (!me) return;
 
@@ -2547,6 +2558,7 @@ function updateFleetPanel() {
       openShipControlPanel();
     });
   });
+  } catch (e) { console.error('updateFleetPanel error:', e); }
 }
 
 function selectShip(shipId) {
@@ -4077,6 +4089,7 @@ function _transitLoopInner(timestamp) {
 // HUD UPDATE
 // ============================================
 function updateHUD() {
+  try {
   const day = getCampaignDay();
   const hourOfDay = Math.floor(getGameHour());
   const minuteOfDay = Math.floor((simGameTime % 3600) / 60);
@@ -4117,6 +4130,7 @@ function updateHUD() {
     document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
     document.getElementById('hud-progress').textContent = '--';
   }
+  } catch (e) { console.error('updateHUD error:', e); }
 }
 
 // ============================================
@@ -4934,6 +4948,13 @@ socket.on('game_update', (state) => {
   const activeScreen = document.querySelector('.screen.active');
   if (activeScreen?.id === 'screen-lobby') renderLobby();
   if (transitActive) {
+    // Ensure all fleet ships have local state (handles race between game_update and buy callback)
+    const me = getMe();
+    if (me) {
+      for (const ship of me.fleet) {
+        if (!shipStates[ship.id]) spawnShipState(ship);
+      }
+    }
     updateFleetPanel();
     // Refresh mobile fleet drawer if it's currently open
     if (mobileActiveTab === 'fleet') {
