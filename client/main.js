@@ -3102,6 +3102,7 @@ const OCEAN_EDGES = [
   // Indian Ocean
   ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
   ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
+  ['oman', 'mumbai_app'],  // direct Gulf of Oman → Mumbai (avoids arabian_sea detour)
   // Red Sea route — Bab el-Mandeb corridor
   ['arabian_sea', 'bab_s'], ['bab_s', 'bab'], ['bab', 'bab_n'],
   ['bab_n', 'red_sea'], ['red_sea', 'red_sea_n'],
@@ -3956,6 +3957,8 @@ function _transitLoopInner(timestamp) {
             cargo.buyCost = cost;
             const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
             addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name} for ${formatMoney(cost)}.`, 'success');
+            // Stop and clear waypoints so autopilot immediately routes to dropoff
+            if (apActive) { shipWaypoints[ship.id] = []; state.speed = 0; }
             _fleetPanelDirty = true; break;
           }
         }
@@ -3985,6 +3988,8 @@ function _transitLoopInner(timestamp) {
             campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
             addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
+            // Stop and clear waypoints so autopilot immediately routes back to load terminal
+            if (apActive) { shipWaypoints[ship.id] = []; state.speed = 0; }
             _fleetPanelDirty = true;
             break;
           }
