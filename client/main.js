@@ -99,6 +99,8 @@ let selectedShipId = null;
 
 let npcShips = [];
 let militaryShips = [];
+let _currentFrame = 0;
+let _fleetPanelDirty = false; // batch updateFleetPanel calls per frame
 
 // Map label visibility settings
 const mapLabelSettings = {
@@ -637,6 +639,7 @@ function renderMobileSitrep(container) {
 }
 
 function renderMobileFleet(container) {
+  try {
   // Try exact ID match first, then fallback to single-player (first player)
   const me = getMe();
   if (!me) { container.innerHTML = '<div class="muted">Connecting...</div>'; return; }
@@ -688,9 +691,11 @@ function renderMobileFleet(container) {
   });
   const buyBtn = document.getElementById('mobile-buy-ship');
   if (buyBtn) buyBtn.addEventListener('click', () => openShipPurchaseModal());
+  } catch (e) { console.error('renderMobileFleet error:', e); }
 }
 
 function renderMobileControls(container) {
+  try {
   const ship = getSelectedShipData();
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   if (!ship || !state) {
@@ -933,6 +938,7 @@ function renderMobileControls(container) {
       }
     });
   });
+  } catch (e) { console.error('renderMobileControls error:', e); }
 }
 
 function renderMobileLog(container) {
@@ -1111,6 +1117,7 @@ function getSelectedShipData() {
 }
 
 function openShipControlPanel() {
+  try {
   if (!selectedShipId || !shipStates[selectedShipId]) return;
   const panel = document.getElementById('ship-control-panel');
   panel.classList.remove('hidden');
@@ -1123,6 +1130,7 @@ function openShipControlPanel() {
     btn.classList.toggle('active', btn.dataset.ais === currentAisId);
   });
   refreshUpgradeButtons();
+  } catch (e) { console.error('openShipControlPanel error:', e); }
 }
 
 function closeShipControlPanel() {
@@ -1458,6 +1466,7 @@ document.getElementById('scp-ap-dropoff').addEventListener('change', () => {
 });
 
 function refreshUpgradeButtons() {
+  try {
   const ship = getSelectedShipData();
   const state = selectedShipId ? shipStates[selectedShipId] : null;
   if (!ship || !state) return;
@@ -1528,6 +1537,7 @@ function refreshUpgradeButtons() {
   document.getElementById('scp-autorenew-cb').checked = ship.autoRenewInsurance !== false;
 
   document.getElementById('scp-upgrade-info').textContent = '';
+  } catch (e) { console.error('refreshUpgradeButtons error:', e); }
 }
 
 // ============================================
@@ -1803,6 +1813,7 @@ function renderSituationMonitor() {
 }
 
 function renderFleetManager() {
+  try {
   const me = getMe();
   if (!me) return;
   const cash = me.cash || 0;
@@ -2113,6 +2124,7 @@ function renderFleetManager() {
       renderFleetManager(); updateFleetPanel();
     });
   });
+  } catch (e) { console.error('renderFleetManager error:', e); }
 }
 
 function getShipData(shipId) {
@@ -2446,7 +2458,7 @@ setImpactHandler((impactLat, impactLon, type) => {
         const pct = Math.round(dmg * 100);
         const label = type === 'bomb' ? 'AIRSTRIKE HIT' : 'MISSILE HIT';
         addTransitEvent(`${ship.name}: ${label}`, `${dist < 0.03 ? 'Direct hit' : 'Near miss shrapnel'}! [Dmg: ${pct}%]`, 'danger');
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
     }
   }
@@ -2488,6 +2500,7 @@ setImpactHandler((impactLat, impactLon, type) => {
 // FLEET PANEL (top-left, always visible during transit)
 // ============================================
 function updateFleetPanel() {
+  try {
   const me = getMe();
   if (!me) return;
 
@@ -2545,6 +2558,7 @@ function updateFleetPanel() {
       openShipControlPanel();
     });
   });
+  } catch (e) { console.error('updateFleetPanel error:', e); }
 }
 
 function selectShip(shipId) {
@@ -2784,8 +2798,15 @@ function randomDropoff() {
 // NPC SUPPLY/DEMAND — traffic tracking & profit-weighted routing
 // ============================================
 
+// Cached traffic data — recomputed at most once per frame
+let _trafficCache = null;
+let _trafficCacheFrame = -1;
+
 // Count how many ships (NPC + player) are heading to or at each terminal
 function computeNpcTraffic() {
+  // Return cached result if already computed this frame
+  if (_trafficCache && _trafficCacheFrame === _currentFrame) return _trafficCache;
+
   const traffic = {};
   for (const t of Object.values(OIL_TERMINALS)) traffic[t.id] = 0;
   // NPC ships
@@ -2803,7 +2824,7 @@ function computeNpcTraffic() {
     for (const ship of me.fleet) {
       const ap = shipAutopilot[ship.id];
       if (!ap || !ap.active) continue;
-      const cargo = ship.cargo;
+      const cargo = shipCargo[ship.id];
       if (cargo && cargo.loaded) {
         // Heading to sell — counts toward import terminal traffic
         if (ap.dropoff) traffic[ap.dropoff.id] = (traffic[ap.dropoff.id] || 0) + 1;
@@ -2813,6 +2834,8 @@ function computeNpcTraffic() {
       }
     }
   }
+  _trafficCache = traffic;
+  _trafficCacheFrame = _currentFrame;
   return traffic;
 }
 
@@ -3660,6 +3683,12 @@ function updateMilitaryShips(dt) {
 // ============================================
 function transitLoop(timestamp) {
   if (!transitActive) return;
+  _currentFrame++;
+  try { _transitLoopInner(timestamp); } catch (e) { console.error('Transit loop fatal error:', e); }
+  requestAnimationFrame(transitLoop);
+}
+
+function _transitLoopInner(timestamp) {
 
   // Real frame delta for consistent speed
   const realDt = Math.min((timestamp - lastFrameTime) / 1000, 0.1);
@@ -3892,7 +3921,7 @@ function transitLoop(timestamp) {
             state.speed = 0;
             addTransitEvent('FUEL SYSTEM FAILURE', `${ship.name}: Fuel line rupture from overspeed! Engines offline.`, 'danger');
           }
-          updateFleetPanel();
+          _fleetPanelDirty = true;
         }
       }
 
@@ -3920,7 +3949,7 @@ function transitLoop(timestamp) {
             cargo.buyCost = cost;
             const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
             addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name} for ${formatMoney(cost)}.`, 'success');
-            updateFleetPanel(); break;
+            _fleetPanelDirty = true; break;
           }
         }
       }
@@ -3949,7 +3978,7 @@ function transitLoop(timestamp) {
             campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
             addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
-            updateFleetPanel();
+            _fleetPanelDirty = true;
             break;
           }
         }
@@ -3977,13 +4006,14 @@ function transitLoop(timestamp) {
             delete shipWaypoints[ship.id];
             delete shipTrails[ship.id];
             delete shipCargo[ship.id];
+            delete shipAutopilot[ship.id];
             if (selectedShipId === ship.id) {
               selectedShipId = me?.fleet[0]?.id || null;
             }
             updateFleetPanel();
           }
         });
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
       } catch (e) {
         console.error(`Transit loop error for ship ${ship.id}:`, e);
@@ -3991,17 +4021,23 @@ function transitLoop(timestamp) {
     }
   }
 
-  updateNPCShips(dt, elapsed);
+  try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
   updateMilitaryShips(dt);
 
   if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
     lastEventCheck = elapsed;
-    checkDangerZonesAllShips(elapsed);
-    checkAisFines(elapsed);
+    try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
+    try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
   }
 
-  updateAmbientWar(elapsed);
+  try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
   updateRegionIntensity(elapsed);
+
+  // Batch fleet panel updates — only rebuild DOM once per frame
+  if (_fleetPanelDirty) {
+    _fleetPanelDirty = false;
+    updateFleetPanel();
+  }
 
   updateHUD();
 
@@ -4031,10 +4067,13 @@ function transitLoop(timestamp) {
     if (npc.trail && npc.trail.length > 1) allTrails.push({ trail: npc.trail, color: 'rgba(100, 120, 160,' });
   }
 
+  let termPrices;
+  try { termPrices = computeLocalTerminalPrices(); } catch (e) { termPrices = gameState?.terminalPrices || null; }
+
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
-    terminalPrices: computeLocalTerminalPrices(),
+    terminalPrices: termPrices,
     ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
@@ -4044,14 +4083,13 @@ function transitLoop(timestamp) {
   });
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
-
-  requestAnimationFrame(transitLoop);
 }
 
 // ============================================
 // HUD UPDATE
 // ============================================
 function updateHUD() {
+  try {
   const day = getCampaignDay();
   const hourOfDay = Math.floor(getGameHour());
   const minuteOfDay = Math.floor((simGameTime % 3600) / 60);
@@ -4092,6 +4130,7 @@ function updateHUD() {
     document.getElementById('hud-cargo-status').className = 'hud-cargo loading';
     document.getElementById('hud-progress').textContent = '--';
   }
+  } catch (e) { console.error('updateHUD error:', e); }
 }
 
 // ============================================
@@ -4468,7 +4507,7 @@ function updateRegionIntensity(elapsed) {
 function checkDangerZonesAllShips(elapsed) {
   const me = getMe();
   if (!me) return;
-  const risk = RISK_LEVELS[gameState.riskLevel];
+  const risk = RISK_LEVELS[gameState?.riskLevel] || RISK_LEVELS.LOW;
 
   for (const ship of me.fleet) {
     const state = shipStates[ship.id];
@@ -4545,7 +4584,7 @@ function checkDangerZonesAllShips(elapsed) {
         if (outcome.moneyLoss > 0) extra += ` [Loss: ${Math.round(outcome.moneyLoss * 100)}%]`;
         addTransitEvent(`${ship.name}: ${evt.name}`, outcome.text + extra,
           outcome.damagePercent > 0 || outcome.moneyLoss > 0 ? 'danger' : outcome.delayHours < 0 ? 'success' : '');
-        updateFleetPanel();
+        _fleetPanelDirty = true;
       }
     }
   }
@@ -4909,6 +4948,13 @@ socket.on('game_update', (state) => {
   const activeScreen = document.querySelector('.screen.active');
   if (activeScreen?.id === 'screen-lobby') renderLobby();
   if (transitActive) {
+    // Ensure all fleet ships have local state (handles race between game_update and buy callback)
+    const me = getMe();
+    if (me) {
+      for (const ship of me.fleet) {
+        if (!shipStates[ship.id]) spawnShipState(ship);
+      }
+    }
     updateFleetPanel();
     // Refresh mobile fleet drawer if it's currently open
     if (mobileActiveTab === 'fleet') {
