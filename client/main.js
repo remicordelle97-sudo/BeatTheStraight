@@ -858,7 +858,8 @@ function renderMobileControls(container) {
 
       if (type === 'repair') {
         const _st = shipStates[sid];
-        const _health = _st ? Math.max(0.01, (_st.health || 1) - (_st.totalDamage || 0)) : undefined;
+        if (!_st || _st.destroyed || _st.seized) return;
+        const _health = Math.max(0.01, (_st.health || 1) - (_st.totalDamage || 0));
         socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: _health }, (res) => {
           if (res?.success) {
             const st = shipStates[sid];
