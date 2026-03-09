@@ -2416,7 +2416,7 @@ function spawnShipState(ship, spawnLat, spawnLon) {
 const BLAST_RADIUS = 0.12;       // degrees (~13km) — max damage range
 const MISSILE_MAX_DMG = 1.00;    // max damage at epicenter for missiles
 const BOMB_MAX_DMG = 1.00;       // max damage at epicenter for bombs
-const NPC_KILL_THRESHOLD = 0.08; // NPC destroyed if impact within this range
+const NPC_DESTROY_THRESHOLD = 0.95; // NPC destroyed when cumulative damage reaches this
 
 setImpactHandler((impactLat, impactLon, type) => {
   const maxDmg = type === 'bomb' ? BOMB_MAX_DMG : MISSILE_MAX_DMG;
@@ -2450,24 +2450,30 @@ setImpactHandler((impactLat, impactLon, type) => {
   for (let i = npcShips.length - 1; i >= 0; i--) {
     const npc = npcShips[i];
     const dist = Math.hypot(npc.lat - impactLat, npc.lon - impactLon);
-    if (dist < NPC_KILL_THRESHOLD) {
-      // Close hit — NPC destroyed
-      addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}!`, 'danger');
-      npcShips[i] = createNPCTanker(false);
-    } else if (dist < BLAST_RADIUS) {
-      // Glancing hit — NPC takes speed penalty and may divert
+    if (dist < BLAST_RADIUS) {
+      // Sliding scale damage: full at epicenter, zero at edge
       const intensity = 1 - (dist / BLAST_RADIUS);
-      npc.speed = Math.max(3, npc.speed * (1 - intensity * 0.5));
-      if (intensity > 0.3 && npc.state !== 'waiting_safe') {
-        // Spooked — divert to safety
-        const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
-        npc.safeAnchorage = SAFE_ANCHORAGES[0];
-        npc.savedState = npc.state;
-        npc.state = 'waiting_safe';
-        npc.waitTimer = 30 + Math.random() * 60;
-        npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
-        npc.speed = npc.baseSpeed * 0.6;
-        npc._cautionChecked = false;
+      const dmg = maxDmg * intensity;
+      npc.totalDamage = Math.min(1, (npc.totalDamage || 0) + dmg);
+      npc.speed = Math.max(3, (npc.baseSpeed || 13) * (1 - npc.totalDamage * 0.5));
+      const pct = Math.round(dmg * 100);
+      if (npc.totalDamage >= NPC_DESTROY_THRESHOLD) {
+        // Accumulated enough damage — NPC destroyed
+        addTransitEvent('NPC SHIP DESTROYED', `${npc.shipName} sunk by ${type}! [Dmg: ${pct}%]`, 'danger');
+        npcShips[i] = createNPCTanker(false);
+      } else {
+        addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}! [Dmg: ${pct}%, Total: ${Math.round(npc.totalDamage * 100)}%]`, 'danger');
+        if (intensity > 0.3 && npc.state !== 'waiting_safe') {
+          // Spooked — divert to safety
+          const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
+          npc.safeAnchorage = SAFE_ANCHORAGES[0];
+          npc.savedState = npc.state;
+          npc.state = 'waiting_safe';
+          npc.waitTimer = 30 + Math.random() * 60;
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
+          npc.speed = (npc.baseSpeed || 13) * 0.6 * (1 - npc.totalDamage * 0.5);
+          npc._cautionChecked = false;
+        }
       }
     }
   }
@@ -3058,6 +3064,7 @@ function createNPCTanker(staggered) {
     trail: [],
     route: [],     // waypoint route [{lat,lon}, ...]
     routeIdx: 0,   // current waypoint index
+    totalDamage: 0,
   };
 
   // Place based on state
