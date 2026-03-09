@@ -5,7 +5,7 @@ import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
   NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES, CITIES,
-  TERMINAL_REGIONS
+  TERMINAL_REGIONS, getTerminalPrice, SUPPLY_DEMAND_CONFIG
 } from '../shared/constants.js';
 
 const socket = io(window.location.hostname === 'localhost'
@@ -36,12 +36,17 @@ function getMe() {
     || (gameState.players.length === 1 ? gameState.players[0] : null);
 }
 
-// Get live terminal price from server state, falling back to static base price
+// Get live terminal price including supply/demand from NPC traffic
 function getLivePrice(terminal) {
+  const rl = gameState?.riskLevel || 'LOW';
+  // Use local supply/demand-aware pricing when NPC data is available
+  if (typeof npcShips !== 'undefined' && npcShips.length > 0) {
+    return getTerminalPrice(terminal, rl, computeNpcTraffic());
+  }
+  // Fallback to server state
   if (gameState && gameState.terminalPrices && gameState.terminalPrices[terminal.id]) {
     return gameState.terminalPrices[terminal.id].price;
   }
-  // Fallback to static base price
   return terminal.buyPrice || terminal.sellPrice || 75;
 }
 
@@ -2416,7 +2421,7 @@ function spawnShipState(ship, spawnLat, spawnLon) {
 const BLAST_RADIUS = 0.12;       // degrees (~13km) — max damage range
 const MISSILE_MAX_DMG = 1.00;    // max damage at epicenter for missiles
 const BOMB_MAX_DMG = 1.00;       // max damage at epicenter for bombs
-const NPC_KILL_THRESHOLD = 0.08; // NPC destroyed if impact within this range
+const NPC_DESTROY_THRESHOLD = 0.95; // NPC destroyed when cumulative damage reaches this
 
 setImpactHandler((impactLat, impactLon, type) => {
   const maxDmg = type === 'bomb' ? BOMB_MAX_DMG : MISSILE_MAX_DMG;
@@ -2450,24 +2455,30 @@ setImpactHandler((impactLat, impactLon, type) => {
   for (let i = npcShips.length - 1; i >= 0; i--) {
     const npc = npcShips[i];
     const dist = Math.hypot(npc.lat - impactLat, npc.lon - impactLon);
-    if (dist < NPC_KILL_THRESHOLD) {
-      // Close hit — NPC destroyed
-      addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}!`, 'danger');
-      npcShips[i] = createNPCTanker(false);
-    } else if (dist < BLAST_RADIUS) {
-      // Glancing hit — NPC takes speed penalty and may divert
+    if (dist < BLAST_RADIUS) {
+      // Sliding scale damage: full at epicenter, zero at edge
       const intensity = 1 - (dist / BLAST_RADIUS);
-      npc.speed = Math.max(3, npc.speed * (1 - intensity * 0.5));
-      if (intensity > 0.3 && npc.state !== 'waiting_safe') {
-        // Spooked — divert to safety
-        const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
-        npc.safeAnchorage = SAFE_ANCHORAGES[0];
-        npc.savedState = npc.state;
-        npc.state = 'waiting_safe';
-        npc.waitTimer = 30 + Math.random() * 60;
-        npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
-        npc.speed = npc.baseSpeed * 0.6;
-        npc._cautionChecked = false;
+      const dmg = maxDmg * intensity;
+      npc.totalDamage = Math.min(1, (npc.totalDamage || 0) + dmg);
+      npc.speed = Math.max(3, (npc.baseSpeed || 13) * (1 - npc.totalDamage * 0.5));
+      const pct = Math.round(dmg * 100);
+      if (npc.totalDamage >= NPC_DESTROY_THRESHOLD) {
+        // Accumulated enough damage — NPC destroyed
+        addTransitEvent('NPC SHIP DESTROYED', `${npc.shipName} sunk by ${type}! [Dmg: ${pct}%]`, 'danger');
+        npcShips[i] = createNPCTanker(false);
+      } else {
+        addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}! [Dmg: ${pct}%, Total: ${Math.round(npc.totalDamage * 100)}%]`, 'danger');
+        if (intensity > 0.3 && npc.state !== 'waiting_safe') {
+          // Spooked — divert to safety
+          const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
+          npc.safeAnchorage = SAFE_ANCHORAGES[0];
+          npc.savedState = npc.state;
+          npc.state = 'waiting_safe';
+          npc.waitTimer = 30 + Math.random() * 60;
+          npc.targetHeading = headingToTarget(npc.lat, npc.lon, npc.safeAnchorage.lat, npc.safeAnchorage.lon);
+          npc.speed = (npc.baseSpeed || 13) * 0.6 * (1 - npc.totalDamage * 0.5);
+          npc._cautionChecked = false;
+        }
       }
     }
   }
@@ -2769,6 +2780,150 @@ function randomDropoff() {
   return all[Math.floor(Math.random() * all.length)];
 }
 
+// ============================================
+// NPC SUPPLY/DEMAND — traffic tracking & profit-weighted routing
+// ============================================
+
+// Count how many ships (NPC + player) are heading to or at each terminal
+function computeNpcTraffic() {
+  const traffic = {};
+  for (const t of Object.values(OIL_TERMINALS)) traffic[t.id] = 0;
+  // NPC ships
+  for (const npc of npcShips) {
+    if (npc.state === 'heading_to_terminal' || npc.state === 'loading') {
+      if (npc.targetTerminal) traffic[npc.targetTerminal.id] = (traffic[npc.targetTerminal.id] || 0) + 1;
+    }
+    if (npc.state === 'heading_to_dropoff' || npc.state === 'unloading') {
+      if (npc.dropoff) traffic[npc.dropoff.id] = (traffic[npc.dropoff.id] || 0) + 1;
+    }
+  }
+  // Player ships — their autopilot destinations also create demand/supply
+  const me = gameState?.players?.find(p => p.id === myId);
+  if (me) {
+    for (const ship of me.fleet) {
+      const ap = shipAutopilot[ship.id];
+      if (!ap || !ap.active) continue;
+      const cargo = ship.cargo;
+      if (cargo && cargo.loaded) {
+        // Heading to sell — counts toward import terminal traffic
+        if (ap.dropoff) traffic[ap.dropoff.id] = (traffic[ap.dropoff.id] || 0) + 1;
+      } else {
+        // Heading to buy — counts toward export terminal traffic
+        if (ap.terminal) traffic[ap.terminal.id] = (traffic[ap.terminal.id] || 0) + 1;
+      }
+    }
+  }
+  return traffic;
+}
+
+// Estimate route danger for traveling between two points
+// Returns a score from 0 (safe) to 1 (extremely dangerous)
+function estimateRouteDanger(fromLat, fromLon, toLat, toLon) {
+  const rl = gameState?.riskLevel || 'LOW';
+  const riskMult = RISK_LEVELS[rl]?.eventFrequency || 0.05;
+  let dangerScore = 0;
+
+  // Check how many danger zones the route's bounding box overlaps
+  const minLat = Math.min(fromLat, toLat);
+  const maxLat = Math.max(fromLat, toLat);
+  const minLon = Math.min(fromLon, toLon);
+  const maxLon = Math.max(fromLon, toLon);
+
+  for (const zone of DANGER_ZONES) {
+    const b = zone.bounds;
+    // Check if route bounding box overlaps this danger zone
+    if (maxLat >= b.south && minLat <= b.north && maxLon >= b.west && minLon <= b.east) {
+      dangerScore += (zone.baseProbability || 0.05);
+    }
+  }
+
+  // Scale by current global risk level
+  dangerScore *= riskMult / 0.05; // normalize: at LOW (0.05) danger is baseline, scales up at higher risk
+  return Math.min(1, dangerScore);
+}
+
+// Weighted random selection: picks an index based on weights (higher = more likely)
+function weightedRandomIndex(weights) {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) return Math.floor(Math.random() * weights.length);
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return i;
+  }
+  return weights.length - 1;
+}
+
+// Pick an export terminal weighted by profitability and safety
+// caution: 0 = daring (ignores risk), 1 = very cautious
+function pickProfitableExport(cargoType, fromLat, fromLon, caution) {
+  const rl = gameState?.riskLevel || 'LOW';
+  const traffic = computeNpcTraffic();
+  const exports = Object.values(EXPORT_TERMINALS).filter(t => (t.cargoType || 'oil') === cargoType);
+  if (exports.length === 0) return null;
+
+  // Get best import sell price (what we'd sell for) to estimate margin
+  const imports = Object.values(IMPORT_TERMINALS);
+  const bestSellPrice = Math.max(...imports.map(t => getTerminalPrice(t, rl, traffic)));
+
+  const weights = exports.map(t => {
+    const buyPrice = getTerminalPrice(t, rl, traffic);
+    const margin = Math.max(1, bestSellPrice - buyPrice); // minimum $1 to avoid zero weights
+
+    // Rough distance penalty (degrees as proxy — not perfect but cheap)
+    const dist = Math.hypot(t.lat - fromLat, t.lon - fromLon);
+    const distPenalty = 1 / (1 + dist * 0.02); // gentle falloff for farther terminals
+
+    // Route danger
+    const danger = estimateRouteDanger(fromLat, fromLon, t.lat, t.lon);
+    const safetyFactor = 1 - danger * caution; // cautious NPCs heavily penalize dangerous routes
+
+    return Math.max(0.01, margin * distPenalty * Math.max(0.05, safetyFactor));
+  });
+
+  return exports[weightedRandomIndex(weights)];
+}
+
+// Pick an import terminal weighted by sell price and safety
+function pickProfitableImport(buyPrice, fromLat, fromLon, caution) {
+  const rl = gameState?.riskLevel || 'LOW';
+  const traffic = computeNpcTraffic();
+  const imports = Object.values(IMPORT_TERMINALS);
+  if (imports.length === 0) return null;
+
+  const weights = imports.map(t => {
+    const sellPrice = getTerminalPrice(t, rl, traffic);
+    const margin = Math.max(1, sellPrice - buyPrice);
+
+    const dist = Math.hypot(t.lat - fromLat, t.lon - fromLon);
+    const distPenalty = 1 / (1 + dist * 0.02);
+
+    const danger = estimateRouteDanger(fromLat, fromLon, t.lat, t.lon);
+    const safetyFactor = 1 - danger * caution;
+
+    return Math.max(0.01, margin * distPenalty * Math.max(0.05, safetyFactor));
+  });
+
+  return imports[weightedRandomIndex(weights)];
+}
+
+// Build terminal prices with local supply/demand for map display
+function computeLocalTerminalPrices() {
+  const rl = gameState?.riskLevel || 'LOW';
+  const traffic = (typeof npcShips !== 'undefined' && npcShips.length > 0) ? computeNpcTraffic() : null;
+  const prices = {};
+  for (const [key, terminal] of Object.entries(OIL_TERMINALS)) {
+    const price = getTerminalPrice(terminal, rl, traffic);
+    prices[terminal.id] = {
+      id: terminal.id,
+      price,
+      role: terminal.role,
+      base: terminal.role === 'export' ? terminal.buyPrice : terminal.sellPrice
+    };
+  }
+  return prices;
+}
+
 // Global NPC spawn zones — spread NPCs across major shipping lanes
 const NPC_SPAWN_ZONES = [
   // Middle East / Indian Ocean
@@ -3025,10 +3180,6 @@ function computeOceanRoute(fromLat, fromLon, toLat, toLon) {
 
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
-  // Pick a terminal matching the ship's cargo type
-  const exportTerminals = Object.values(EXPORT_TERMINALS);
-  const matchingTerminals = exportTerminals.filter(t => (t.cargoType || 'oil') === type.cargoType);
-  const terminal = matchingTerminals[Math.floor(Math.random() * matchingTerminals.length)];
   const speed = type.speed + (Math.random() - 0.5) * 2;
   const shipName = NPC_SHIP_NAMES[npcNameIndex % NPC_SHIP_NAMES.length];
   npcNameIndex++;
@@ -3039,8 +3190,16 @@ function createNPCTanker(staggered) {
   // Caution: 0 = daring (ignores risk), 1 = very cautious
   const caution = Math.random() < 0.2 ? Math.random() * 0.2 : 0.4 + Math.random() * 0.6;
 
-  // Each NPC gets a random dropoff destination
-  const dropoff = randomDropoff();
+  // Pick terminal and dropoff based on profitability, supply/demand, and route danger
+  // Use a spawn zone center as rough origin for initial route danger estimate
+  const spawnZone = NPC_SPAWN_ZONES[Math.floor(Math.random() * NPC_SPAWN_ZONES.length)];
+  const roughLat = (spawnZone.latMin + spawnZone.latMax) / 2;
+  const roughLon = (spawnZone.lonMin + spawnZone.lonMax) / 2;
+  const terminal = pickProfitableExport(type.cargoType, roughLat, roughLon, caution)
+    || Object.values(EXPORT_TERMINALS).find(t => (t.cargoType || 'oil') === type.cargoType);
+  const buyPrice = getTerminalPrice(terminal, gameState?.riskLevel || 'LOW', computeNpcTraffic());
+  const dropoff = pickProfitableImport(buyPrice, terminal.lat, terminal.lon, caution)
+    || randomDropoff();
 
   const npc = {
     lat: 0, lon: 0, heading: 0, targetHeading: 0, speed, baseSpeed: speed,
@@ -3058,6 +3217,7 @@ function createNPCTanker(staggered) {
     trail: [],
     route: [],     // waypoint route [{lat,lon}, ...]
     routeIdx: 0,   // current waypoint index
+    totalDamage: 0,
   };
 
   // Place based on state
@@ -3208,6 +3368,10 @@ function updateNPCShips(dt, elapsed) {
       if (npc.loadTimer <= 0) {
         npc.speed = npc.baseSpeed || 13;
         if (npc.state === NPC_STATE.LOADING) {
+          // Finished loading — pick best import terminal to sell at
+          const loadBuyPrice = getTerminalPrice(npc.targetTerminal, gameState?.riskLevel || 'LOW', computeNpcTraffic());
+          const bestImport = pickProfitableImport(loadBuyPrice, npc.lat, npc.lon, npc.caution);
+          if (bestImport) npc.dropoff = bestImport;
           npc.state = NPC_STATE.HEADING_TO_DROPOFF;
           npc.route = computeOceanRoute(npc.lat, npc.lon, npc.dropoff.lat, npc.dropoff.lon);
           npc.route.push({ lat: npc.dropoff.lat, lon: npc.dropoff.lon, loadRadius: npc.dropoff.loadRadius || 0.15 });
@@ -3215,11 +3379,12 @@ function updateNPCShips(dt, elapsed) {
           const wp = npc.route[0];
           npc.targetHeading = headingToTarget(npc.lat, npc.lon, wp.lat, wp.lon);
         } else {
-          // Pick new terminal and new dropoff for return trip
-          const allT = Object.values(EXPORT_TERMINALS);
-          const matching = allT.filter(t => (t.cargoType || 'oil') === npc.cargoType);
-          npc.targetTerminal = matching[Math.floor(Math.random() * matching.length)];
-          npc.dropoff = randomDropoff();
+          // Finished unloading — pick most profitable export terminal for next load
+          const newTerminal = pickProfitableExport(npc.cargoType, npc.lat, npc.lon, npc.caution);
+          npc.targetTerminal = newTerminal || npc.targetTerminal;
+          const newBuyPrice = getTerminalPrice(npc.targetTerminal, gameState?.riskLevel || 'LOW', computeNpcTraffic());
+          const newDropoff = pickProfitableImport(newBuyPrice, npc.targetTerminal.lat, npc.targetTerminal.lon, npc.caution);
+          npc.dropoff = newDropoff || randomDropoff();
           npc.state = NPC_STATE.HEADING_TO_TERMINAL;
           npc.route = computeOceanRoute(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
           npc.route.push({ lat: npc.targetTerminal.lat, lon: npc.targetTerminal.lon, loadRadius: npc.targetTerminal.loadRadius || 0.15 });
@@ -3869,7 +4034,7 @@ function transitLoop(timestamp) {
   drawMap(mapCanvas, {
     showZones: false, showFinish: false, showTerminals: true, showSpawn: false,
     selectedTerminalId: null,
-    terminalPrices: gameState?.terminalPrices || null,
+    terminalPrices: computeLocalTerminalPrices(),
     ship: selectedState, allTrails,
     targetPoint: selectedWps.length > 0 ? selectedWps[0] : null,
     waypoints: selectedWps,
