@@ -925,25 +925,55 @@ export const TERMINAL_PRICE_MULTIPLIERS = {
   CRITICAL: { gulfExport: 0.40, nonGulfExport: 1.25, import: 2.0  }
 };
 
+// Supply/demand config — how much NPC traffic shifts prices
+export const SUPPLY_DEMAND_CONFIG = {
+  DEMAND_PRICE_SHIFT: 0.03,  // per NPC above/below average at a terminal
+  EXPORT_CLAMP: [0.80, 1.30], // min/max supply-demand multiplier for exports
+  IMPORT_CLAMP: [0.75, 1.20], // min/max supply-demand multiplier for imports
+};
+
 // Compute the live buy/sell price for a terminal given the current risk level
-export function getTerminalPrice(terminal, riskLevel) {
+// npcTraffic: optional { [terminalId]: count } of NPCs heading to/loading at each terminal
+export function getTerminalPrice(terminal, riskLevel, npcTraffic) {
   const mult = TERMINAL_PRICE_MULTIPLIERS[riskLevel] || TERMINAL_PRICE_MULTIPLIERS.LOW;
+  let sdMult = 1.0;
+
+  // Apply supply/demand shift if traffic data is provided
+  if (npcTraffic) {
+    const counts = Object.values(npcTraffic);
+    const avg = counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
+    const myCount = npcTraffic[terminal.id] || 0;
+    const deviation = myCount - avg;
+    const cfg = SUPPLY_DEMAND_CONFIG;
+
+    if (terminal.role === 'export') {
+      // More NPCs buying here → price rises (high demand)
+      sdMult = 1 + deviation * cfg.DEMAND_PRICE_SHIFT;
+      sdMult = Math.max(cfg.EXPORT_CLAMP[0], Math.min(cfg.EXPORT_CLAMP[1], sdMult));
+    } else if (terminal.role === 'import') {
+      // More NPCs selling here → price drops (oversupply)
+      sdMult = 1 - deviation * cfg.DEMAND_PRICE_SHIFT;
+      sdMult = Math.max(cfg.IMPORT_CLAMP[0], Math.min(cfg.IMPORT_CLAMP[1], sdMult));
+    }
+  }
+
   if (terminal.role === 'export') {
     const base = terminal.buyPrice || 70;
     const m = terminal.region === 'gulf' ? mult.gulfExport : mult.nonGulfExport;
-    return Math.round(base * m * 100) / 100;
+    return Math.round(base * m * sdMult * 100) / 100;
   } else if (terminal.role === 'import') {
     const base = terminal.sellPrice || 85;
-    return Math.round(base * mult.import * 100) / 100;
+    return Math.round(base * mult.import * sdMult * 100) / 100;
   }
   return terminal.buyPrice || terminal.sellPrice || 75;
 }
 
 // Compute all terminal prices at once for a given risk level
-export function getAllTerminalPrices(riskLevel) {
+// npcTraffic: optional { [terminalId]: count }
+export function getAllTerminalPrices(riskLevel, npcTraffic) {
   const prices = {};
   for (const [key, terminal] of Object.entries(OIL_TERMINALS)) {
-    const price = getTerminalPrice(terminal, riskLevel);
+    const price = getTerminalPrice(terminal, riskLevel, npcTraffic);
     prices[terminal.id] = {
       id: terminal.id,
       price,
