@@ -2483,8 +2483,13 @@ setImpactHandler((impactLat, impactLon, type) => {
         addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}! [Dmg: ${pct}%, Total: ${Math.round(npc.totalDamage * 100)}%]`, 'danger');
         if (intensity > 0.3 && npc.state !== 'waiting_safe') {
           // Spooked — divert to safety
-          const SAFE_ANCHORAGES = [{ lat: 24.5, lon: 57.8, name: 'Gulf of Oman' }];
-          npc.safeAnchorage = SAFE_ANCHORAGES[0];
+          // Find nearest safe anchorage (use the global list, not hardcoded)
+          let nearestAnch = SAFE_ANCHORAGES[0], bestAnchDist = Infinity;
+          for (const anch of SAFE_ANCHORAGES) {
+            const ad = distanceDeg(npc.lat, npc.lon, anch.lat, anch.lon);
+            if (ad < bestAnchDist) { bestAnchDist = ad; nearestAnch = anch; }
+          }
+          npc.safeAnchorage = nearestAnch;
           npc.savedState = npc.state;
           npc.state = 'waiting_safe';
           npc.waitTimer = 30 + Math.random() * 60;
@@ -4634,8 +4639,7 @@ function addTransitEvent(name, text, type) {
   // Auto-dismiss after 60 seconds
   setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 60000);
   while (container.children.length > 8) {
-    container.firstChild.style.opacity = '0';
-    setTimeout(() => container.firstChild?.remove(), 300);
+    container.firstChild.remove();
   }
   // Also store for mobile log
   mobileEventLog.push({ name, text, type });
