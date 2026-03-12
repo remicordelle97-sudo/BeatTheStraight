@@ -284,7 +284,7 @@ class GameSimulation {
     }
 
     // Move
-    const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+    const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
     const headingRad = state.heading * Math.PI / 180;
     const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
     const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;

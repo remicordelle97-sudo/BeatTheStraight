@@ -29,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 12;
+let gameSpeedMultiplier = 1;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -3308,7 +3308,7 @@ function updateNPCShips(dt, elapsed) {
     }
 
     // Movement
-    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
     const rad = npc.heading * Math.PI / 180;
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
@@ -3426,7 +3426,7 @@ function updateMilitaryShips(dt) {
     if (Math.abs(diff) > 0.5) mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
 
     // Move
-    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
     const rad = mil.heading * Math.PI / 180;
     const newLon = mil.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = mil.lat + Math.cos(rad) * speedDeg * dt;
@@ -3454,12 +3454,7 @@ function _transitLoopInner(timestamp) {
   lastFrameTime = timestamp;
   const dt = realDt * gameSpeedMultiplier;
   const elapsed = (timestamp - simStartTime) / 1000;
-  if (!serverSimActive) {
-    simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
-  } else {
-    // Interpolate game clock between server broadcasts using server's time scale
-    simGameTime += realDt * SIM_CONFIG.TIME_SCALE;
-  }
+  simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
   const me = getMe();
 
@@ -3621,7 +3616,7 @@ function _transitLoopInner(timestamp) {
       }
 
       // Move
-      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
       const headingRad = state.heading * Math.PI / 180;
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
