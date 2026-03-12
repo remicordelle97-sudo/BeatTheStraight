@@ -2477,30 +2477,8 @@ const NPC_DESTROY_THRESHOLD = 0.95; // NPC destroyed when cumulative damage reac
 setImpactHandler((impactLat, impactLon, type) => {
   const maxDmg = type === 'bomb' ? BOMB_MAX_DMG : MISSILE_MAX_DMG;
 
-  // --- Check player ships ---
-  const me = gameState?.players?.find(p => p.id === myId);
-  if (me) {
-    for (const ship of me.fleet) {
-      const state = shipStates[ship.id];
-      if (!state || state.destroyed || state.seized) continue;
-      const dist = Math.hypot(state.lat - impactLat, state.lon - impactLon);
-      if (dist < BLAST_RADIUS) {
-        // Linear falloff: full damage at epicenter, zero at edge
-        const intensity = 1 - (dist / BLAST_RADIUS);
-        const defLevel = ship.defenseUpgrade || 0;
-        const defReduction = 1 - defLevel * 0.15;
-        const dmg = maxDmg * intensity * defReduction;
-        state.totalDamage = Math.min(0.95, state.totalDamage + dmg);
-        if (dmg > 0.05) {
-          state.speed = Math.round(Math.max(5, (ship.speed || 16) * (1 - state.totalDamage * 0.5)));
-        }
-        const pct = Math.round(dmg * 100);
-        const label = type === 'bomb' ? 'AIRSTRIKE HIT' : 'MISSILE HIT';
-        addTransitEvent(`${ship.name}: ${label}`, `${dist < 0.03 ? 'Direct hit' : 'Near miss shrapnel'}! [Dmg: ${pct}%]`, 'danger');
-        _fleetPanelDirty = true;
-      }
-    }
-  }
+  // Player ships: visual missiles are cosmetic only — damage is handled
+  // by the danger zone event system to avoid double-damage
 
   // --- Check NPC ships ---
   for (let i = npcShips.length - 1; i >= 0; i--) {
