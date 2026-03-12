@@ -3477,7 +3477,7 @@ function transitLoop(timestamp) {
   requestAnimationFrame(transitLoop);
 }
 
-function _transitLoopInner(timestamp) {
+function _transitLoopInner(timestamp, skipRender) {
 
   // Real frame delta for consistent speed
   const realDt = Math.min((timestamp - lastFrameTime) / 1000, 0.1);
@@ -3838,18 +3838,20 @@ function _transitLoopInner(timestamp) {
   }
 
   // Batch fleet panel updates — only rebuild DOM once per frame
-  if (_fleetPanelDirty) {
+  if (!skipRender && _fleetPanelDirty) {
     _fleetPanelDirty = false;
     updateFleetPanel();
   }
 
-  updateHUD();
+  if (!skipRender) updateHUD();
 
   // Campaign end check
   if (!campaignEnded && simGameTime >= CAMPAIGN_DURATION) {
     campaignEnded = true;
-    showCampaignReport();
+    if (!skipRender) showCampaignReport();
   }
+
+  if (skipRender) return; // skip rendering during catch-up
 
   // Render
   const selectedState = selectedShipId ? shipStates[selectedShipId] : null;
@@ -3888,6 +3890,37 @@ function _transitLoopInner(timestamp) {
 
   if (selectedState) drawCompass(compassCanvas, selectedState.heading);
 }
+
+// ============================================
+// BACKGROUND TAB CATCH-UP
+// ============================================
+let _tabHiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (!transitActive) return;
+  if (document.hidden) {
+    _tabHiddenAt = performance.now();
+  } else if (_tabHiddenAt > 0) {
+    // Tab became visible — catch up missed simulation time
+    const missedMs = performance.now() - _tabHiddenAt;
+    _tabHiddenAt = 0;
+    // Cap catch-up at 5 minutes real time to avoid freezing
+    const maxCatchupMs = 5 * 60 * 1000;
+    const catchupMs = Math.min(missedMs, maxCatchupMs);
+    const stepMs = 100; // simulate in 0.1s steps
+    const steps = Math.floor(catchupMs / stepMs);
+    if (steps > 0) {
+      console.log(`Tab was hidden for ${(missedMs / 1000).toFixed(1)}s, catching up ${steps} steps...`);
+      // Run simulation steps without rendering
+      let fakeTime = lastFrameTime;
+      for (let i = 0; i < steps; i++) {
+        fakeTime += stepMs;
+        try { _transitLoopInner(fakeTime, true); } catch (e) { console.error('Catch-up error:', e); break; }
+      }
+      // Set lastFrameTime to now so the next real frame has a normal delta
+      lastFrameTime = performance.now();
+    }
+  }
+});
 
 // ============================================
 // HUD UPDATE
@@ -4433,8 +4466,8 @@ function addTransitEvent(name, text, type) {
   div.appendChild(closeBtn);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
-  // Auto-dismiss after 60 seconds
-  setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 60000);
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 5000);
   while (container.children.length > 8) {
     container.firstChild.remove();
   }
@@ -4826,11 +4859,13 @@ socket.on('sim_state', (simState) => {
       const state = shipStates[ship.id];
       if (!state) continue;
       state.health = status.health;
-      state.totalDamage = status.totalDamage;
-      state.totalMoneyLoss = status.totalMoneyLoss;
-      state.totalDelay = status.totalDelay;
-      state.seized = status.seized;
-      state.destroyed = status.destroyed;
+      // Take max of client and server damage — client applies visual missile
+      // blast damage, server applies non-missile event damage
+      state.totalDamage = Math.max(state.totalDamage, status.totalDamage);
+      state.totalMoneyLoss = Math.max(state.totalMoneyLoss, status.totalMoneyLoss);
+      state.totalDelay = Math.max(state.totalDelay, status.totalDelay);
+      state.seized = state.seized || status.seized;
+      state.destroyed = state.destroyed || status.destroyed;
       // Server may reduce speed due to damage/malfunction
       if (status.speed < state.speed) state.speed = status.speed;
     }
