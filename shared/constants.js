@@ -927,9 +927,9 @@ export const TERMINAL_PRICE_MULTIPLIERS = {
 
 // Supply/demand config — how much NPC traffic shifts prices
 export const SUPPLY_DEMAND_CONFIG = {
-  DEMAND_PRICE_SHIFT: 0.03,  // per NPC above/below average at a terminal
-  EXPORT_CLAMP: [0.80, 1.30], // min/max supply-demand multiplier for exports
-  IMPORT_CLAMP: [0.75, 1.20], // min/max supply-demand multiplier for imports
+  DEMAND_PRICE_SHIFT: 0.08,    // per NPC above/below average at a terminal (was 0.03)
+  EXPORT_CLAMP: [0.55, 1.60],  // min/max supply-demand multiplier for exports
+  IMPORT_CLAMP: [0.50, 1.50],  // min/max supply-demand multiplier for imports
 };
 
 // Compute the live buy/sell price for a terminal given the current risk level
