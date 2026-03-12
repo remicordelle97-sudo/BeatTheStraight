@@ -17,7 +17,7 @@ const OCEAN_NODES = [
   { id: 'hormuz_app', lat: 26.3, lon: 55.5 },
   { id: 'hormuz', lat: 26.55, lon: 56.25 },
   { id: 'hormuz_ch', lat: 26.55, lon: 56.65 },
-  { id: 'hormuz_ne', lat: 26.3, lon: 57.5 },
+  { id: 'hormuz_ne', lat: 25.7, lon: 57.5 },
   { id: 'hormuz_e', lat: 25.5, lon: 58.0 },
   { id: 'gulf_oman', lat: 24.5, lon: 58.5 },
   { id: 'oman_se', lat: 24.0, lon: 59.5 },
