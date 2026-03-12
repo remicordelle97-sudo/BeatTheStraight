@@ -4826,11 +4826,13 @@ socket.on('sim_state', (simState) => {
       const state = shipStates[ship.id];
       if (!state) continue;
       state.health = status.health;
-      state.totalDamage = status.totalDamage;
-      state.totalMoneyLoss = status.totalMoneyLoss;
-      state.totalDelay = status.totalDelay;
-      state.seized = status.seized;
-      state.destroyed = status.destroyed;
+      // Take max of client and server damage — client applies visual missile
+      // blast damage, server applies non-missile event damage
+      state.totalDamage = Math.max(state.totalDamage, status.totalDamage);
+      state.totalMoneyLoss = Math.max(state.totalMoneyLoss, status.totalMoneyLoss);
+      state.totalDelay = Math.max(state.totalDelay, status.totalDelay);
+      state.seized = state.seized || status.seized;
+      state.destroyed = state.destroyed || status.destroyed;
       // Server may reduce speed due to damage/malfunction
       if (status.speed < state.speed) state.speed = status.speed;
     }
