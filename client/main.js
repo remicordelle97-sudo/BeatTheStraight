@@ -4983,6 +4983,13 @@ socket.on('game_over', ({ leaderboard }) => {
     <span class="lb-worth">${formatMoney(p.netWorth)}</span></div>`).join('')}`;
 });
 
+socket.on('force_logout', ({ reason }) => {
+  logout();
+  isGuest = false;
+  updateAuthUI();
+  showError(reason || 'You were logged out because your account was accessed from another device.');
+});
+
 socket.on('disconnect', () => showError('Disconnected from server'));
 
 document.getElementById('btn-new-game').addEventListener('click', () => window.location.reload());

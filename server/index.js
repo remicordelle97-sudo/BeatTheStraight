@@ -73,6 +73,23 @@ app.get('*', (req, res, next) => {
 
 const games = new Map();
 const socketMap = new Map(); // socket.id -> { gameId, playerName, dbUserId }
+const userSockets = new Map(); // dbUserId -> socket.id (enforces single active session per user)
+
+// Force-logout any existing session for this user, returns true if an old session was kicked
+function enforceOneSession(userId, newSocket) {
+  const oldSocketId = userSockets.get(userId);
+  if (oldSocketId && oldSocketId !== newSocket.id) {
+    const oldSocket = io.sockets.sockets.get(oldSocketId);
+    if (oldSocket) {
+      oldSocket.emit('force_logout', { reason: 'Logged in from another device' });
+      // Persist state before disconnecting
+      persistPlayer(oldSocketId);
+      oldSocket.disconnect(true);
+    }
+    socketMap.delete(oldSocketId);
+  }
+  userSockets.set(userId, newSocket.id);
+}
 
 // Helper: persist player state to DB if they're logged in
 function persistPlayer(socketId) {
@@ -104,6 +121,8 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: 'User not found' });
       return;
     }
+    // Enforce single active session per user
+    enforceOneSession(decoded.userId, socket);
     // Store dbUserId on the socket's info
     const existing = socketMap.get(socket.id);
     if (existing) {
@@ -123,6 +142,7 @@ io.on('connection', (socket) => {
       const decoded = verifyToken(token);
       if (decoded) {
         dbUserId = decoded.userId;
+        enforceOneSession(dbUserId, socket);
         const profile = getProfile(decoded.userId);
         if (profile) {
           playerName = profile.username;
@@ -167,6 +187,7 @@ io.on('connection', (socket) => {
       const decoded = verifyToken(token);
       if (decoded) {
         dbUserId = decoded.userId;
+        enforceOneSession(dbUserId, socket);
         const profile = getProfile(decoded.userId);
         if (profile) {
           playerName = profile.username;
@@ -429,6 +450,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const info = socketMap.get(socket.id);
     if (info) {
+      // Clean up userSockets if this is still the active session
+      if (info.dbUserId && userSockets.get(info.dbUserId) === socket.id) {
+        userSockets.delete(info.dbUserId);
+      }
       // Persist before cleanup
       persistPlayer(socket.id);
       const game = games.get(info.gameId);
