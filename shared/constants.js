@@ -31,7 +31,7 @@ export const SIM_CONFIG = {
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
   COLLISION_RADIUS: 0.03,    // degrees (~3km) for ship collision detection
-  NPC_COUNT: 40,             // number of NPC traffic ships (global routes)
+  NPC_COUNT: 60,             // number of NPC traffic ships (global routes)
   MILITARY_COUNT: 4,         // number of military ships
   SPAWN_LAT: 25.3,          // Gulf of Oman spawn point (open water)
   SPAWN_LON: 58.8,
