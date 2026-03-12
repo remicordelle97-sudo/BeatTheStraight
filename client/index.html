@@ -337,6 +337,15 @@
         <button id="btn-new-game" class="btn btn-primary btn-large">NEW GAME</button>
       </div>
     </div>
+
+    <!-- Force Logout Modal (shown when another device logs in) -->
+    <div id="force-logout-overlay" class="modal-overlay hidden">
+      <div class="modal-panel force-logout-panel">
+        <div class="modal-header">SESSION ENDED</div>
+        <p id="force-logout-reason" class="force-logout-text"></p>
+        <button id="force-logout-ok" class="btn btn-primary" style="width:100%;margin-top:12px;">OK</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/main.js"></script>

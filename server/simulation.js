@@ -48,6 +48,7 @@ class GameSimulation {
     this.aisFineCooldowns = {};
     this.recentEvents = [];
     this._npcTrafficCache = null;
+    this._npcTrafficDirty = true;
     this._npcBroadcastCache = [];
     this._milBroadcastCache = [];
     this._eventsById = {};
@@ -80,8 +81,11 @@ class GameSimulation {
     const elapsed = (now - this.realStartTime) / 1000;
     this.simTime += realDt * SIM_CONFIG.TIME_SCALE;
 
-    // Cache NPC traffic once per tick (used by cargo load/deliver)
-    this._npcTrafficCache = this.computeNpcTraffic();
+    // Only recompute NPC traffic when routes change
+    if (this._npcTrafficDirty) {
+      this._npcTrafficCache = this.computeNpcTraffic();
+      this._npcTrafficDirty = false;
+    }
 
     for (const shipId of Object.keys(this.shipStates)) {
       try { this.updatePlayerShip(shipId, dt, elapsed); } catch(e) { console.error('Ship tick error:', e.message); }
@@ -103,6 +107,18 @@ class GameSimulation {
 
     const cutoff = elapsed - 30;
     this.recentEvents = this.recentEvents.filter(e => e.time > cutoff);
+
+    // Periodic cleanup of expired cooldowns (every ~60s)
+    if (!this._lastCooldownCleanup || elapsed - this._lastCooldownCleanup > 60) {
+      this._lastCooldownCleanup = elapsed;
+      const cooldownExpiry = elapsed - SIM_CONFIG.EVENT_COOLDOWN / 1000;
+      for (const key in this.zoneCooldowns) {
+        if (this.zoneCooldowns[key] < cooldownExpiry) delete this.zoneCooldowns[key];
+      }
+      for (const key in this.aisFineCooldowns) {
+        if (this.aisFineCooldowns[key] < cooldownExpiry) delete this.aisFineCooldowns[key];
+      }
+    }
   }
 
   broadcast() {
@@ -454,6 +470,7 @@ class GameSimulation {
   spawnNPCShips() {
     this.npcShips = [];
     for (let i = 0; i < SIM_CONFIG.NPC_COUNT; i++) this.npcShips.push(this.createNPC(true));
+    this._npcTrafficDirty = true;
   }
 
   createNPC(staggered) {
@@ -466,10 +483,23 @@ class GameSimulation {
     const dropoff = importTerminals[Math.floor(Math.random() * importTerminals.length)];
     let lat, lon;
     if (staggered) {
+      // Group terminals by region so gulf doesn't dominate spawns
       const allT = [...exportTerminals, ...importTerminals];
-      const t = allT[Math.floor(Math.random() * allT.length)];
-      lat = t.lat + (Math.random() - 0.5) * 10; lon = t.lon + (Math.random() - 0.5) * 10;
-      for (let i = 0; i < 20; i++) { if (!isOnLand(lat, lon)) break; lat = t.lat + (Math.random() - 0.5) * 10; lon = t.lon + (Math.random() - 0.5) * 10; }
+      const byRegion = {};
+      for (const t of allT) {
+        const r = t.region || 'other';
+        if (!byRegion[r]) byRegion[r] = [];
+        byRegion[r].push(t);
+      }
+      // Pick a random region first, then a random terminal within it
+      const regions = Object.keys(byRegion);
+      const region = regions[Math.floor(Math.random() * regions.length)];
+      const regionTerminals = byRegion[region];
+      const t = regionTerminals[Math.floor(Math.random() * regionTerminals.length)];
+      // Use smaller scatter for gulf (confined water), larger for open ocean
+      const scatter = t.region === 'gulf' ? 4 : 10;
+      lat = t.lat + (Math.random() - 0.5) * scatter; lon = t.lon + (Math.random() - 0.5) * scatter;
+      for (let i = 0; i < 20; i++) { if (!isOnLand(lat, lon)) break; lat = t.lat + (Math.random() - 0.5) * scatter; lon = t.lon + (Math.random() - 0.5) * scatter; }
     } else {
       lat = terminal.lat + (Math.random() - 0.5) * 2; lon = terminal.lon + (Math.random() - 0.5) * 2;
       for (let i = 0; i < 20; i++) { if (!isOnLand(lat, lon)) break; lat = terminal.lat + (Math.random() - 0.5) * 2; lon = terminal.lon + (Math.random() - 0.5) * 2; }
@@ -503,6 +533,7 @@ class GameSimulation {
             npc.route = computeOceanRoute(npc.lat, npc.lon, npc.targetTerminal.lat, npc.targetTerminal.lon);
           }
           npc.routeIdx = 0; npc.speed = npc.baseSpeed;
+          this._npcTrafficDirty = true;
         }
         continue;
       }
@@ -578,7 +609,7 @@ class GameSimulation {
             npc.coastEscapeHeading = npc.heading; npc.coastEscapeTimer = 6 + Math.random() * 4; break;
           }
         }
-        if (npc.stuckCount > 30) this.npcShips[i] = this.createNPC(false);
+        if (npc.stuckCount > 30) { this.npcShips[i] = this.createNPC(false); this._npcTrafficDirty = true; }
       }
       npc.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, npc.lat));
       npc.lon = wrapLon(npc.lon);

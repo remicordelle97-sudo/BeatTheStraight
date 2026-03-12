@@ -2251,7 +2251,11 @@ async function submitAuth() {
       hideAuthForm();
       updateAuthUI();
       // Auth the socket too
-      socket.emit('auth', { token: authToken });
+      socket.emit('auth', { token: authToken }, (res) => {
+        if (res?.displaced) {
+          showError('Previous session on another device was ended.');
+        }
+      });
     } else {
       showError(data.error || 'Authentication failed');
     }
@@ -4909,7 +4913,16 @@ socket.on('force_logout', ({ reason }) => {
   logout();
   isGuest = false;
   updateAuthUI();
-  showError(reason || 'You were logged out because your account was accessed from another device.');
+  showScreen('title');
+  // Show persistent modal so the user understands what happened
+  const overlay = document.getElementById('force-logout-overlay');
+  const reasonEl = document.getElementById('force-logout-reason');
+  reasonEl.textContent = reason || 'Your account was logged in from another device. This session has been ended.';
+  overlay.classList.remove('hidden');
+});
+
+document.getElementById('force-logout-ok').addEventListener('click', () => {
+  document.getElementById('force-logout-overlay').classList.add('hidden');
 });
 
 socket.on('disconnect', () => showError('Disconnected from server'));

@@ -734,6 +734,20 @@ h1 {
   font-weight: bold;
 }
 
+.force-logout-panel {
+  text-align: center;
+  max-width: 360px;
+}
+.force-logout-panel .modal-header {
+  color: var(--danger);
+}
+.force-logout-text {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
 .modal-step-title {
   font-size: 11px;
   color: var(--text-muted);
