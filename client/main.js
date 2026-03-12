@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane, setImpactHandler } from './map.js';
-import { CHOKEPOINTS } from './world-coastlines.js';
+import { CHOKEPOINTS } from '../shared/world-coastlines.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
@@ -811,6 +811,7 @@ function renderMobileControls(container) {
   document.getElementById('mobile-spd-down')?.addEventListener('click', () => {
     if (state.destroyed || state.seized) return;
     state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
+    sendSpeedToServer(ship.id, state.speed);
     const el = document.getElementById('mobile-spd-val');
     if (el) el.textContent = `${state.speed} kts`;
     document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
@@ -819,6 +820,7 @@ function renderMobileControls(container) {
     if (state.destroyed || state.seized) return;
     const maxSpd = ratedSpeed + 4;
     state.speed = Math.min(maxSpd, Math.round(state.speed || 0) + 1);
+    sendSpeedToServer(ship.id, state.speed);
     const el = document.getElementById('mobile-spd-val');
     if (el) el.textContent = state.speed > ratedSpeed ? `${state.speed} kts !` : `${state.speed} kts`;
     document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
@@ -906,6 +908,9 @@ function renderMobileControls(container) {
           shipWaypoints[sid] = [];
           currentState.speed = 0;
           currentState.apCoastEscapeTimer = 0;
+          sendAutopilotToServer(sid);
+          sendWaypointsToServer(sid);
+          sendSpeedToServer(sid, 0);
           addTransitEvent('AUTOPILOT OFF', `${currentShip.name}: Autopilot disengaged.`, '');
           updateFleetPanel();
           renderMobileControls(container);
@@ -920,6 +925,8 @@ function renderMobileControls(container) {
             currentState.apCoastEscapeTimer = 0;
             currentState.apCoastEscapeHeading = 0;
             shipWaypoints[sid] = [];
+            sendAutopilotToServer(sid);
+            sendWaypointsToServer(sid);
             addTransitEvent('AUTOPILOT ON', `${currentShip.name}: ${terminal.name} → ${dropoff.name}`, 'success');
             updateFleetPanel();
             renderMobileControls(container);
@@ -1097,6 +1104,8 @@ clearWpBtn.addEventListener('click', () => {
   if (selectedShipId) {
     shipWaypoints[selectedShipId] = [];
     if (shipStates[selectedShipId]) shipStates[selectedShipId].speed = 0;
+    sendWaypointsToServer(selectedShipId);
+    sendSpeedToServer(selectedShipId, 0);
   }
   updateClearWpButton();
 });
@@ -1146,6 +1155,7 @@ document.getElementById('scp-speed-down').addEventListener('click', () => {
   const state = shipStates[selectedShipId];
   if (state.destroyed || state.seized) return;
   state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
+  sendSpeedToServer(selectedShipId, state.speed);
   document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
 });
 
@@ -1157,6 +1167,7 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   const ratedSpeed = ship?.speed || 16;
   const maxSpeed = ratedSpeed + 4;
   state.speed = Math.min(maxSpeed, Math.round(state.speed || 0) + 1);
+  sendSpeedToServer(selectedShipId, state.speed);
   const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
   document.getElementById('scp-speed-value').textContent = label;
 });
@@ -1365,6 +1376,8 @@ function engageAutopilot(ship) {
   const state = shipStates[ship.id];
   if (state) { state.apCoastEscapeTimer = 0; state.apCoastEscapeHeading = 0; }
   shipWaypoints[ship.id] = [];
+  sendAutopilotToServer(ship.id);
+  sendWaypointsToServer(ship.id);
   addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
   refreshUpgradeButtons();
 }
@@ -1383,6 +1396,9 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
     shipWaypoints[ship.id] = [];
     const st = shipStates[ship.id];
     if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
+    sendAutopilotToServer(ship.id);
+    sendWaypointsToServer(ship.id);
+    sendSpeedToServer(ship.id, 0);
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
     updateFleetPanel();
     refreshUpgradeButtons();
@@ -2063,6 +2079,9 @@ function renderFleetManager() {
         shipWaypoints[s.id] = [];
         st.speed = 0;
         st.apCoastEscapeTimer = 0;
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, 0);
         renderFleetManager(); updateFleetPanel();
         return;
       }
@@ -2090,6 +2109,9 @@ function renderFleetManager() {
         st.apCoastEscapeHeading = 0;
         shipWaypoints[s.id] = [];
         if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, st.speed);
         renderFleetManager(); updateFleetPanel();
       }
     });
@@ -2114,6 +2136,8 @@ function renderFleetManager() {
         ap.terminal = terminal;
         ap.dropoff = dropoff;
         autopilotReroute(s);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
       } else {
         // Not active — engage autopilot with selected terminals
         shipAutopilot[s.id] = { active: true, terminal, dropoff };
@@ -2121,6 +2145,9 @@ function renderFleetManager() {
         st.apCoastEscapeHeading = 0;
         shipWaypoints[s.id] = [];
         if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, st.speed);
       }
       renderFleetManager(); updateFleetPanel();
     });
@@ -2595,10 +2622,11 @@ function addWaypointForSelectedShip(target) {
   shipWaypoints[selectedShipId] = wps;
   updateClearWpButton();
   const state = shipStates[selectedShipId];
-  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); }
+  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); sendSpeedToServer(selectedShipId, state.speed); }
   if (wps.length === 1) {
     state.targetHeading = headingToTarget(state.lat, state.lon, target.lat, target.lon);
   }
+  sendWaypointsToServer(selectedShipId);
 }
 
 // ============================================
@@ -3702,12 +3730,12 @@ function _transitLoopInner(timestamp) {
   lastFrameTime = timestamp;
   const dt = realDt * gameSpeedMultiplier;
   const elapsed = (timestamp - simStartTime) / 1000;
-  simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  if (!serverSimActive) simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
   const me = getMe();
 
-  // Update each player ship
-  if (me) {
+  // Update each player ship (skip when server simulation is active)
+  if (me && !serverSimActive) {
     for (const ship of me.fleet) {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
@@ -4028,17 +4056,19 @@ function _transitLoopInner(timestamp) {
     }
   }
 
-  try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
-  updateMilitaryShips(dt);
+  if (!serverSimActive) {
+    try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
+    updateMilitaryShips(dt);
 
-  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
-    lastEventCheck = elapsed;
-    try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
-    try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+    if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+      lastEventCheck = elapsed;
+      try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
+      try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+    }
+
+    try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
+    updateRegionIntensity(elapsed);
   }
-
-  try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
-  updateRegionIntensity(elapsed);
 
   // Batch fleet panel updates — only rebuild DOM once per frame
   if (_fleetPanelDirty) {
@@ -4934,6 +4964,14 @@ socket.on('connect', () => {
     }, (res) => {
       if (res?.success) {
         gameState = res.game;
+        // Request current simulation state to restore ship positions
+        socket.emit('get_sim_state', {}, (simRes) => {
+          if (simRes?.success && simRes.simState) {
+            serverSimActive = true;
+            // Trigger the sim_state handler directly
+            socket.listeners('sim_state').forEach(fn => fn(simRes.simState));
+          }
+        });
         if (transitActive) {
           updateFleetPanel();
           if (mobileActiveTab === 'fleet') {
@@ -4982,6 +5020,152 @@ socket.on('game_over', ({ leaderboard }) => {
     <span class="lb-name">${escapeHtml(p.name)} ${p.id === myId ? '(you)' : ''}</span>
     <span class="lb-worth">${formatMoney(p.netWorth)}</span></div>`).join('')}`;
 });
+
+// Server-side simulation state handler
+// When the server sends sim_state, update all ship positions, NPC positions, etc.
+let serverSimActive = false;
+
+socket.on('sim_state', (simState) => {
+  if (!transitActive) return;
+  serverSimActive = true;
+  simGameTime = simState.simTime;
+
+  const me = getMe();
+  if (!me) return;
+
+  // Update player ship states from server
+  for (const ship of me.fleet) {
+    const serverShip = simState.shipStates[ship.id];
+    if (!serverShip) continue;
+
+    if (!shipStates[ship.id]) {
+      // First time seeing this ship — init local rendering state
+      shipStates[ship.id] = {};
+      shipTrails[ship.id] = [];
+      shipCargo[ship.id] = { loaded: false };
+    }
+
+    const state = shipStates[ship.id];
+    state.lat = serverShip.lat;
+    state.lon = serverShip.lon;
+    state.heading = serverShip.heading;
+    state.targetHeading = serverShip.targetHeading;
+    state.speed = serverShip.speed;
+    state.health = serverShip.health;
+    state.totalDamage = serverShip.totalDamage;
+    state.totalMoneyLoss = serverShip.totalMoneyLoss;
+    state.totalDelay = serverShip.totalDelay;
+    state.seized = serverShip.seized;
+    state.destroyed = serverShip.destroyed;
+
+    // Update waypoints from server
+    shipWaypoints[ship.id] = simState.shipWaypoints[ship.id] || [];
+
+    // Update cargo from server
+    if (simState.shipCargo[ship.id]) {
+      shipCargo[ship.id] = simState.shipCargo[ship.id];
+    }
+
+    // Update autopilot from server
+    if (simState.shipAutopilot[ship.id]) {
+      shipAutopilot[ship.id] = simState.shipAutopilot[ship.id];
+    }
+
+    // Trail tracking
+    const trail = shipTrails[ship.id];
+    if (trail) {
+      const now = performance.now() / 1000;
+      if (trail.length === 0 || now - trail[trail.length - 1].t > 0.5) {
+        trail.push({ lat: state.lat, lon: state.lon, t: now });
+      }
+      while (trail.length > 0 && now - trail[0].t > 4) trail.shift();
+    }
+  }
+
+  // Update NPC ships from server
+  if (simState.npcShips) {
+    // Sync NPC array to server state
+    while (npcShips.length < simState.npcShips.length) npcShips.push({});
+    while (npcShips.length > simState.npcShips.length) npcShips.pop();
+    for (let i = 0; i < simState.npcShips.length; i++) {
+      const sn = simState.npcShips[i];
+      npcShips[i].lat = sn.lat;
+      npcShips[i].lon = sn.lon;
+      npcShips[i].heading = sn.heading;
+      npcShips[i].speed = sn.speed;
+      npcShips[i].typeName = sn.typeName;
+      npcShips[i].shipName = sn.shipName;
+      npcShips[i].state = sn.state;
+      npcShips[i].totalDamage = sn.totalDamage;
+      npcShips[i].cargoType = sn.cargoType;
+    }
+  }
+
+  // Update military ships from server
+  if (simState.militaryShips) {
+    while (militaryShips.length < simState.militaryShips.length) militaryShips.push({});
+    while (militaryShips.length > simState.militaryShips.length) militaryShips.pop();
+    for (let i = 0; i < simState.militaryShips.length; i++) {
+      const sm = simState.militaryShips[i];
+      Object.assign(militaryShips[i], sm);
+    }
+  }
+
+  // Show recent events from server
+  if (simState.recentEvents) {
+    for (const evt of simState.recentEvents) {
+      const evtKey = evt.time + '_' + evt.name;
+      if (!window._shownServerEvents) window._shownServerEvents = new Set();
+      if (!window._shownServerEvents.has(evtKey)) {
+        window._shownServerEvents.add(evtKey);
+        addTransitEvent(evt.name, evt.text, evt.type);
+      }
+    }
+  }
+
+  _fleetPanelDirty = true;
+});
+
+// Server notifies us a ship was destroyed (with insurance payout)
+socket.on('ship_destroyed_notify', ({ shipId, insurancePayout }) => {
+  if (insurancePayout > 0) {
+    addTransitEvent('INSURANCE PAYOUT', `Received ${formatMoney(insurancePayout)} insurance payout.`, 'success');
+  }
+  const me = getMe();
+  if (me) {
+    me.fleet = me.fleet.filter(s => s.id !== shipId);
+  }
+  delete shipStates[shipId];
+  delete shipWaypoints[shipId];
+  delete shipTrails[shipId];
+  delete shipCargo[shipId];
+  delete shipAutopilot[shipId];
+  if (selectedShipId === shipId) {
+    selectedShipId = me?.fleet[0]?.id || null;
+  }
+  updateFleetPanel();
+});
+
+// Helper: send waypoints to server
+function sendWaypointsToServer(shipId) {
+  if (!serverSimActive) return;
+  socket.emit('set_waypoints', { shipId, waypoints: shipWaypoints[shipId] || [] });
+}
+
+// Helper: send speed to server
+function sendSpeedToServer(shipId, speed) {
+  if (!serverSimActive) return;
+  socket.emit('set_speed', { shipId, speed });
+}
+
+// Helper: send autopilot state to server
+function sendAutopilotToServer(shipId) {
+  if (!serverSimActive) return;
+  const ap = shipAutopilot[shipId];
+  if (ap) {
+    socket.emit('set_autopilot', { shipId, active: ap.active, terminal: ap.terminal, dropoff: ap.dropoff });
+  }
+}
 
 socket.on('force_logout', ({ reason }) => {
   logout();

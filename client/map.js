@@ -3,7 +3,7 @@ import {
   MAP_BOUNDS, GULF_BOUNDS, DANGER_ZONES, SIM_CONFIG, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
   DEFAULT_VIEWPORT, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES
 } from '../shared/constants.js';
-import { WORLD_POLYGONS, CHOKEPOINTS, SHIPPING_ROUTES } from './world-coastlines.js';
+import { WORLD_POLYGONS, CHOKEPOINTS, SHIPPING_ROUTES } from '../shared/world-coastlines.js';
 
 // Active missile animations
 const activeMissiles = [];
