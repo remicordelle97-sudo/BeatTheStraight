@@ -3454,7 +3454,12 @@ function _transitLoopInner(timestamp) {
   lastFrameTime = timestamp;
   const dt = realDt * gameSpeedMultiplier;
   const elapsed = (timestamp - simStartTime) / 1000;
-  if (!serverSimActive) simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  if (!serverSimActive) {
+    simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  } else {
+    // Interpolate game clock between server broadcasts using server's time scale
+    simGameTime += realDt * SIM_CONFIG.TIME_SCALE;
+  }
 
   const me = getMe();
 
