@@ -29,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 1;
+let gameSpeedMultiplier = 12;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -427,16 +427,6 @@ function centerViewportOn(lat, lon) {
   setViewport(viewport);
 }
 
-// ============================================
-// GAME SPEED TOGGLE
-// ============================================
-document.querySelectorAll('.speed-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    gameSpeedMultiplier = parseInt(btn.dataset.speed);
-    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
 
 // ============================================
 // SETTINGS MENU
@@ -987,13 +977,6 @@ function renderMobileSettings(container) {
     <button class="btn btn-ghost mobile-settings-logout">LOGOUT</button>
   </div>`;
 
-  html += `<div class="mobile-section-title">GAME SPEED</div>`;
-  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:12px;">
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
-  </div>`;
 
   container.innerHTML = html;
 
@@ -1010,15 +993,6 @@ function renderMobileSettings(container) {
     transitActive = false;
   });
 
-  container.querySelectorAll('.mobile-settings-speed').forEach(btn => {
-    btn.addEventListener('click', () => {
-      gameSpeedMultiplier = parseInt(btn.dataset.speed);
-      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
-      if (desktopBtn) desktopBtn.classList.add('active');
-      renderMobileSettings(container);
-    });
-  });
 }
 
 function renderMobileVisual(container) {
@@ -2506,10 +2480,8 @@ setImpactHandler((impactLat, impactLon, type) => {
       const pct = Math.round(dmg * 100);
       if (npc.totalDamage >= NPC_DESTROY_THRESHOLD) {
         // Accumulated enough damage — NPC destroyed
-        addTransitEvent('NPC SHIP DESTROYED', `${npc.shipName} sunk by ${type}! [Dmg: ${pct}%]`, 'danger');
         npcShips[i] = createNPCTanker(false);
       } else {
-        addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}! [Dmg: ${pct}%, Total: ${Math.round(npc.totalDamage * 100)}%]`, 'danger');
         if (intensity > 0.3 && npc.state !== 'waiting_safe') {
           // Spooked — divert to safety
           // Find nearest safe anchorage (use the global list, not hardcoded)
