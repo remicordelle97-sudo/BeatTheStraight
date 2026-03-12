@@ -151,17 +151,20 @@ function cleanupPlayerGame(socketId) {
 
 function enforceOneSession(userId, newSocket) {
   const oldSocketId = userSockets.get(userId);
+  let displaced = false;
   if (oldSocketId && oldSocketId !== newSocket.id) {
     const oldSocket = io.sockets.sockets.get(oldSocketId);
     if (oldSocket) {
-      oldSocket.emit('force_logout', { reason: 'Logged in from another device' });
+      oldSocket.emit('force_logout', { reason: 'Your account was logged in from another device. This session has been ended.' });
       persistPlayer(oldSocketId);
       oldSocket.disconnect(true);
+      displaced = true;
     }
     // Immediately clean up the old game/sim — don't wait 60s
     cleanupPlayerGame(oldSocketId);
   }
   userSockets.set(userId, newSocket.id);
+  return displaced;
 }
 
 // Helper: persist player state to DB if they're logged in
@@ -195,14 +198,14 @@ io.on('connection', (socket) => {
       return;
     }
     // Enforce single active session per user
-    enforceOneSession(decoded.userId, socket);
+    const displaced = enforceOneSession(decoded.userId, socket);
     // Store dbUserId on the socket's info
     const existing = socketMap.get(socket.id);
     if (existing) {
       existing.dbUserId = decoded.userId;
     }
     socket.dbUserId = decoded.userId;
-    callback?.({ success: true, user: profile });
+    callback?.({ success: true, user: profile, displaced });
   });
 
   socket.on('create_game', ({ playerName, token }, callback) => {
