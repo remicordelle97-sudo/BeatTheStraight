@@ -240,7 +240,7 @@ class GameState {
 
     if (type === 'autopilot') {
       if (ship.hasAutopilot) return null; // already purchased
-      const cost = 30000000;
+      const cost = 5000000;
       if (player.cash < cost) return null;
       player.cash -= cost;
       ship.hasAutopilot = true;
