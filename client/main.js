@@ -1517,8 +1517,8 @@ function refreshUpgradeButtons() {
     populateApTerminalSelect(ship);
     apDest.classList.remove('hidden');
   } else {
-    apBtn.textContent = `AUTOPILOT ${formatMoney(30000000)}`;
-    apBtn.disabled = cash < 30000000;
+    apBtn.textContent = `AUTOPILOT ${formatMoney(5000000)}`;
+    apBtn.disabled = cash < 5000000;
     apDest.classList.add('hidden');
   }
 
@@ -2063,7 +2063,7 @@ function renderFleetManager() {
       }
       if (!s.hasAutopilot) {
         const me2 = getMe();
-        if (!me2 || me2.cash < 30000000) return;
+        if (!me2 || me2.cash < 5000000) return;
         btn.disabled = true;
         socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 5000000 }, (res) => {
           if (res?.success) {
@@ -4827,12 +4827,34 @@ socket.on('sim_state', (simState) => {
 
   // Show recent events from server
   if (simState.recentEvents) {
+    if (!window._shownServerEvents) window._shownServerEvents = new Set();
     for (const evt of simState.recentEvents) {
       const evtKey = evt.time + '_' + evt.name;
-      if (!window._shownServerEvents) window._shownServerEvents = new Set();
       if (!window._shownServerEvents.has(evtKey)) {
         window._shownServerEvents.add(evtKey);
         addTransitEvent(evt.name, evt.text, evt.type);
+        // Spawn visible missile/plane for missile/drone events
+        if (evt.missile) {
+          const eid = evt.missile.eventId;
+          const shipLat = evt.missile.shipLat;
+          const shipLon = evt.missile.shipLon;
+          const isHouthi = eid === 'houthi_missile' || eid === 'houthi_drone';
+          const isIran = eid === 'missile_alert' || eid === 'drone_swarm';
+          const country = isHouthi ? 'Houthi' : isIran ? 'Iran' : null;
+          if (country) {
+            const bases = MILITARY_BASES.filter(b => b.country === country);
+            if (bases.length > 0) {
+              const launcher = bases[Math.floor(Math.random() * bases.length)];
+              const scatter = () => ({ lat: shipLat + (Math.random() - 0.5) * 0.3, lon: shipLon + (Math.random() - 0.5) * 0.3 });
+              spawnMissile(launcher.lat, launcher.lon, scatter().lat, scatter().lon);
+            }
+            const airBases = MILITARY_BASES.filter(b => b.country === country && b.type === 'air');
+            if (airBases.length > 0 && Math.random() < 0.4) {
+              const airBase = airBases[Math.floor(Math.random() * airBases.length)];
+              spawnPlane(airBase.id, airBase.lat, airBase.lon, shipLat, shipLon);
+            }
+          }
+        }
       }
     }
   }

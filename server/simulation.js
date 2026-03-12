@@ -408,7 +408,8 @@ class GameSimulation {
           }
           let extra = '';
           if (outcome.damagePercent > 0) extra += ' [Dmg: ' + Math.round(outcome.damagePercent * 100) + '%]';
-          this.addEvent(elapsed, state.shipName + ': ' + evt.name, outcome.text + extra, outcome.damagePercent > 0 ? 'danger' : '');
+          this.addEvent(elapsed, state.shipName + ': ' + evt.name, outcome.text + extra, outcome.damagePercent > 0 ? 'danger' : '',
+            isMissile ? { eventId, shipLat: state.lat, shipLon: state.lon } : null);
         }
       }
     }
@@ -618,8 +619,10 @@ class GameSimulation {
     }
   }
 
-  addEvent(time, name, text, type) {
-    this.recentEvents.push({ time, name, text, type: type || '' });
+  addEvent(time, name, text, type, missile) {
+    const evt = { time, name, text, type: type || '' };
+    if (missile) { evt.missile = missile; }
+    this.recentEvents.push(evt);
   }
 
   // Player commands
