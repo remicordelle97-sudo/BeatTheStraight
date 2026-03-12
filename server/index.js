@@ -508,13 +508,25 @@ io.on('connection', (socket) => {
     callback?.({ success: result });
   });
 
+  // Client-authoritative position updates
+  socket.on('update_ship_positions', (positions) => {
+    const info = socketMap.get(socket.id);
+    if (!info) return;
+    const sim = gameSims.get(info.gameId);
+    if (!sim) return;
+    // positions is an array of { shipId, lat, lon, heading, speed }
+    for (const p of positions) {
+      sim.updateShipPosition(p.shipId, p.lat, p.lon, p.heading, p.speed);
+    }
+  });
+
   // Get current simulation state on demand (for reconnection)
   socket.on('get_sim_state', (_, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false }); return; }
     const sim = gameSims.get(info.gameId);
     if (!sim) { callback?.({ success: false }); return; }
-    callback?.({ success: true, simState: sim.getState() });
+    callback?.({ success: true, simState: sim.getFullState() });
   });
 
   socket.on('get_options', (_, callback) => {
