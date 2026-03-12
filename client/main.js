@@ -766,7 +766,7 @@ function renderMobileControls(container) {
   } else if (ship.hasAutopilot) {
     html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot">AUTOPILOT OFF</button>`;
   } else {
-    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot" ${cash < 30000000 ? 'disabled' : ''}>AUTOPILOT ${formatMoney(30000000)}</button>`;
+    html += `<button class="btn btn-small btn-upgrade mobile-upgrade" data-upgrade="autopilot" ${cash < 5000000 ? 'disabled' : ''}>AUTOPILOT ${formatMoney(5000000)}</button>`;
   }
   html += `</div>`;
 
@@ -1382,7 +1382,7 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
   }
 
   if (!ship.hasAutopilot) {
-    const cost = 30000000;
+    const cost = 5000000;
     const me = getMe();
     if (!me || me.cash < cost) {
       document.getElementById('scp-upgrade-info').textContent = `Need ${formatMoney(cost)} for autopilot.`;
@@ -2065,7 +2065,7 @@ function renderFleetManager() {
         const me2 = getMe();
         if (!me2 || me2.cash < 30000000) return;
         btn.disabled = true;
-        socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 30000000 }, (res) => {
+        socket.emit('upgrade_ship', { shipId: sid, type: 'autopilot', cost: 5000000 }, (res) => {
           if (res?.success) {
             const fresh = getShipData(sid);
             if (fresh) fresh.hasAutopilot = true;

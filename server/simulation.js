@@ -579,7 +579,7 @@ class GameSimulation {
   spawnMilitaryShips() {
     this.militaryShips = [];
     if (!MILITARY_SHIPS) return;
-    for (const ms of MILITARY_SHIPS) {
+    for (const ms of Object.values(MILITARY_SHIPS)) {
       this.militaryShips.push({
         ...ms, lat: ms.patrolCenter?.lat || 26.5, lon: ms.patrolCenter?.lon || 56.0,
         heading: Math.random() * 360, targetHeading: Math.random() * 360,
