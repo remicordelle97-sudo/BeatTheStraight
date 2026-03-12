@@ -43,6 +43,7 @@ class GameSimulation {
     this.shipAutopilot = {};
     this.npcShips = [];
     this.militaryShips = [];
+    this.tickCount = 0;
     this.zoneCooldowns = {};
     this.lastEventCheck = 0;
     this.aisFineCooldowns = {};
@@ -80,6 +81,7 @@ class GameSimulation {
     const dt = realDt;
     const elapsed = (now - this.realStartTime) / 1000;
     this.simTime += realDt * SIM_CONFIG.TIME_SCALE;
+    this.tickCount++;
 
     // Only recompute NPC traffic when routes change
     if (this._npcTrafficDirty) {
@@ -585,10 +587,11 @@ class GameSimulation {
       const nearDest = dest && distanceDeg(npc.lat, npc.lon, dest.lat, dest.lon) < (dest.loadRadius || 0.3) * 3;
       if (!isOnLand(newLat, newLon) || nearDest) {
         npc.lon = newLon; npc.lat = newLat; npc.stuckCount = 0;
-        if (!nearDest && npc.coastEscapeTimer <= 0) {
-          for (const la of [0.1, 0.2, 0.35, 0.5]) {
+        // Coast look-ahead: stagger across NPCs, check every 5th tick per NPC
+        if (!nearDest && npc.coastEscapeTimer <= 0 && (this.tickCount + i) % 5 === 0) {
+          for (const la of [0.15, 0.4]) {
             if (isOnLand(npc.lat + Math.cos(hr) * la, npc.lon + Math.sin(hr) * la)) {
-              for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
+              for (const angle of [45, -45, 90, -90, 120, -120]) {
                 const tryRad = normalizeAngle(npc.heading + angle) * Math.PI / 180;
                 if (!isOnLand(npc.lat + Math.cos(tryRad) * 0.5, npc.lon + Math.sin(tryRad) * 0.5)) {
                   npc.coastEscapeHeading = normalizeAngle(npc.heading + angle);
