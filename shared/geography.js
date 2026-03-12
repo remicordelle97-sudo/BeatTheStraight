@@ -112,32 +112,14 @@ function pointInPolygon(lat, lon, polygon) {
   return inside;
 }
 
-// Spatial grid cache for O(1) isOnLand lookups (populated on first use)
-const GRID_RES = 0.1; // ~11km resolution
-const GRID_LAT_MIN = -70, GRID_LAT_MAX = 75;
-const GRID_LON_MIN = -180, GRID_LON_MAX = 180;
-const GRID_ROWS = Math.ceil((GRID_LAT_MAX - GRID_LAT_MIN) / GRID_RES);
-const GRID_COLS = Math.ceil((GRID_LON_MAX - GRID_LON_MIN) / GRID_RES);
-let landGrid = null;
-
-function buildLandGrid() {
-  // Use Uint8Array for compact storage (1 byte per cell)
-  landGrid = new Uint8Array(GRID_ROWS * GRID_COLS);
-  for (let r = 0; r < GRID_ROWS; r++) {
-    const lat = GRID_LAT_MIN + (r + 0.5) * GRID_RES;
-    for (let c = 0; c < GRID_COLS; c++) {
-      const lon = GRID_LON_MIN + (c + 0.5) * GRID_RES;
-      landGrid[r * GRID_COLS + c] = isOnLandSlow(lat, lon) ? 1 : 0;
-    }
-  }
-}
-
-function isOnLandSlow(lat, lon) {
+function isOnLand(lat, lon) {
+  // Canal cuts — skip full ray-cast unless point is within canal bounding box
   for (const c of CANAL_BOXES) {
     if (lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon) {
       if (pointInPolygon(lat, lon, c.poly)) return false;
     }
   }
+  // Gulf detail polygons
   if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
       lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
     for (const g of GULF_BOXES) {
@@ -146,20 +128,13 @@ function isOnLandSlow(lat, lon) {
       }
     }
   }
+  // World polygons — bbox check before expensive ray-cast
   for (const w of WORLD_BOXES) {
     if (lat >= w.minLat && lat <= w.maxLat && lon >= w.minLon && lon <= w.maxLon) {
       if (pointInPolygon(lat, lon, w.poly)) return true;
     }
   }
   return false;
-}
-
-function isOnLand(lat, lon) {
-  if (!landGrid) buildLandGrid();
-  const r = Math.floor((lat - GRID_LAT_MIN) / GRID_RES);
-  const c = Math.floor((lon - GRID_LON_MIN) / GRID_RES);
-  if (r < 0 || r >= GRID_ROWS || c < 0 || c >= GRID_COLS) return false;
-  return landGrid[r * GRID_COLS + c] === 1;
 }
 
 // Shared navigation utilities
