@@ -23,7 +23,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    cash REAL NOT NULL DEFAULT 500000000,
+    cash REAL NOT NULL DEFAULT 15000000,
     total_profit REAL NOT NULL DEFAULT 0,
     total_losses REAL NOT NULL DEFAULT 0,
     successful_transits INTEGER NOT NULL DEFAULT 0,
