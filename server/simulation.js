@@ -281,19 +281,15 @@ class GameSimulation {
           const isMissile = ['houthi_missile', 'houthi_drone', 'missile_alert', 'drone_swarm'].includes(eventId);
           const damageReduction = 1 - defLevel * 0.15;
           if (!isMissile) {
+            // Non-missile events: apply damage directly
             state.totalDamage += outcome.damagePercent * damageReduction;
             state.totalDelay += Math.max(0, outcome.delayHours);
             state.totalMoneyLoss += outcome.moneyLoss;
             if (outcome.delayHours >= 720) state.seized = true;
             if (outcome.damagePercent > 0.1) state.speed = Math.round(Math.max(5, state.shipSpeed * (1 - state.totalDamage * 0.5)));
-          } else {
-            if (Math.random() < 0.6) {
-              const intensity = 0.3 + Math.random() * 0.7;
-              const dmg = outcome.damagePercent * intensity * damageReduction;
-              state.totalDamage = Math.min(0.95, state.totalDamage + dmg);
-              if (dmg > 0.05) state.speed = Math.round(Math.max(5, state.shipSpeed * (1 - state.totalDamage * 0.5)));
-            }
           }
+          // Missile/drone events: no direct damage here — visual missile
+          // spawns on client and impact handler applies damage on hit
           let extra = '';
           if (outcome.damagePercent > 0) extra += ' [Dmg: ' + Math.round(outcome.damagePercent * 100) + '%]';
           this.addEvent(elapsed, state.shipName + ': ' + evt.name, outcome.text + extra, outcome.damagePercent > 0 ? 'danger' : '',
