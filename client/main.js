@@ -29,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 1;
+let gameSpeedMultiplier = 12;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -58,6 +58,11 @@ let simGameTime = 0;
 let lastFrameTime = 0;
 let zoneCooldowns = {};
 let lastEventCheck = 0;
+
+// Server-sim interpolation targets (for smooth lerping between broadcasts)
+const serverTargets = {};       // shipId -> { lat, lon, heading, speed }
+const serverNpcTargets = [];    // index -> { lat, lon, heading }
+const serverMilTargets = [];    // index -> { lat, lon, heading }
 
 // Campaign state
 const CAMPAIGN_DAYS = 7;
@@ -3308,7 +3313,7 @@ function updateNPCShips(dt, elapsed) {
     }
 
     // Movement
-    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
@@ -3426,7 +3431,7 @@ function updateMilitaryShips(dt) {
     if (Math.abs(diff) > 0.5) mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
 
     // Move
-    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = mil.heading * Math.PI / 180;
     const newLon = mil.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = mil.lat + Math.cos(rad) * speedDeg * dt;
@@ -3452,9 +3457,13 @@ function _transitLoopInner(timestamp) {
   // Real frame delta for consistent speed
   const realDt = Math.min((timestamp - lastFrameTime) / 1000, 0.1);
   lastFrameTime = timestamp;
-  const dt = realDt * gameSpeedMultiplier;
+  const dt = serverSimActive ? realDt : realDt * gameSpeedMultiplier;
   const elapsed = (timestamp - simStartTime) / 1000;
-  simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  if (!serverSimActive) {
+    simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  } else {
+    simGameTime += realDt * SIM_CONFIG.TIME_SCALE;
+  }
 
   const me = getMe();
 
@@ -3616,7 +3625,7 @@ function _transitLoopInner(timestamp) {
       }
 
       // Move
-      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
       const headingRad = state.heading * Math.PI / 180;
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
@@ -3792,6 +3801,56 @@ function _transitLoopInner(timestamp) {
 
     try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
     updateRegionIntensity(elapsed);
+  } else {
+    // Server sim active: lerp all ship positions toward server targets
+    const lerpRate = 1 - Math.pow(0.001, realDt); // ~smooth over ~150ms
+
+    // Player ships
+    const me = getMe();
+    if (me) {
+      for (const ship of me.fleet) {
+        const state = shipStates[ship.id];
+        const target = serverTargets[ship.id];
+        if (!state || !target) continue;
+        // Dead-reckon toward target using heading/speed, then lerp to correct drift
+        const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+        const headingRad = state.heading * Math.PI / 180;
+        state.lon += Math.sin(headingRad) * speedDeg * dt;
+        state.lat += Math.cos(headingRad) * speedDeg * dt;
+        // Lerp toward server authoritative position
+        state.lat += (target.lat - state.lat) * lerpRate;
+        state.lon += (target.lon - state.lon) * lerpRate;
+        state.heading += (target.heading - state.heading) * lerpRate;
+      }
+    }
+
+    // NPC ships
+    for (let i = 0; i < npcShips.length; i++) {
+      const npc = npcShips[i];
+      const target = serverNpcTargets[i];
+      if (!target || npc.lat === undefined) continue;
+      const speedDeg = (npc.speed || 0) * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+      const headingRad = (npc.heading || 0) * Math.PI / 180;
+      npc.lon += Math.sin(headingRad) * speedDeg * dt;
+      npc.lat += Math.cos(headingRad) * speedDeg * dt;
+      npc.lat += (target.lat - npc.lat) * lerpRate;
+      npc.lon += (target.lon - npc.lon) * lerpRate;
+      npc.heading += (target.heading - npc.heading) * lerpRate;
+    }
+
+    // Military ships
+    for (let i = 0; i < militaryShips.length; i++) {
+      const mil = militaryShips[i];
+      const target = serverMilTargets[i];
+      if (!target || mil.lat === undefined) continue;
+      const speedDeg = (mil.speed || 0) * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
+      const headingRad = (mil.heading || 0) * Math.PI / 180;
+      mil.lon += Math.sin(headingRad) * speedDeg * dt;
+      mil.lat += Math.cos(headingRad) * speedDeg * dt;
+      mil.lat += (target.lat - mil.lat) * lerpRate;
+      mil.lon += (target.lon - mil.lon) * lerpRate;
+      mil.heading += (target.heading - mil.heading) * lerpRate;
+    }
   }
 
   // Batch fleet panel updates — only rebuild DOM once per frame
@@ -4764,9 +4823,17 @@ socket.on('sim_state', (simState) => {
     }
 
     const state = shipStates[ship.id];
-    state.lat = serverShip.lat;
-    state.lon = serverShip.lon;
-    state.heading = serverShip.heading;
+    // Store server targets for lerping instead of snapping
+    serverTargets[ship.id] = {
+      lat: serverShip.lat, lon: serverShip.lon,
+      heading: serverShip.heading, speed: serverShip.speed
+    };
+    // On first receive, snap immediately
+    if (state.lat === undefined) {
+      state.lat = serverShip.lat;
+      state.lon = serverShip.lon;
+      state.heading = serverShip.heading;
+    }
     state.targetHeading = serverShip.targetHeading;
     state.speed = serverShip.speed;
     state.health = serverShip.health;
@@ -4807,9 +4874,14 @@ socket.on('sim_state', (simState) => {
     while (npcShips.length > simState.npcShips.length) npcShips.pop();
     for (let i = 0; i < simState.npcShips.length; i++) {
       const sn = simState.npcShips[i];
-      npcShips[i].lat = sn.lat;
-      npcShips[i].lon = sn.lon;
-      npcShips[i].heading = sn.heading;
+      // Store targets for lerping
+      serverNpcTargets[i] = { lat: sn.lat, lon: sn.lon, heading: sn.heading };
+      // Snap on first receive
+      if (npcShips[i].lat === undefined) {
+        npcShips[i].lat = sn.lat;
+        npcShips[i].lon = sn.lon;
+        npcShips[i].heading = sn.heading;
+      }
       npcShips[i].speed = sn.speed;
       npcShips[i].typeName = sn.typeName;
       npcShips[i].shipName = sn.shipName;
@@ -4825,7 +4897,21 @@ socket.on('sim_state', (simState) => {
     while (militaryShips.length > simState.militaryShips.length) militaryShips.pop();
     for (let i = 0; i < simState.militaryShips.length; i++) {
       const sm = simState.militaryShips[i];
-      Object.assign(militaryShips[i], sm);
+      // Store targets for lerping
+      serverMilTargets[i] = { lat: sm.lat, lon: sm.lon, heading: sm.heading };
+      const mil = militaryShips[i];
+      // Snap on first receive
+      if (mil.lat === undefined) {
+        mil.lat = sm.lat;
+        mil.lon = sm.lon;
+        mil.heading = sm.heading;
+      }
+      // Copy non-position fields
+      mil.speed = sm.speed;
+      mil.typeName = sm.typeName;
+      mil.shipName = sm.shipName;
+      mil.state = sm.state;
+      mil.idleTimer = sm.idleTimer;
     }
   }
 

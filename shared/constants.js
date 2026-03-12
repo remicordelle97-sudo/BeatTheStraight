@@ -27,7 +27,6 @@ export const SIM_CONFIG = {
   TIME_SCALE: 60,           // 1 real second = 60 game seconds (1 game minute)
   END_LON: 57.2,            // Finish line longitude (Gulf of Oman exit)
   KNOTS_TO_DEG_PER_SEC: 0.25 / 60,
-  SPEED_MULTIPLIER: 12,        // Visual ship speed boost (display still shows real knots)
   EVENT_CHECK_INTERVAL: 1000,
   EVENT_COOLDOWN: 30000,
   TURN_RATE: 2.0,
