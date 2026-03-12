@@ -13,7 +13,7 @@ import { computeOceanRoute, computeAutopilotRoute } from '../shared/ocean-routin
 
 const TICK_RATE = 10;
 const TICK_INTERVAL = 1000 / TICK_RATE;
-const BROADCAST_RATE = 5;
+const BROADCAST_RATE = 3;
 const BROADCAST_INTERVAL = 1000 / BROADCAST_RATE;
 
 const NPC_SHIP_NAMES = [
@@ -47,6 +47,9 @@ class GameSimulation {
     this.lastEventCheck = 0;
     this.aisFineCooldowns = {};
     this.recentEvents = [];
+    this._npcTrafficCache = null;
+    this._eventsById = {};
+    for (const evt of EVENTS) this._eventsById[evt.id] = evt;
     this.tickTimer = null;
     this.broadcastTimer = null;
     this.broadcastCallback = null;
@@ -74,6 +77,9 @@ class GameSimulation {
     const dt = realDt;
     const elapsed = (now - this.realStartTime) / 1000;
     this.simTime += realDt * SIM_CONFIG.TIME_SCALE;
+
+    // Cache NPC traffic once per tick (used by cargo load/deliver)
+    this._npcTrafficCache = this.computeNpcTraffic();
 
     for (const shipId of Object.keys(this.shipStates)) {
       try { this.updatePlayerShip(shipId, dt, elapsed); } catch(e) { console.error('Ship tick error:', e.message); }
@@ -314,7 +320,7 @@ class GameSimulation {
         if ((terminal.cargoType || 'oil') !== state.shipCargoType) continue;
         const dist = distanceDeg(state.lat, state.lon, terminal.lat, terminal.lon);
         if (dist < (terminal.loadRadius || SIM_CONFIG.LOAD_RADIUS)) {
-          const npcTraffic = this.computeNpcTraffic();
+          const npcTraffic = this._npcTrafficCache;
           const buyPrice = getTerminalPrice(terminal, this.riskLevel, npcTraffic);
           cargo.loaded = true; cargo.terminal = terminal; cargo.terminalId = terminal.id;
           cargo.buyCost = Math.round(state.shipCapacity * buyPrice);
@@ -330,7 +336,7 @@ class GameSimulation {
         const dropDist = distanceDeg(state.lat, state.lon, dp.lat, dp.lon);
         if (dropDist < (dp.loadRadius || 0.3)) {
           const isLng = state.shipCargoType === 'lng';
-          const npcTraffic = this.computeNpcTraffic();
+          const npcTraffic = this._npcTrafficCache;
           const sellPrice = isLng ? (dp.lngSellPrice || dp.sellPrice || 85) : getTerminalPrice(dp, this.riskLevel, npcTraffic);
           const grossRevenue = Math.round(state.shipCapacity * sellPrice * (1 - state.totalDamage));
           const profit = grossRevenue - (cargo.buyCost || 0);
@@ -377,7 +383,7 @@ class GameSimulation {
         let prob = zone.baseProbability * risk.eventFrequency * ais.detectionMultiplier * (2 - (state.health - state.totalDamage)) * defReduction * nightMult;
         if (Math.random() < prob) {
           const eventId = zone.events[Math.floor(Math.random() * zone.events.length)];
-          const evt = EVENTS.find(e => e.id === eventId);
+          const evt = this._eventsById[eventId];
           if (!evt) continue;
           const roll = Math.random();
           let oi = 0, cw = 0;
@@ -402,7 +408,8 @@ class GameSimulation {
           }
           let extra = '';
           if (outcome.damagePercent > 0) extra += ' [Dmg: ' + Math.round(outcome.damagePercent * 100) + '%]';
-          this.addEvent(elapsed, state.shipName + ': ' + evt.name, outcome.text + extra, outcome.damagePercent > 0 ? 'danger' : '');
+          this.addEvent(elapsed, state.shipName + ': ' + evt.name, outcome.text + extra, outcome.damagePercent > 0 ? 'danger' : '',
+            isMissile ? { eventId, shipLat: state.lat, shipLon: state.lon } : null);
         }
       }
     }
@@ -612,8 +619,10 @@ class GameSimulation {
     }
   }
 
-  addEvent(time, name, text, type) {
-    this.recentEvents.push({ time, name, text, type: type || '' });
+  addEvent(time, name, text, type, missile) {
+    const evt = { time, name, text, type: type || '' };
+    if (missile) { evt.missile = missile; }
+    this.recentEvents.push(evt);
   }
 
   // Player commands
@@ -640,12 +649,31 @@ class GameSimulation {
   }
 
   getState() {
+    // Strip internal-only fields from ship states to reduce payload
+    const shipStates = {};
+    for (const [id, s] of Object.entries(this.shipStates)) {
+      shipStates[id] = {
+        lat: s.lat, lon: s.lon, heading: s.heading, targetHeading: s.targetHeading,
+        speed: s.speed, health: s.health, totalDamage: s.totalDamage,
+        totalMoneyLoss: s.totalMoneyLoss, totalDelay: s.totalDelay,
+        seized: s.seized, destroyed: s.destroyed
+      };
+    }
+    // Strip full terminal objects from autopilot — client only needs active flag + terminal name/coords
+    const shipAutopilot = {};
+    for (const [id, ap] of Object.entries(this.shipAutopilot)) {
+      shipAutopilot[id] = {
+        active: ap.active,
+        terminal: ap.terminal ? { id: ap.terminal.id, name: ap.terminal.name, lat: ap.terminal.lat, lon: ap.terminal.lon } : null,
+        dropoff: ap.dropoff ? { id: ap.dropoff.id, name: ap.dropoff.name, lat: ap.dropoff.lat, lon: ap.dropoff.lon } : null
+      };
+    }
     return {
       simTime: this.simTime,
-      shipStates: this.shipStates,
+      shipStates,
       shipWaypoints: this.shipWaypoints,
       shipCargo: this.shipCargo,
-      shipAutopilot: this.shipAutopilot,
+      shipAutopilot,
       npcShips: this.npcShips.map(n => ({
         lat: n.lat, lon: n.lon, heading: n.heading, speed: n.speed,
         typeName: n.typeName, shipName: n.shipName, state: n.state,
