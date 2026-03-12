@@ -3703,6 +3703,8 @@ function _transitLoopInner(timestamp) {
             cargo.buyCost = cost;
             const label = shipCargoType === 'lng' ? 'LNG LOADED' : 'CARGO LOADED';
             addTransitEvent(label, `${ship.name}: Loaded ${shipCargoType.toUpperCase()} at ${terminal.name} for ${formatMoney(cost)}.`, 'success');
+            // Stop and clear waypoints so autopilot immediately routes to dropoff
+            if (apActive) { shipWaypoints[ship.id] = []; state.speed = 0; }
             _fleetPanelDirty = true; break;
           }
         }
@@ -3720,11 +3722,7 @@ function _transitLoopInner(timestamp) {
             const buyCost = cargo.buyCost || 0;
             const profit = grossRevenue - buyCost;
             const revenue = Math.max(0, grossRevenue);
-            socket.emit('deliver_cargo', { shipId: ship.id, revenue: profit }, (res) => {
-              if (res?.success) {
-                addTransitEvent('CARGO DELIVERED', `${ship.name}: Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})!`, 'success');
-              }
-            });
+            socket.emit('deliver_cargo', { shipId: ship.id, revenue: profit });
             // Track campaign stats
             campaignStats.deliveries++;
             campaignStats.totalRevenue += grossRevenue;
@@ -3732,6 +3730,8 @@ function _transitLoopInner(timestamp) {
             campaignStats.totalProfit += profit;
             shipCargo[ship.id] = { loaded: false, terminal: null, terminalId: null };
             addTransitEvent('CARGO DELIVERED', `${ship.name}: Arrived at ${dp.name}. Sold for ${formatMoney(grossRevenue)} (profit: ${formatMoney(profit)})`, 'success');
+            // Stop and clear waypoints so autopilot immediately routes back to load terminal
+            if (apActive) { shipWaypoints[ship.id] = []; state.speed = 0; }
             _fleetPanelDirty = true;
             break;
           }
