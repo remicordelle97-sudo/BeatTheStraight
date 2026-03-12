@@ -132,17 +132,34 @@ function processSimActions(gameId) {
 }
 
 // Force-logout any existing session for this user, returns true if an old session was kicked
+function cleanupPlayerGame(socketId) {
+  const info = socketMap.get(socketId);
+  if (!info) return;
+  const game = games.get(info.gameId);
+  if (!game) return;
+  game.removePlayer(socketId);
+  if (game.getPlayerCount() === 0) {
+    const sim = gameSims.get(info.gameId);
+    if (sim) { sim.stop(); gameSims.delete(info.gameId); }
+    games.delete(info.gameId);
+    console.log(`Game ${info.gameId} deleted (player left)`);
+  } else if (game.hostId === socketId) {
+    game.hostId = Object.keys(game.players)[0];
+  }
+  socketMap.delete(socketId);
+}
+
 function enforceOneSession(userId, newSocket) {
   const oldSocketId = userSockets.get(userId);
   if (oldSocketId && oldSocketId !== newSocket.id) {
     const oldSocket = io.sockets.sockets.get(oldSocketId);
     if (oldSocket) {
       oldSocket.emit('force_logout', { reason: 'Logged in from another device' });
-      // Persist state before disconnecting
       persistPlayer(oldSocketId);
       oldSocket.disconnect(true);
     }
-    socketMap.delete(oldSocketId);
+    // Immediately clean up the old game/sim — don't wait 60s
+    cleanupPlayerGame(oldSocketId);
   }
   userSockets.set(userId, newSocket.id);
 }
@@ -574,30 +591,8 @@ io.on('connection', (socket) => {
       }
       // Persist before cleanup
       persistPlayer(socket.id);
-      const game = games.get(info.gameId);
-      if (game) {
-        // Keep player in game for 60s to allow reconnection
-        const socketId = socket.id;
-        const playerName = info.playerName;
-        setTimeout(() => {
-          // Only remove if the player hasn't reconnected under a different socket
-          if (game.players[socketId]) {
-            game.removePlayer(socketId);
-            if (game.getPlayerCount() === 0) {
-              const sim = gameSims.get(info.gameId);
-              if (sim) { sim.stop(); gameSims.delete(info.gameId); }
-              games.delete(info.gameId);
-              console.log(`Game ${info.gameId} deleted (empty)`);
-            } else {
-              if (game.hostId === socketId) {
-                game.hostId = Object.keys(game.players)[0];
-              }
-              io.to(game.id).emit('game_update', game.serialize());
-            }
-          }
-          socketMap.delete(socketId);
-        }, 60000);
-      }
+      // Clean up game/sim immediately — no 60s delay
+      cleanupPlayerGame(socket.id);
     }
     console.log(`Player disconnected: ${socket.id}`);
   });
