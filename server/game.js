@@ -207,7 +207,7 @@ class GameState {
     if (player.cash < repairCost) return null;
 
     player.cash -= repairCost;
-    ship.health = 1.0;
+    // Repair costs money but does not restore health
     return { repairCost, ship };
   }
 
@@ -253,7 +253,7 @@ class GameState {
       const cost = Math.round(ship.cost * (1 - ship.health) * 0.3);
       if (player.cash < cost) return null;
       player.cash -= cost;
-      ship.health = 1.0;
+      // Repair costs money but does not restore health
       return { cost };
     }
 

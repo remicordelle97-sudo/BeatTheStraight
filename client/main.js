@@ -29,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 12;
+let gameSpeedMultiplier = 6;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -856,13 +856,7 @@ function renderMobileControls(container) {
         const _health = Math.max(0.01, (_st.health || 1) - (_st.totalDamage || 0));
         socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: _health }, (res) => {
           if (res?.success) {
-            const st = shipStates[sid];
-            if (st) {
-              st.totalDamage = 0;
-              const shipData = getSelectedShipData();
-              if (shipData) st.speed = shipData.speed || st.speed;
-            }
-            addTransitEvent('SHIP REPAIRED', `Ship fully repaired.`, 'success');
+            addTransitEvent('REPAIR ATTEMPTED', `Repair costs paid but damage remains.`, 'warning');
             updateFleetPanel();
             renderMobileControls(container);
           } else if (infoEl) infoEl.textContent = 'Repair failed.';
@@ -1212,13 +1206,7 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   const currentHealth = Math.max(0.01, (state.health || 1) - state.totalDamage);
   socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
     if (res?.success) {
-      const st = shipStates[sid];
-      if (st) {
-        st.totalDamage = 0;
-        const s2 = getShipData(sid);
-        if (s2) st.speed = s2.speed || st.speed;
-      }
-      addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
+      addTransitEvent('REPAIR ATTEMPTED', `Repair costs paid (${formatMoney(repairCost)}) but damage remains.`, 'warning');
       updateFleetPanel();
       refreshUpgradeButtons();
     }
@@ -1990,12 +1978,6 @@ function renderFleetManager() {
       const currentHealth = Math.max(0.01, (st.health || 1) - st.totalDamage);
       socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
         if (res?.success) {
-          const freshSt = shipStates[sid];
-          if (freshSt) {
-            freshSt.totalDamage = 0;
-            const freshShip = getShipData(sid);
-            if (freshShip) freshSt.speed = freshShip.speed || freshSt.speed;
-          }
           renderFleetManager(); updateFleetPanel();
         }
         else { btn.disabled = false; }
@@ -2255,6 +2237,7 @@ async function submitAuth() {
         if (res?.displaced) {
           showError('Previous session on another device was ended.');
         }
+        if (res?.activeGameId) autoRejoinGame(res.activeGameId);
       });
     } else {
       showError(data.error || 'Authentication failed');
@@ -2271,6 +2254,46 @@ function logout() {
   updateAuthUI();
 }
 
+// Rejoin an active game and restore sim state
+function autoRejoinGame(activeGameId) {
+  if (!activeGameId || gameState) return;
+  socket.emit('rejoin_game', {
+    gameId: activeGameId,
+    playerName: authUser?.username || 'Captain',
+    token: authToken
+  }, (rejoinRes) => {
+    if (rejoinRes?.success) {
+      gameState = rejoinRes.game;
+      enterGame();
+      socket.emit('get_sim_state', {}, (simRes) => {
+        if (simRes?.success && simRes.simState) {
+          serverSimActive = true;
+          const ss = simRes.simState;
+          const me = getMe();
+          if (me && ss.shipStates) {
+            for (const ship of me.fleet) {
+              const srv = ss.shipStates[ship.id];
+              if (!srv) continue;
+              if (!shipStates[ship.id]) { shipStates[ship.id] = {}; shipTrails[ship.id] = []; shipCargo[ship.id] = { loaded: false }; }
+              const state = shipStates[ship.id];
+              state.lat = srv.lat; state.lon = srv.lon;
+              state.heading = srv.heading; state.targetHeading = srv.targetHeading;
+              state.speed = srv.speed; state.health = srv.health;
+              state.totalDamage = srv.totalDamage; state.totalMoneyLoss = srv.totalMoneyLoss;
+              state.totalDelay = srv.totalDelay; state.seized = srv.seized;
+              state.destroyed = srv.destroyed;
+            }
+            if (ss.shipWaypoints) Object.assign(shipWaypoints, ss.shipWaypoints);
+            if (ss.shipAutopilot) Object.assign(shipAutopilot, ss.shipAutopilot);
+          }
+          if (ss.shipCargo) Object.assign(shipCargo, ss.shipCargo);
+          socket.listeners('sim_state').forEach(fn => fn(ss));
+        }
+      });
+    }
+  });
+}
+
 // Auto-login on page load if token exists
 async function tryAutoLogin() {
   if (!authToken) return;
@@ -2281,7 +2304,9 @@ async function tryAutoLogin() {
     if (res.ok) {
       authUser = await res.json();
       updateAuthUI();
-      socket.emit('auth', { token: authToken });
+      socket.emit('auth', { token: authToken }, (res) => {
+        if (res?.activeGameId) autoRejoinGame(res.activeGameId);
+      });
     } else {
       localStorage.removeItem('bts_token');
       authToken = null;
