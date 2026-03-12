@@ -80,6 +80,25 @@ const HORMUZ_STRAIT = [
 const GULF_LAND_POLYGONS = [IRAN_COAST, ARAB_COAST, QESHM, LARAK, HORMUZ_ISLAND, BAHRAIN, QATAR];
 const WORLD_LAND_POLYGONS = WORLD_POLYGONS.map(w => w.poly);
 
+// Precompute bounding boxes for fast rejection in isOnLand
+function bbox(poly) {
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  for (const p of poly) {
+    if (p[0] < minLat) minLat = p[0];
+    if (p[0] > maxLat) maxLat = p[0];
+    if (p[1] < minLon) minLon = p[1];
+    if (p[1] > maxLon) maxLon = p[1];
+  }
+  return { minLat, maxLat, minLon, maxLon };
+}
+const CANAL_BOXES = [
+  { poly: SUEZ_CANAL, ...bbox(SUEZ_CANAL) },
+  { poly: PANAMA_CANAL, ...bbox(PANAMA_CANAL) },
+  { poly: HORMUZ_STRAIT, ...bbox(HORMUZ_STRAIT) },
+];
+const GULF_BOXES = GULF_LAND_POLYGONS.map(p => ({ poly: p, ...bbox(p) }));
+const WORLD_BOXES = WORLD_LAND_POLYGONS.map(p => ({ poly: p, ...bbox(p) }));
+
 function pointInPolygon(lat, lon, polygon) {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -94,17 +113,26 @@ function pointInPolygon(lat, lon, polygon) {
 }
 
 function isOnLand(lat, lon) {
-  if (pointInPolygon(lat, lon, SUEZ_CANAL)) return false;
-  if (pointInPolygon(lat, lon, PANAMA_CANAL)) return false;
-  if (pointInPolygon(lat, lon, HORMUZ_STRAIT)) return false;
-  if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
-      lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
-    for (const poly of GULF_LAND_POLYGONS) {
-      if (pointInPolygon(lat, lon, poly)) return true;
+  // Canal cuts — skip full ray-cast unless point is within canal bounding box
+  for (const c of CANAL_BOXES) {
+    if (lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon) {
+      if (pointInPolygon(lat, lon, c.poly)) return false;
     }
   }
-  for (const poly of WORLD_LAND_POLYGONS) {
-    if (pointInPolygon(lat, lon, poly)) return true;
+  // Gulf detail polygons
+  if (lat >= GULF_BOUNDS.south && lat <= GULF_BOUNDS.north &&
+      lon >= GULF_BOUNDS.west && lon <= GULF_BOUNDS.east) {
+    for (const g of GULF_BOXES) {
+      if (lat >= g.minLat && lat <= g.maxLat && lon >= g.minLon && lon <= g.maxLon) {
+        if (pointInPolygon(lat, lon, g.poly)) return true;
+      }
+    }
+  }
+  // World polygons — bbox check before expensive ray-cast
+  for (const w of WORLD_BOXES) {
+    if (lat >= w.minLat && lat <= w.maxLat && lon >= w.minLon && lon <= w.maxLon) {
+      if (pointInPolygon(lat, lon, w.poly)) return true;
+    }
   }
   return false;
 }
