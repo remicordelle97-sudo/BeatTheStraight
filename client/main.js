@@ -856,7 +856,9 @@ function renderMobileControls(container) {
         const _health = Math.max(0.01, (_st.health || 1) - (_st.totalDamage || 0));
         socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: _health }, (res) => {
           if (res?.success) {
-            addTransitEvent('REPAIR ATTEMPTED', `Repair costs paid but damage remains.`, 'warning');
+            const st = shipStates[sid];
+            if (st) { st.totalDamage = 0; const shipData = getSelectedShipData(); if (shipData) st.speed = shipData.speed || st.speed; }
+            addTransitEvent('SHIP REPAIRED', `Ship fully repaired.`, 'success');
             updateFleetPanel();
             renderMobileControls(container);
           } else if (infoEl) infoEl.textContent = 'Repair failed.';
@@ -1206,7 +1208,9 @@ document.getElementById('scp-repair').addEventListener('click', () => {
   const currentHealth = Math.max(0.01, (state.health || 1) - state.totalDamage);
   socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
     if (res?.success) {
-      addTransitEvent('REPAIR ATTEMPTED', `Repair costs paid (${formatMoney(repairCost)}) but damage remains.`, 'warning');
+      const st = shipStates[sid];
+      if (st) { st.totalDamage = 0; const s2 = getShipData(sid); if (s2) st.speed = s2.speed || st.speed; }
+      addTransitEvent('SHIP REPAIRED', `Ship fully repaired for ${formatMoney(repairCost)}.`, 'success');
       updateFleetPanel();
       refreshUpgradeButtons();
     }
@@ -1978,6 +1982,8 @@ function renderFleetManager() {
       const currentHealth = Math.max(0.01, (st.health || 1) - st.totalDamage);
       socket.emit('upgrade_ship', { shipId: sid, type: 'repair', health: currentHealth }, (res) => {
         if (res?.success) {
+          const freshSt = shipStates[sid];
+          if (freshSt) { freshSt.totalDamage = 0; const freshShip = getShipData(sid); if (freshShip) freshSt.speed = freshShip.speed || freshSt.speed; }
           renderFleetManager(); updateFleetPanel();
         }
         else { btn.disabled = false; }
