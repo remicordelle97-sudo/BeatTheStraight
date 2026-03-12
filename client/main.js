@@ -57,6 +57,7 @@ let simStartTime = 0;
 let simGameTime = 0;
 let lastFrameTime = 0;
 let zoneCooldowns = {};
+const _userSpeedChangeAt = {}; // shipId → timestamp of last user-initiated speed change
 let lastEventCheck = 0;
 
 // Campaign state
@@ -1918,6 +1919,7 @@ function renderFleetManager() {
       if (!fmShipAlive(sid)) return;
       const st = shipStates[sid];
       st.speed = Math.max(0, Math.round(st.speed || 0) - 1);
+      sendSpeedToServer(sid, st.speed);
       updateFmSpeedLabel(sid, st);
     });
   });
@@ -1930,6 +1932,7 @@ function renderFleetManager() {
       const s = getShipData(sid);
       const rated = s?.speed || 16;
       st.speed = Math.min(rated + 4, Math.round(st.speed || 0) + 1);
+      sendSpeedToServer(sid, st.speed);
       updateFmSpeedLabel(sid, st);
     });
   });
@@ -2584,23 +2587,26 @@ function updateFleetPanel() {
       </div>`;
   }).join('');
 
-  container.querySelectorAll('.option-card').forEach(card => {
-    card.addEventListener('click', (e) => {
-      // Don't toggle selection if clicking the manage button
-      if (e.target.classList.contains('btn-manage')) return;
-      if (card.dataset.shipId === selectedShipId) deselectShip();
-      else selectShip(card.dataset.shipId);
-    });
-  });
-  container.querySelectorAll('.btn-manage').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectShip(btn.dataset.manageId);
-      openShipControlPanel();
-    });
-  });
   } catch (e) { console.error('updateFleetPanel error:', e); }
 }
+
+// Event delegation for fleet panel — survives DOM re-renders
+document.getElementById('ship-selector')?.addEventListener('click', (e) => {
+  // Handle MANAGE button click
+  const manageBtn = e.target.closest('.btn-manage');
+  if (manageBtn) {
+    e.stopPropagation();
+    selectShip(manageBtn.dataset.manageId);
+    openShipControlPanel();
+    return;
+  }
+  // Handle card click (select/deselect ship)
+  const card = e.target.closest('.option-card');
+  if (card) {
+    if (card.dataset.shipId === selectedShipId) deselectShip();
+    else selectShip(card.dataset.shipId);
+  }
+});
 
 function selectShip(shipId) {
   selectedShipId = shipId;
@@ -4866,8 +4872,12 @@ socket.on('sim_state', (simState) => {
       state.totalDelay = Math.max(state.totalDelay, status.totalDelay);
       state.seized = state.seized || status.seized;
       state.destroyed = state.destroyed || status.destroyed;
-      // Server may reduce speed due to damage/malfunction
-      if (status.speed < state.speed) state.speed = status.speed;
+      // Server may reduce speed due to damage/malfunction — but skip if the user
+      // just changed speed (server state may be stale for a couple seconds)
+      const lastUserChange = _userSpeedChangeAt[ship.id] || 0;
+      if (status.speed < state.speed && Date.now() - lastUserChange > 2000) {
+        state.speed = status.speed;
+      }
     }
   }
 
@@ -4946,6 +4956,7 @@ function sendWaypointsToServer(shipId) {
 
 // Helper: send speed to server
 function sendSpeedToServer(shipId, speed) {
+  _userSpeedChangeAt[shipId] = Date.now();
   if (!serverSimActive) return;
   socket.emit('set_speed', { shipId, speed });
 }
