@@ -345,7 +345,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('buy_ship', ({ shipTypeId, aisId, insuranceId }, callback) => {
+  socket.on('buy_ship', ({ shipTypeId, aisId, insuranceId, spawnLat, spawnLon }, callback) => {
     const info = socketMap.get(socket.id);
     if (!info) { callback?.({ success: false, error: 'Not in a game' }); return; }
     const game = games.get(info.gameId);
@@ -357,9 +357,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Spawn in server simulation if running
+    // Spawn in server simulation at the selected terminal location
     const sim = gameSims.get(info.gameId);
-    if (sim) sim.spawnPlayerShip(ship);
+    if (sim) sim.spawnPlayerShip(ship, spawnLat, spawnLon);
 
     persistPlayer(socket.id);
     socket.emit('game_update', game.serialize());

@@ -2734,7 +2734,8 @@ document.getElementById('modal-confirm-buy').addEventListener('click', () => {
     showError('Select a spawn location'); return;
   }
   socket.emit('buy_ship', {
-    shipTypeId: modalShipTypeId, aisId: modalAisId, insuranceId: modalInsuranceId
+    shipTypeId: modalShipTypeId, aisId: modalAisId, insuranceId: modalInsuranceId,
+    spawnLat: modalSpawnTerminalId.lat, spawnLon: modalSpawnTerminalId.lon
   }, (res) => {
     if (res.success) {
       closeShipPurchaseModal();
