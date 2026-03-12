@@ -2237,6 +2237,7 @@ async function submitAuth() {
         if (res?.displaced) {
           showError('Previous session on another device was ended.');
         }
+        if (res?.activeGameId) autoRejoinGame(res.activeGameId);
       });
     } else {
       showError(data.error || 'Authentication failed');
@@ -2253,6 +2254,46 @@ function logout() {
   updateAuthUI();
 }
 
+// Rejoin an active game and restore sim state
+function autoRejoinGame(activeGameId) {
+  if (!activeGameId || gameState) return;
+  socket.emit('rejoin_game', {
+    gameId: activeGameId,
+    playerName: authUser?.username || 'Captain',
+    token: authToken
+  }, (rejoinRes) => {
+    if (rejoinRes?.success) {
+      gameState = rejoinRes.game;
+      enterGame();
+      socket.emit('get_sim_state', {}, (simRes) => {
+        if (simRes?.success && simRes.simState) {
+          serverSimActive = true;
+          const ss = simRes.simState;
+          const me = getMe();
+          if (me && ss.shipStates) {
+            for (const ship of me.fleet) {
+              const srv = ss.shipStates[ship.id];
+              if (!srv) continue;
+              if (!shipStates[ship.id]) { shipStates[ship.id] = {}; shipTrails[ship.id] = []; shipCargo[ship.id] = { loaded: false }; }
+              const state = shipStates[ship.id];
+              state.lat = srv.lat; state.lon = srv.lon;
+              state.heading = srv.heading; state.targetHeading = srv.targetHeading;
+              state.speed = srv.speed; state.health = srv.health;
+              state.totalDamage = srv.totalDamage; state.totalMoneyLoss = srv.totalMoneyLoss;
+              state.totalDelay = srv.totalDelay; state.seized = srv.seized;
+              state.destroyed = srv.destroyed;
+            }
+            if (ss.shipWaypoints) Object.assign(shipWaypoints, ss.shipWaypoints);
+            if (ss.shipAutopilot) Object.assign(shipAutopilot, ss.shipAutopilot);
+          }
+          if (ss.shipCargo) Object.assign(shipCargo, ss.shipCargo);
+          socket.listeners('sim_state').forEach(fn => fn(ss));
+        }
+      });
+    }
+  });
+}
+
 // Auto-login on page load if token exists
 async function tryAutoLogin() {
   if (!authToken) return;
@@ -2263,7 +2304,9 @@ async function tryAutoLogin() {
     if (res.ok) {
       authUser = await res.json();
       updateAuthUI();
-      socket.emit('auth', { token: authToken });
+      socket.emit('auth', { token: authToken }, (res) => {
+        if (res?.activeGameId) autoRejoinGame(res.activeGameId);
+      });
     } else {
       localStorage.removeItem('bts_token');
       authToken = null;

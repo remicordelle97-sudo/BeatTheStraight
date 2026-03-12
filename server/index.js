@@ -149,10 +149,19 @@ function cleanupPlayerGame(socketId) {
   socketMap.delete(socketId);
 }
 
+// Grace period timers for authenticated disconnects
+const disconnectTimers = new Map(); // socketId -> { timer, gameId }
+
 function enforceOneSession(userId, newSocket) {
   const oldSocketId = userSockets.get(userId);
   let displaced = false;
   if (oldSocketId && oldSocketId !== newSocket.id) {
+    // Cancel any pending disconnect cleanup for the old socket
+    const pending = disconnectTimers.get(oldSocketId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      disconnectTimers.delete(oldSocketId);
+    }
     const oldSocket = io.sockets.sockets.get(oldSocketId);
     if (oldSocket) {
       oldSocket.emit('force_logout', { reason: 'Your account was logged in from another device. This session has been ended.' });
@@ -160,8 +169,9 @@ function enforceOneSession(userId, newSocket) {
       oldSocket.disconnect(true);
       displaced = true;
     }
-    // Immediately clean up the old game/sim — don't wait 60s
-    cleanupPlayerGame(oldSocketId);
+    // Do NOT cleanup the game — keep it alive so the new device can rejoin
+    // Just remove the stale socket mapping (rejoin will re-map)
+    socketMap.delete(oldSocketId);
   }
   userSockets.set(userId, newSocket.id);
   return displaced;
@@ -205,7 +215,18 @@ io.on('connection', (socket) => {
       existing.dbUserId = decoded.userId;
     }
     socket.dbUserId = decoded.userId;
-    callback?.({ success: true, user: profile, displaced });
+    // Check if this user has an active game they can rejoin
+    let activeGameId = null;
+    for (const [gameId, game] of games.entries()) {
+      for (const [pid, p] of Object.entries(game.players)) {
+        if (p.name === profile.username) {
+          activeGameId = gameId;
+          break;
+        }
+      }
+      if (activeGameId) break;
+    }
+    callback?.({ success: true, user: profile, displaced, activeGameId });
   });
 
   socket.on('create_game', ({ playerName, token }, callback) => {
@@ -539,7 +560,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Rejoin game after reconnection
+  // Rejoin game after reconnection or device switch
   socket.on('rejoin_game', ({ gameId, playerName, token }, callback) => {
     const game = games.get(gameId);
     if (!game) { callback?.({ success: false, error: 'Game not found' }); return; }
@@ -562,11 +583,28 @@ io.on('connection', (socket) => {
     }
 
     if (existingPlayer && oldSocketId !== socket.id) {
+      // Cancel any pending disconnect cleanup for the old socket
+      const pending = disconnectTimers.get(oldSocketId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        disconnectTimers.delete(oldSocketId);
+      }
       // Migrate player data to new socket ID
       game.players[socket.id] = existingPlayer;
       game.players[socket.id].id = socket.id;
       delete game.players[oldSocketId];
       if (game.hostId === oldSocketId) game.hostId = socket.id;
+      // Migrate sim ship states from old socket to new socket (preserves positions/damage)
+      const sim = gameSims.get(gameId);
+      if (sim) {
+        // Ship IDs are tied to the fleet, not socket IDs, so sim state is preserved
+        // Just ensure the sim still has all the player's ships
+        for (const ship of existingPlayer.fleet) {
+          if (!sim.hasShip(ship.id)) {
+            sim.spawnPlayerShip(ship);
+          }
+        }
+      }
       // Clean up old socket mapping
       socketMap.delete(oldSocketId);
     } else if (!existingPlayer) {
@@ -581,6 +619,11 @@ io.on('connection', (socket) => {
           player.totalLosses = profile.totalLosses;
           player.successfulTransits = profile.successfulTransits;
           player.failedTransits = profile.failedTransits;
+          // Spawn ships into sim if game is running
+          const sim = gameSims.get(gameId);
+          if (sim) {
+            for (const ship of player.fleet) sim.spawnPlayerShip(ship);
+          }
         } else {
           game.addPlayer(socket.id, playerName);
         }
@@ -606,10 +649,22 @@ io.on('connection', (socket) => {
       }
       // Persist before cleanup
       persistPlayer(socket.id);
-      // Clean up game/sim immediately — no 60s delay
-      cleanupPlayerGame(socket.id);
+      // For authenticated players in a game, use grace period so they can rejoin
+      if (info.dbUserId && info.gameId && games.has(info.gameId)) {
+        const timer = setTimeout(() => {
+          disconnectTimers.delete(socket.id);
+          cleanupPlayerGame(socket.id);
+          console.log(`Grace period expired, cleaned up ${socket.id}`);
+        }, 120000); // 2 minute grace period
+        disconnectTimers.set(socket.id, { timer, gameId: info.gameId });
+        console.log(`Player disconnected: ${socket.id} (grace period started)`);
+      } else {
+        cleanupPlayerGame(socket.id);
+        console.log(`Player disconnected: ${socket.id}`);
+      }
+    } else {
+      console.log(`Player disconnected: ${socket.id}`);
     }
-    console.log(`Player disconnected: ${socket.id}`);
   });
 });
 
