@@ -4433,8 +4433,8 @@ function addTransitEvent(name, text, type) {
   div.appendChild(closeBtn);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
-  // Auto-dismiss after 60 seconds
-  setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 60000);
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => { if (div.parentNode) { div.style.opacity = '0'; setTimeout(() => div.remove(), 300); } }, 5000);
   while (container.children.length > 8) {
     container.firstChild.remove();
   }
