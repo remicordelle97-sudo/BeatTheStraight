@@ -29,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 1;
+let gameSpeedMultiplier = 12;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -3308,7 +3308,7 @@ function updateNPCShips(dt, elapsed) {
     }
 
     // Movement
-    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+    const speedDeg = npc.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = npc.heading * Math.PI / 180;
     const newLon = npc.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = npc.lat + Math.cos(rad) * speedDeg * dt;
@@ -3426,7 +3426,7 @@ function updateMilitaryShips(dt) {
     if (Math.abs(diff) > 0.5) mil.heading = normalizeAngle(mil.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.0 * dt * 60));
 
     // Move
-    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+    const speedDeg = mil.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
     const rad = mil.heading * Math.PI / 180;
     const newLon = mil.lon + Math.sin(rad) * speedDeg * dt;
     const newLat = mil.lat + Math.cos(rad) * speedDeg * dt;
@@ -3458,8 +3458,8 @@ function _transitLoopInner(timestamp) {
 
   const me = getMe();
 
-  // Update each player ship (skip when server simulation is active)
-  if (me && !serverSimActive) {
+  // Update each player ship (client-authoritative movement)
+  if (me) {
     for (const ship of me.fleet) {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
@@ -3616,7 +3616,7 @@ function _transitLoopInner(timestamp) {
       }
 
       // Move
-      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
+      const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC;
       const headingRad = state.heading * Math.PI / 180;
       const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
       const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
@@ -3780,18 +3780,31 @@ function _transitLoopInner(timestamp) {
     }
   }
 
-  if (!serverSimActive) {
-    try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
-    updateMilitaryShips(dt);
+  // Always run NPC/military/events locally (client-authoritative)
+  try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
+  updateMilitaryShips(dt);
 
-    if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
-      lastEventCheck = elapsed;
-      try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
-      try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+    lastEventCheck = elapsed;
+    try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
+    try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+  }
+
+  try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
+  updateRegionIntensity(elapsed);
+
+  // Send positions to server for event checks (throttled to ~2Hz)
+  if (serverSimActive && me) {
+    if (!window._lastPosSend || timestamp - window._lastPosSend > 500) {
+      window._lastPosSend = timestamp;
+      const positions = [];
+      for (const ship of me.fleet) {
+        const state = shipStates[ship.id];
+        if (!state || state.destroyed || state.seized) continue;
+        positions.push({ shipId: ship.id, lat: state.lat, lon: state.lon, heading: state.heading, speed: state.speed });
+      }
+      if (positions.length > 0) socket.emit('update_ship_positions', positions);
     }
-
-    try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
-    updateRegionIntensity(elapsed);
   }
 
   // Batch fleet panel updates — only rebuild DOM once per frame
@@ -4686,8 +4699,32 @@ socket.on('connect', () => {
         socket.emit('get_sim_state', {}, (simRes) => {
           if (simRes?.success && simRes.simState) {
             serverSimActive = true;
-            // Trigger the sim_state handler directly
-            socket.listeners('sim_state').forEach(fn => fn(simRes.simState));
+            const ss = simRes.simState;
+            // Restore ship positions from full state (reconnection only)
+            const me = getMe();
+            if (me && ss.shipStates) {
+              for (const ship of me.fleet) {
+                const srv = ss.shipStates[ship.id];
+                if (!srv) continue;
+                if (!shipStates[ship.id]) {
+                  shipStates[ship.id] = {};
+                  shipTrails[ship.id] = [];
+                  shipCargo[ship.id] = { loaded: false };
+                }
+                const state = shipStates[ship.id];
+                state.lat = srv.lat; state.lon = srv.lon;
+                state.heading = srv.heading; state.targetHeading = srv.targetHeading;
+                state.speed = srv.speed; state.health = srv.health;
+                state.totalDamage = srv.totalDamage; state.totalMoneyLoss = srv.totalMoneyLoss;
+                state.totalDelay = srv.totalDelay; state.seized = srv.seized;
+                state.destroyed = srv.destroyed;
+              }
+              if (ss.shipWaypoints) Object.assign(shipWaypoints, ss.shipWaypoints);
+              if (ss.shipAutopilot) Object.assign(shipAutopilot, ss.shipAutopilot);
+            }
+            if (ss.shipCargo) Object.assign(shipCargo, ss.shipCargo);
+            // Apply status/events via normal handler
+            socket.listeners('sim_state').forEach(fn => fn(ss));
           }
         });
         if (transitActive) {
@@ -4740,99 +4777,47 @@ socket.on('game_over', ({ leaderboard }) => {
 });
 
 // Server-side simulation state handler
-// When the server sends sim_state, update all ship positions, NPC positions, etc.
+// Server sends status-only updates (damage, cargo, events) — no positions
+// Client is authoritative for all movement
 let serverSimActive = false;
 
 socket.on('sim_state', (simState) => {
   if (!transitActive) return;
   serverSimActive = true;
-  simGameTime = simState.simTime;
 
   const me = getMe();
   if (!me) return;
 
-  // Update player ship states from server
-  for (const ship of me.fleet) {
-    const serverShip = simState.shipStates[ship.id];
-    if (!serverShip) continue;
-
-    if (!shipStates[ship.id]) {
-      // First time seeing this ship — init local rendering state
-      shipStates[ship.id] = {};
-      shipTrails[ship.id] = [];
-      shipCargo[ship.id] = { loaded: false };
+  // Apply server-authoritative status to player ships (damage, seized, destroyed, speed changes)
+  if (simState.shipStatus) {
+    for (const ship of me.fleet) {
+      const status = simState.shipStatus[ship.id];
+      if (!status) continue;
+      const state = shipStates[ship.id];
+      if (!state) continue;
+      state.health = status.health;
+      state.totalDamage = status.totalDamage;
+      state.totalMoneyLoss = status.totalMoneyLoss;
+      state.totalDelay = status.totalDelay;
+      state.seized = status.seized;
+      state.destroyed = status.destroyed;
+      // Server may reduce speed due to damage/malfunction
+      if (status.speed < state.speed) state.speed = status.speed;
     }
+  }
 
-    const state = shipStates[ship.id];
-    state.lat = serverShip.lat;
-    state.lon = serverShip.lon;
-    state.heading = serverShip.heading;
-    state.targetHeading = serverShip.targetHeading;
-    state.speed = serverShip.speed;
-    state.health = serverShip.health;
-    state.totalDamage = serverShip.totalDamage;
-    state.totalMoneyLoss = serverShip.totalMoneyLoss;
-    state.totalDelay = serverShip.totalDelay;
-    state.seized = serverShip.seized;
-    state.destroyed = serverShip.destroyed;
-
-    // Update waypoints from server
-    shipWaypoints[ship.id] = simState.shipWaypoints[ship.id] || [];
-
-    // Update cargo from server
-    if (simState.shipCargo[ship.id]) {
-      shipCargo[ship.id] = simState.shipCargo[ship.id];
-    }
-
-    // Update autopilot from server
-    if (simState.shipAutopilot[ship.id]) {
-      shipAutopilot[ship.id] = simState.shipAutopilot[ship.id];
-    }
-
-    // Trail tracking
-    const trail = shipTrails[ship.id];
-    if (trail) {
-      const now = performance.now() / 1000;
-      if (trail.length === 0 || now - trail[trail.length - 1].t > 0.5) {
-        trail.push({ lat: state.lat, lon: state.lon, t: now });
+  // Update cargo from server
+  if (simState.shipCargo) {
+    for (const ship of me.fleet) {
+      if (simState.shipCargo[ship.id]) {
+        shipCargo[ship.id] = simState.shipCargo[ship.id];
       }
-      while (trail.length > 0 && now - trail[0].t > 4) trail.shift();
-    }
-  }
-
-  // Update NPC ships from server
-  if (simState.npcShips) {
-    // Sync NPC array to server state
-    while (npcShips.length < simState.npcShips.length) npcShips.push({});
-    while (npcShips.length > simState.npcShips.length) npcShips.pop();
-    for (let i = 0; i < simState.npcShips.length; i++) {
-      const sn = simState.npcShips[i];
-      npcShips[i].lat = sn.lat;
-      npcShips[i].lon = sn.lon;
-      npcShips[i].heading = sn.heading;
-      npcShips[i].speed = sn.speed;
-      npcShips[i].typeName = sn.typeName;
-      npcShips[i].shipName = sn.shipName;
-      npcShips[i].state = sn.state;
-      npcShips[i].totalDamage = sn.totalDamage;
-      npcShips[i].cargoType = sn.cargoType;
-    }
-  }
-
-  // Update military ships from server
-  if (simState.militaryShips) {
-    while (militaryShips.length < simState.militaryShips.length) militaryShips.push({});
-    while (militaryShips.length > simState.militaryShips.length) militaryShips.pop();
-    for (let i = 0; i < simState.militaryShips.length; i++) {
-      const sm = simState.militaryShips[i];
-      Object.assign(militaryShips[i], sm);
     }
   }
 
   // Show recent events from server
   if (simState.recentEvents) {
     if (!window._shownServerEvents) window._shownServerEvents = new Set();
-    // Prevent unbounded growth — server keeps last 30s of events
     if (window._shownServerEvents.size > 200) window._shownServerEvents.clear();
     for (const evt of simState.recentEvents) {
       const evtKey = evt.time + '_' + evt.name;

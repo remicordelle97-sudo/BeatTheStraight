@@ -89,11 +89,10 @@ class GameSimulation {
       this._npcTrafficDirty = false;
     }
 
+    // Player ship event checks only (movement is client-authoritative)
     for (const shipId of Object.keys(this.shipStates)) {
       try { this.updatePlayerShip(shipId, dt, elapsed); } catch(e) { console.error('Ship tick error:', e.message); }
     }
-    try { this.updateNPCShips(dt, elapsed); } catch(e) { console.error('NPC tick error:', e.message); }
-    try { this.updateMilitaryShips(dt); } catch(e) {}
 
     if (elapsed - this.lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
       this.lastEventCheck = elapsed;
@@ -173,152 +172,21 @@ class GameSimulation {
 
   hasShip(shipId) { return !!this.shipStates[shipId]; }
 
+  // Accept position update from client (client-authoritative movement)
+  updateShipPosition(shipId, lat, lon, heading, speed) {
+    const state = this.shipStates[shipId];
+    if (!state || state.destroyed || state.seized) return;
+    state.lat = lat;
+    state.lon = lon;
+    state.heading = heading;
+    state.speed = speed;
+  }
+
   updatePlayerShip(shipId, dt, elapsed) {
     const state = this.shipStates[shipId];
     if (!state || state.destroyed || state.seized) return;
-    const ap = this.shipAutopilot[shipId];
-    const apActive = ap && ap.active && state.hasAutopilot;
 
-    // Autopilot: auto-manage waypoints
-    if (apActive && ap.terminal && ap.dropoff) {
-      const cargo = this.shipCargo[shipId];
-      const curWps = this.shipWaypoints[shipId] || [];
-      if (curWps.length === 0 && state.speed === 0) {
-        const destT = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
-        if (destT && destT.lat != null) {
-          const route = computeAutopilotRoute(state.lat, state.lon, destT.lat, destT.lon, destT.loadRadius || 0.15);
-          this.shipWaypoints[shipId] = route;
-          state.speed = Math.round(state.shipSpeed || 14);
-          if (route.length > 0) state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
-        }
-      }
-    }
-
-    const wps = this.shipWaypoints[shipId] || [];
-    const apEscaping = apActive && state.apCoastEscapeTimer > 0;
-
-    // Waypoint navigation
-    if (wps.length > 0 && !apEscaping) {
-      const wp = wps[0];
-      const distToWP = distanceDeg(state.lat, state.lon, wp.lat, wp.lon);
-      if (distToWP < 0.03) {
-        wps.shift();
-        if (wps.length > 0) state.targetHeading = headingToTarget(state.lat, state.lon, wps[0].lat, wps[0].lon);
-        else state.speed = 0;
-      } else {
-        state.targetHeading = headingToTarget(state.lat, state.lon, wp.lat, wp.lon);
-      }
-    }
-
-    // Autopilot stuck detection
-    if (apActive && state.speed > 0) {
-      state.progressTimer = (state.progressTimer || 0) + dt;
-      if (state.progressTimer > 15) {
-        const moved = distanceDeg(state.lat, state.lon, state.progressLat || state.lat, state.progressLon || state.lon);
-        if (moved < 0.3) {
-          const cargo = this.shipCargo[shipId];
-          const destT = (cargo && cargo.loaded) ? ap.dropoff : ap.terminal;
-          if (destT && destT.lat != null) {
-            const route = computeAutopilotRoute(state.lat, state.lon, destT.lat, destT.lon, destT.loadRadius || 0.15);
-            this.shipWaypoints[shipId] = route;
-            state.apCoastEscapeTimer = 0;
-            if (route.length > 0) state.targetHeading = headingToTarget(state.lat, state.lon, route[0].lat, route[0].lon);
-          }
-        }
-        state.progressTimer = 0; state.progressLat = state.lat; state.progressLon = state.lon;
-      }
-    }
-
-    // Autopilot land avoidance
-    if (apActive && state.speed > 0) {
-      const hasRouteWps = (this.shipWaypoints[shipId] || []).length > 0;
-      if (state.apCoastEscapeTimer > 0) {
-        state.apCoastEscapeTimer -= dt;
-        const diff = angleDiff(state.heading, state.apCoastEscapeHeading);
-        if (Math.abs(diff) > 0.5) state.heading = normalizeAngle(state.heading + Math.sign(diff) * Math.min(Math.abs(diff), 2.5 * dt * 60));
-        state.targetHeading = state.apCoastEscapeHeading;
-        if (state.apCoastEscapeTimer <= 0) {
-          const wps2 = this.shipWaypoints[shipId] || [];
-          const resumeHeading = wps2.length > 0 ? headingToTarget(state.lat, state.lon, wps2[0].lat, wps2[0].lon) : state.targetHeading;
-          const resumeRad = resumeHeading * Math.PI / 180;
-          const recheckDist = hasRouteWps ? 0.2 : 0.5;
-          if (isOnLand(state.lat + Math.cos(resumeRad) * recheckDist, state.lon + Math.sin(resumeRad) * recheckDist)) {
-            const recheckEscape = hasRouteWps ? 2 + Math.random() * 2 : 5 + Math.random() * 3;
-            for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
-              const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-              if (!isOnLand(state.lat + Math.cos(tryRad) * recheckDist, state.lon + Math.sin(tryRad) * recheckDist)) {
-                state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                state.apCoastEscapeTimer = recheckEscape;
-                state.targetHeading = state.apCoastEscapeHeading;
-                break;
-              }
-            }
-          }
-        }
-      } else {
-        const headRad = state.heading * Math.PI / 180;
-        const lookDistances = hasRouteWps ? [0.05, 0.1, 0.15] : [0.1, 0.2, 0.35, 0.5];
-        const escapeCheckDist = hasRouteWps ? 0.2 : 0.5;
-        const escapeTime = hasRouteWps ? 2 + Math.random() * 2 : 5 + Math.random() * 4;
-        for (const la of lookDistances) {
-          if (isOnLand(state.lat + Math.cos(headRad) * la, state.lon + Math.sin(headRad) * la)) {
-            for (const angle of [45, -45, 70, -70, 90, -90, 120, -120]) {
-              const tryRad = normalizeAngle(state.heading + angle) * Math.PI / 180;
-              if (!isOnLand(state.lat + Math.cos(tryRad) * escapeCheckDist, state.lon + Math.sin(tryRad) * escapeCheckDist)) {
-                state.apCoastEscapeHeading = normalizeAngle(state.heading + angle);
-                state.apCoastEscapeTimer = escapeTime;
-                state.targetHeading = state.apCoastEscapeHeading;
-                break;
-              }
-            }
-            break;
-          }
-        }
-      }
-    }
-
-    // Turn toward target heading
-    const headingDiff = angleDiff(state.heading, state.targetHeading);
-    if (Math.abs(headingDiff) > 0.5) {
-      state.heading = normalizeAngle(state.heading + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), SIM_CONFIG.TURN_RATE * dt * 60));
-    }
-
-    // Move
-    const speedDeg = state.speed * SIM_CONFIG.KNOTS_TO_DEG_PER_SEC * SIM_CONFIG.SPEED_MULTIPLIER;
-    const headingRad = state.heading * Math.PI / 180;
-    const newLon = state.lon + Math.sin(headingRad) * speedDeg * dt;
-    const newLat = state.lat + Math.cos(headingRad) * speedDeg * dt;
-    const nextWpDest = (this.shipWaypoints[shipId] || [])[0];
-    const wpDestR = (nextWpDest && nextWpDest.loadRadius) ? Math.max(0.5, nextWpDest.loadRadius * 4) : 0.5;
-    const nearWpDest = nextWpDest && distanceDeg(state.lat, state.lon, nextWpDest.lat, nextWpDest.lon) < wpDestR;
-
-    if (!isOnLand(newLat, newLon) || nearWpDest) {
-      state.lon = newLon; state.lat = newLat;
-    } else if (apActive) {
-      const probeDist = 0.08;
-      let escaped = false;
-      for (const angle of [90, -90, 120, -120, 150, -150, 180]) {
-        const th = normalizeAngle(state.heading + angle);
-        const tr = th * Math.PI / 180;
-        if (!isOnLand(state.lat + Math.cos(tr) * probeDist, state.lon + Math.sin(tr) * probeDist)) {
-          state.heading = th; state.lon += Math.sin(tr) * probeDist * 0.6; state.lat += Math.cos(tr) * probeDist * 0.6;
-          state.apCoastEscapeHeading = th; state.apCoastEscapeTimer = 4 + Math.random() * 3; state.targetHeading = th;
-          escaped = true; break;
-        }
-      }
-      if (!escaped) {
-        state.heading = normalizeAngle(state.heading + 180);
-        const rr = state.heading * Math.PI / 180;
-        state.lon += Math.sin(rr) * probeDist * 0.6; state.lat += Math.cos(rr) * probeDist * 0.6;
-        state.apCoastEscapeHeading = state.heading; state.apCoastEscapeTimer = 5;
-      }
-    } else {
-      state.speed = Math.max(0, Math.round(state.speed * 0.5));
-      this.shipWaypoints[shipId] = [];
-    }
-
-    state.lat = Math.max(MAP_BOUNDS.south + 0.5, Math.min(MAP_BOUNDS.north - 0.5, state.lat));
-    state.lon = wrapLon(state.lon);
+    // Server only checks events — movement is handled by the client
 
     // Overspeed malfunction
     const ratedSpeed = state.shipSpeed || 16;
@@ -685,39 +553,36 @@ class GameSimulation {
   }
 
   getState() {
-    // Reuse arrays to avoid allocation — update in place
-    const npcOut = this._npcBroadcastCache;
-    for (let i = 0; i < this.npcShips.length; i++) {
-      const n = this.npcShips[i];
-      if (!npcOut[i]) npcOut[i] = {};
-      const o = npcOut[i];
-      o.lat = n.lat; o.lon = n.lon; o.heading = n.heading; o.speed = n.speed;
-      o.typeName = n.typeName; o.shipName = n.shipName; o.state = n.state;
-      o.totalDamage = n.totalDamage; o.cargoType = n.cargoType;
+    // Only send ship status (damage, cargo, events) — not positions
+    // Client is authoritative for all movement/rendering
+    const shipStatus = {};
+    for (const [shipId, state] of Object.entries(this.shipStates)) {
+      shipStatus[shipId] = {
+        health: state.health,
+        totalDamage: state.totalDamage,
+        totalMoneyLoss: state.totalMoneyLoss,
+        totalDelay: state.totalDelay,
+        seized: state.seized,
+        destroyed: state.destroyed,
+        speed: state.speed  // may be reduced by damage/malfunction
+      };
     }
-    npcOut.length = this.npcShips.length;
-
-    const milOut = this._milBroadcastCache;
-    for (let i = 0; i < this.militaryShips.length; i++) {
-      const m = this.militaryShips[i];
-      if (!milOut[i]) milOut[i] = {};
-      const o = milOut[i];
-      o.lat = m.lat; o.lon = m.lon; o.heading = m.heading; o.speed = m.speed;
-      o.name = m.name; o.type = m.type; o.country = m.country;
-      o.dangerRadius = m.dangerRadius; o.state = m.state;
-    }
-    milOut.length = this.militaryShips.length;
 
     return {
       simTime: this.simTime,
-      shipStates: this.shipStates,
-      shipWaypoints: this.shipWaypoints,
+      shipStatus,
       shipCargo: this.shipCargo,
-      shipAutopilot: this.shipAutopilot,
-      npcShips: npcOut,
-      militaryShips: milOut,
       recentEvents: this.recentEvents
     };
+  }
+
+  // Full state for reconnection — includes positions so client can restore
+  getFullState() {
+    const state = this.getState();
+    state.shipStates = this.shipStates;
+    state.shipWaypoints = this.shipWaypoints;
+    state.shipAutopilot = this.shipAutopilot;
+    return state;
   }
 
   getPendingActions() {
