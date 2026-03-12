@@ -48,6 +48,8 @@ class GameSimulation {
     this.aisFineCooldowns = {};
     this.recentEvents = [];
     this._npcTrafficCache = null;
+    this._npcBroadcastCache = [];
+    this._milBroadcastCache = [];
     this._eventsById = {};
     for (const evt of EVENTS) this._eventsById[evt.id] = evt;
     this.tickTimer = null;
@@ -649,41 +651,37 @@ class GameSimulation {
   }
 
   getState() {
-    // Strip internal-only fields from ship states to reduce payload
-    const shipStates = {};
-    for (const [id, s] of Object.entries(this.shipStates)) {
-      shipStates[id] = {
-        lat: s.lat, lon: s.lon, heading: s.heading, targetHeading: s.targetHeading,
-        speed: s.speed, health: s.health, totalDamage: s.totalDamage,
-        totalMoneyLoss: s.totalMoneyLoss, totalDelay: s.totalDelay,
-        seized: s.seized, destroyed: s.destroyed
-      };
+    // Reuse arrays to avoid allocation — update in place
+    const npcOut = this._npcBroadcastCache;
+    for (let i = 0; i < this.npcShips.length; i++) {
+      const n = this.npcShips[i];
+      if (!npcOut[i]) npcOut[i] = {};
+      const o = npcOut[i];
+      o.lat = n.lat; o.lon = n.lon; o.heading = n.heading; o.speed = n.speed;
+      o.typeName = n.typeName; o.shipName = n.shipName; o.state = n.state;
+      o.totalDamage = n.totalDamage; o.cargoType = n.cargoType;
     }
-    // Strip full terminal objects from autopilot — client only needs active flag + terminal name/coords
-    const shipAutopilot = {};
-    for (const [id, ap] of Object.entries(this.shipAutopilot)) {
-      shipAutopilot[id] = {
-        active: ap.active,
-        terminal: ap.terminal ? { id: ap.terminal.id, name: ap.terminal.name, lat: ap.terminal.lat, lon: ap.terminal.lon } : null,
-        dropoff: ap.dropoff ? { id: ap.dropoff.id, name: ap.dropoff.name, lat: ap.dropoff.lat, lon: ap.dropoff.lon } : null
-      };
+    npcOut.length = this.npcShips.length;
+
+    const milOut = this._milBroadcastCache;
+    for (let i = 0; i < this.militaryShips.length; i++) {
+      const m = this.militaryShips[i];
+      if (!milOut[i]) milOut[i] = {};
+      const o = milOut[i];
+      o.lat = m.lat; o.lon = m.lon; o.heading = m.heading; o.speed = m.speed;
+      o.name = m.name; o.type = m.type; o.country = m.country;
+      o.dangerRadius = m.dangerRadius; o.state = m.state;
     }
+    milOut.length = this.militaryShips.length;
+
     return {
       simTime: this.simTime,
-      shipStates,
+      shipStates: this.shipStates,
       shipWaypoints: this.shipWaypoints,
       shipCargo: this.shipCargo,
-      shipAutopilot,
-      npcShips: this.npcShips.map(n => ({
-        lat: n.lat, lon: n.lon, heading: n.heading, speed: n.speed,
-        typeName: n.typeName, shipName: n.shipName, state: n.state,
-        totalDamage: n.totalDamage, cargoType: n.cargoType
-      })),
-      militaryShips: this.militaryShips.map(m => ({
-        lat: m.lat, lon: m.lon, heading: m.heading, speed: m.speed,
-        name: m.name, type: m.type, country: m.country,
-        dangerRadius: m.dangerRadius, state: m.state
-      })),
+      shipAutopilot: this.shipAutopilot,
+      npcShips: npcOut,
+      militaryShips: milOut,
       recentEvents: this.recentEvents
     };
   }

@@ -4828,6 +4828,8 @@ socket.on('sim_state', (simState) => {
   // Show recent events from server
   if (simState.recentEvents) {
     if (!window._shownServerEvents) window._shownServerEvents = new Set();
+    // Prevent unbounded growth — server keeps last 30s of events
+    if (window._shownServerEvents.size > 200) window._shownServerEvents.clear();
     for (const evt of simState.recentEvents) {
       const evtKey = evt.time + '_' + evt.name;
       if (!window._shownServerEvents.has(evtKey)) {
