@@ -236,8 +236,8 @@ class GameSimulation {
       }
     }
 
-    // Destruction check
-    if (state.totalDamage >= 0.9 && !state.destroyed) {
+    // Destruction check — based on effective HP (health - damage), not raw damage
+    if ((state.health - state.totalDamage) <= 0.1 && !state.destroyed) {
       state.destroyed = true;
       state._pendingDestruction = { shipId };
       this.addEvent(elapsed, 'VESSEL DESTROYED', state.shipName + ' destroyed!', 'danger');

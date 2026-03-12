@@ -2489,7 +2489,7 @@ setImpactHandler((impactLat, impactLon, type) => {
         const defLevel = ship.defenseUpgrade || 0;
         const defReduction = 1 - defLevel * 0.15;
         const dmg = maxDmg * intensity * defReduction;
-        state.totalDamage = Math.min(0.95, state.totalDamage + dmg);
+        state.totalDamage = Math.min(state.health, state.totalDamage + dmg);
         if (dmg > 0.05) {
           state.speed = Math.round(Math.max(5, (ship.speed || 16) * (1 - state.totalDamage * 0.5)));
         }
@@ -3773,8 +3773,8 @@ function _transitLoopInner(timestamp, skipRender) {
         }
       }
 
-      // Destruction check
-      if (state.totalDamage >= 0.9 && !state.destroyed) {
+      // Destruction check — based on effective HP (health - damage), not raw damage
+      if ((state.health - state.totalDamage) <= 0.1 && !state.destroyed) {
         state.destroyed = true;
         campaignStats.shipsLost++;
         addTransitEvent('VESSEL DESTROYED', `${ship.name} has been destroyed!`, 'danger');
