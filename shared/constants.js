@@ -1138,5 +1138,5 @@ export const GAME_PHASES = {
   REINVEST: 'reinvest'
 };
 
-export const STARTING_CASH = 500000000;
+export const STARTING_CASH = 15000000;
 export const FUEL_COST_PER_UNIT = 600;

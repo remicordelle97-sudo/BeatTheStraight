@@ -10,6 +10,7 @@ import {
 } from '../shared/constants.js';
 import { register, login, getProfile, verifyToken, savePlayerState } from './auth.js';
 import { stmts } from './db.js';
+import { GameSimulation } from './simulation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,7 +73,79 @@ app.get('*', (req, res, next) => {
 });
 
 const games = new Map();
+const gameSims = new Map(); // gameId -> GameSimulation
 const socketMap = new Map(); // socket.id -> { gameId, playerName, dbUserId }
+const userSockets = new Map(); // dbUserId -> socket.id (enforces single active session per user)
+
+// Process simulation actions (deliveries, destructions, fines) for a game
+function processSimActions(gameId) {
+  const sim = gameSims.get(gameId);
+  const game = games.get(gameId);
+  if (!sim || !game) return;
+
+  const actions = sim.getPendingActions();
+  for (const action of actions) {
+    // Find which player owns this ship
+    let ownerSocketId = null;
+    let ownerPlayer = null;
+    for (const [pid, p] of Object.entries(game.players)) {
+      if (p.fleet.some(s => s.id === action.shipId)) {
+        ownerSocketId = pid;
+        ownerPlayer = p;
+        break;
+      }
+    }
+    if (!ownerPlayer) continue;
+    const info = socketMap.get(ownerSocketId);
+
+    if (action.type === 'delivery') {
+      ownerPlayer.cash = (ownerPlayer.cash || 0) + (action.revenue || 0);
+      if (action.revenue > 0) ownerPlayer.totalProfit = (ownerPlayer.totalProfit || 0) + action.revenue;
+      ownerPlayer.successfulTransits = (ownerPlayer.successfulTransits || 0) + 1;
+      if (info?.dbUserId) {
+        try { savePlayerState(info.dbUserId, ownerPlayer); } catch {}
+        if (action.revenue > 0) { try { stmts.logProfit.run(info.dbUserId, action.revenue); } catch {} }
+      }
+    } else if (action.type === 'destruction') {
+      const ship = ownerPlayer.fleet.find(s => s.id === action.shipId);
+      let insurancePayout = 0;
+      if (ship) {
+        const ins = INSURANCE_OPTIONS[ship.insuranceId];
+        if (ins && ins.coveragePercent > 0 && ship.insuranceWeeksRemaining > 0) {
+          insurancePayout = Math.round((ship.totalInvested || ship.cost) * ins.coveragePercent);
+          ownerPlayer.cash += insurancePayout;
+        }
+        ownerPlayer.fleet = ownerPlayer.fleet.filter(s => s.id !== action.shipId);
+      }
+      ownerPlayer.failedTransits = (ownerPlayer.failedTransits || 0) + 1;
+      sim.removePlayerShip(action.shipId);
+      if (info?.dbUserId) { try { savePlayerState(info.dbUserId, ownerPlayer); } catch {} }
+      // Notify connected client
+      const sock = io.sockets.sockets.get(ownerSocketId);
+      if (sock) sock.emit('ship_destroyed_notify', { shipId: action.shipId, insurancePayout });
+    } else if (action.type === 'ais_fine') {
+      ownerPlayer.cash = (ownerPlayer.cash || 0) - (action.amount || 0);
+      ownerPlayer.totalLosses = (ownerPlayer.totalLosses || 0) + (action.amount || 0);
+      if (info?.dbUserId) { try { savePlayerState(info.dbUserId, ownerPlayer); } catch {} }
+    }
+  }
+}
+
+// Force-logout any existing session for this user, returns true if an old session was kicked
+function enforceOneSession(userId, newSocket) {
+  const oldSocketId = userSockets.get(userId);
+  if (oldSocketId && oldSocketId !== newSocket.id) {
+    const oldSocket = io.sockets.sockets.get(oldSocketId);
+    if (oldSocket) {
+      oldSocket.emit('force_logout', { reason: 'Logged in from another device' });
+      // Persist state before disconnecting
+      persistPlayer(oldSocketId);
+      oldSocket.disconnect(true);
+    }
+    socketMap.delete(oldSocketId);
+  }
+  userSockets.set(userId, newSocket.id);
+}
 
 // Helper: persist player state to DB if they're logged in
 function persistPlayer(socketId) {
@@ -104,6 +177,8 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: 'User not found' });
       return;
     }
+    // Enforce single active session per user
+    enforceOneSession(decoded.userId, socket);
     // Store dbUserId on the socket's info
     const existing = socketMap.get(socket.id);
     if (existing) {
@@ -123,6 +198,7 @@ io.on('connection', (socket) => {
       const decoded = verifyToken(token);
       if (decoded) {
         dbUserId = decoded.userId;
+        enforceOneSession(dbUserId, socket);
         const profile = getProfile(decoded.userId);
         if (profile) {
           playerName = profile.username;
@@ -167,6 +243,7 @@ io.on('connection', (socket) => {
       const decoded = verifyToken(token);
       if (decoded) {
         dbUserId = decoded.userId;
+        enforceOneSession(dbUserId, socket);
         const profile = getProfile(decoded.userId);
         if (profile) {
           playerName = profile.username;
@@ -205,10 +282,31 @@ io.on('connection', (socket) => {
     }
 
     game.startPlanning();
+
+    // Create and start server-side simulation
+    const sim = new GameSimulation(game.id, game.riskLevel);
+    gameSims.set(game.id, sim);
+
+    // Spawn all players' fleet ships into the simulation
+    for (const [pid, player] of Object.entries(game.players)) {
+      for (const ship of player.fleet) {
+        sim.spawnPlayerShip(ship);
+      }
+    }
+
+    // Set action callback to process deliveries/destructions/fines
+    sim.actionCallback = () => processSimActions(game.id);
+
+    // Start simulation with broadcast callback
+    sim.start((simState) => {
+      processSimActions(game.id);
+      io.to(game.id).emit('sim_state', simState);
+    });
+
     io.to(game.id).emit('game_update', game.serialize());
     io.to(game.id).emit('phase_change', { phase: GAME_PHASES.PLANNING });
     callback?.({ success: true });
-    console.log(`Game ${game.id} started`);
+    console.log(`Game ${game.id} started with server simulation`);
   });
 
   socket.on('submit_plan', (plan, callback) => {
@@ -258,6 +356,10 @@ io.on('connection', (socket) => {
       callback?.({ success: false, error: 'Cannot afford ship' });
       return;
     }
+
+    // Spawn in server simulation if running
+    const sim = gameSims.get(info.gameId);
+    if (sim) sim.spawnPlayerShip(ship);
 
     persistPlayer(socket.id);
     socket.emit('game_update', game.serialize());
@@ -358,6 +460,43 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Server-side simulation commands
+  socket.on('set_waypoints', ({ shipId, waypoints }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const sim = gameSims.get(info.gameId);
+    if (!sim) { callback?.({ success: false }); return; }
+    const result = sim.setWaypoints(shipId, waypoints);
+    callback?.({ success: result });
+  });
+
+  socket.on('set_speed', ({ shipId, speed }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const sim = gameSims.get(info.gameId);
+    if (!sim) { callback?.({ success: false }); return; }
+    const result = sim.setSpeed(shipId, speed);
+    callback?.({ success: result });
+  });
+
+  socket.on('set_autopilot', ({ shipId, active, terminal, dropoff }, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const sim = gameSims.get(info.gameId);
+    if (!sim) { callback?.({ success: false }); return; }
+    const result = sim.setAutopilot(shipId, active, terminal, dropoff);
+    callback?.({ success: result });
+  });
+
+  // Get current simulation state on demand (for reconnection)
+  socket.on('get_sim_state', (_, callback) => {
+    const info = socketMap.get(socket.id);
+    if (!info) { callback?.({ success: false }); return; }
+    const sim = gameSims.get(info.gameId);
+    if (!sim) { callback?.({ success: false }); return; }
+    callback?.({ success: true, simState: sim.getState() });
+  });
+
   socket.on('get_options', (_, callback) => {
     callback?.({
       shipTypes: SHIP_TYPES,
@@ -429,6 +568,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const info = socketMap.get(socket.id);
     if (info) {
+      // Clean up userSockets if this is still the active session
+      if (info.dbUserId && userSockets.get(info.dbUserId) === socket.id) {
+        userSockets.delete(info.dbUserId);
+      }
       // Persist before cleanup
       persistPlayer(socket.id);
       const game = games.get(info.gameId);
@@ -441,6 +584,8 @@ io.on('connection', (socket) => {
           if (game.players[socketId]) {
             game.removePlayer(socketId);
             if (game.getPlayerCount() === 0) {
+              const sim = gameSims.get(info.gameId);
+              if (sim) { sim.stop(); gameSims.delete(info.gameId); }
               games.delete(info.gameId);
               console.log(`Game ${info.gameId} deleted (empty)`);
             } else {

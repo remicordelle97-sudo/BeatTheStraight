@@ -1,12 +1,14 @@
 import { io } from 'socket.io-client';
 import { drawMap, drawCompass, latLonToCanvas, canvasToLatLon, setViewport, getViewport, isOnLand, drawWaypoints, spawnMissile, spawnPlane, setImpactHandler } from './map.js';
-import { CHOKEPOINTS } from './world-coastlines.js';
+import { CHOKEPOINTS } from '../shared/world-coastlines.js';
 import {
   SIM_CONFIG, DANGER_ZONES, EVENTS, RISK_LEVELS, MAP_BOUNDS, GULF_BOUNDS,
   FUEL_COST_PER_UNIT, DEFAULT_VIEWPORT, OIL_TERMINALS, EXPORT_TERMINALS, IMPORT_TERMINALS,
   NPC_SHIP_TYPES, MILITARY_SHIPS, DROPOFF_POINT, DROPOFF_POINTS, MILITARY_BASES, CITIES,
   TERMINAL_REGIONS, getTerminalPrice, SUPPLY_DEMAND_CONFIG
 } from '../shared/constants.js';
+import { distanceDeg, headingToTarget, angleDiff, normalizeAngle, wrapLon } from '../shared/geography.js';
+import { computeOceanRoute, computeAutopilotRoute } from '../shared/ocean-routing.js';
 
 const socket = io(window.location.hostname === 'localhost'
   ? 'http://localhost:3001'
@@ -27,7 +29,7 @@ let modalAisId = null;
 let modalInsuranceId = null;
 let modalSpawnTerminalId = null;
 
-let gameSpeedMultiplier = 1;
+let gameSpeedMultiplier = 12;
 
 // Find current player in game state — tries ID match, falls back to single-player
 function getMe() {
@@ -425,16 +427,6 @@ function centerViewportOn(lat, lon) {
   setViewport(viewport);
 }
 
-// ============================================
-// GAME SPEED TOGGLE
-// ============================================
-document.querySelectorAll('.speed-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    gameSpeedMultiplier = parseInt(btn.dataset.speed);
-    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
 
 // ============================================
 // SETTINGS MENU
@@ -811,6 +803,7 @@ function renderMobileControls(container) {
   document.getElementById('mobile-spd-down')?.addEventListener('click', () => {
     if (state.destroyed || state.seized) return;
     state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
+    sendSpeedToServer(ship.id, state.speed);
     const el = document.getElementById('mobile-spd-val');
     if (el) el.textContent = `${state.speed} kts`;
     document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
@@ -819,6 +812,7 @@ function renderMobileControls(container) {
     if (state.destroyed || state.seized) return;
     const maxSpd = ratedSpeed + 4;
     state.speed = Math.min(maxSpd, Math.round(state.speed || 0) + 1);
+    sendSpeedToServer(ship.id, state.speed);
     const el = document.getElementById('mobile-spd-val');
     if (el) el.textContent = state.speed > ratedSpeed ? `${state.speed} kts !` : `${state.speed} kts`;
     document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
@@ -906,6 +900,9 @@ function renderMobileControls(container) {
           shipWaypoints[sid] = [];
           currentState.speed = 0;
           currentState.apCoastEscapeTimer = 0;
+          sendAutopilotToServer(sid);
+          sendWaypointsToServer(sid);
+          sendSpeedToServer(sid, 0);
           addTransitEvent('AUTOPILOT OFF', `${currentShip.name}: Autopilot disengaged.`, '');
           updateFleetPanel();
           renderMobileControls(container);
@@ -920,6 +917,8 @@ function renderMobileControls(container) {
             currentState.apCoastEscapeTimer = 0;
             currentState.apCoastEscapeHeading = 0;
             shipWaypoints[sid] = [];
+            sendAutopilotToServer(sid);
+            sendWaypointsToServer(sid);
             addTransitEvent('AUTOPILOT ON', `${currentShip.name}: ${terminal.name} → ${dropoff.name}`, 'success');
             updateFleetPanel();
             renderMobileControls(container);
@@ -978,13 +977,6 @@ function renderMobileSettings(container) {
     <button class="btn btn-ghost mobile-settings-logout">LOGOUT</button>
   </div>`;
 
-  html += `<div class="mobile-section-title">GAME SPEED</div>`;
-  html += `<div class="mobile-ctrl-buttons" style="margin-bottom:12px;">
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 1 ? 'btn-primary' : 'btn-secondary'}" data-speed="1">1x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 2 ? 'btn-primary' : 'btn-secondary'}" data-speed="2">2x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 4 ? 'btn-primary' : 'btn-secondary'}" data-speed="4">4x</button>
-    <button class="btn btn-small mobile-settings-speed ${gameSpeedMultiplier === 16 ? 'btn-primary' : 'btn-secondary'}" data-speed="16">16x</button>
-  </div>`;
 
   container.innerHTML = html;
 
@@ -1001,15 +993,6 @@ function renderMobileSettings(container) {
     transitActive = false;
   });
 
-  container.querySelectorAll('.mobile-settings-speed').forEach(btn => {
-    btn.addEventListener('click', () => {
-      gameSpeedMultiplier = parseInt(btn.dataset.speed);
-      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-      const desktopBtn = document.querySelector(`.speed-btn[data-speed="${gameSpeedMultiplier}"]`);
-      if (desktopBtn) desktopBtn.classList.add('active');
-      renderMobileSettings(container);
-    });
-  });
 }
 
 function renderMobileVisual(container) {
@@ -1097,6 +1080,8 @@ clearWpBtn.addEventListener('click', () => {
   if (selectedShipId) {
     shipWaypoints[selectedShipId] = [];
     if (shipStates[selectedShipId]) shipStates[selectedShipId].speed = 0;
+    sendWaypointsToServer(selectedShipId);
+    sendSpeedToServer(selectedShipId, 0);
   }
   updateClearWpButton();
 });
@@ -1146,6 +1131,7 @@ document.getElementById('scp-speed-down').addEventListener('click', () => {
   const state = shipStates[selectedShipId];
   if (state.destroyed || state.seized) return;
   state.speed = Math.max(0, Math.round(state.speed || 0) - 1);
+  sendSpeedToServer(selectedShipId, state.speed);
   document.getElementById('scp-speed-value').textContent = `${state.speed} kts`;
 });
 
@@ -1157,6 +1143,7 @@ document.getElementById('scp-speed-up').addEventListener('click', () => {
   const ratedSpeed = ship?.speed || 16;
   const maxSpeed = ratedSpeed + 4;
   state.speed = Math.min(maxSpeed, Math.round(state.speed || 0) + 1);
+  sendSpeedToServer(selectedShipId, state.speed);
   const label = state.speed > ratedSpeed ? `${state.speed} kts ⚠` : `${state.speed} kts`;
   document.getElementById('scp-speed-value').textContent = label;
 });
@@ -1365,6 +1352,8 @@ function engageAutopilot(ship) {
   const state = shipStates[ship.id];
   if (state) { state.apCoastEscapeTimer = 0; state.apCoastEscapeHeading = 0; }
   shipWaypoints[ship.id] = [];
+  sendAutopilotToServer(ship.id);
+  sendWaypointsToServer(ship.id);
   addTransitEvent('AUTOPILOT ON', `${ship.name}: ${terminal.name} → ${dropoff.name}`, 'success');
   refreshUpgradeButtons();
 }
@@ -1383,6 +1372,9 @@ document.getElementById('scp-autopilot').addEventListener('click', () => {
     shipWaypoints[ship.id] = [];
     const st = shipStates[ship.id];
     if (st) { st.speed = 0; st.apCoastEscapeTimer = 0; }
+    sendAutopilotToServer(ship.id);
+    sendWaypointsToServer(ship.id);
+    sendSpeedToServer(ship.id, 0);
     addTransitEvent('AUTOPILOT OFF', `${ship.name}: Autopilot disengaged.`, '');
     updateFleetPanel();
     refreshUpgradeButtons();
@@ -2063,6 +2055,9 @@ function renderFleetManager() {
         shipWaypoints[s.id] = [];
         st.speed = 0;
         st.apCoastEscapeTimer = 0;
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, 0);
         renderFleetManager(); updateFleetPanel();
         return;
       }
@@ -2090,6 +2085,9 @@ function renderFleetManager() {
         st.apCoastEscapeHeading = 0;
         shipWaypoints[s.id] = [];
         if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, st.speed);
         renderFleetManager(); updateFleetPanel();
       }
     });
@@ -2114,6 +2112,8 @@ function renderFleetManager() {
         ap.terminal = terminal;
         ap.dropoff = dropoff;
         autopilotReroute(s);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
       } else {
         // Not active — engage autopilot with selected terminals
         shipAutopilot[s.id] = { active: true, terminal, dropoff };
@@ -2121,6 +2121,9 @@ function renderFleetManager() {
         st.apCoastEscapeHeading = 0;
         shipWaypoints[s.id] = [];
         if (st.speed === 0) st.speed = Math.round(s.speed || 14);
+        sendAutopilotToServer(s.id);
+        sendWaypointsToServer(s.id);
+        sendSpeedToServer(s.id, st.speed);
       }
       renderFleetManager(); updateFleetPanel();
     });
@@ -2477,10 +2480,8 @@ setImpactHandler((impactLat, impactLon, type) => {
       const pct = Math.round(dmg * 100);
       if (npc.totalDamage >= NPC_DESTROY_THRESHOLD) {
         // Accumulated enough damage — NPC destroyed
-        addTransitEvent('NPC SHIP DESTROYED', `${npc.shipName} sunk by ${type}! [Dmg: ${pct}%]`, 'danger');
         npcShips[i] = createNPCTanker(false);
       } else {
-        addTransitEvent('NPC SHIP HIT', `${npc.shipName} struck by ${type}! [Dmg: ${pct}%, Total: ${Math.round(npc.totalDamage * 100)}%]`, 'danger');
         if (intensity > 0.3 && npc.state !== 'waiting_safe') {
           // Spooked — divert to safety
           // Find nearest safe anchorage (use the global list, not hardcoded)
@@ -2595,10 +2596,11 @@ function addWaypointForSelectedShip(target) {
   shipWaypoints[selectedShipId] = wps;
   updateClearWpButton();
   const state = shipStates[selectedShipId];
-  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); }
+  if (state.speed === 0) { const ship = getSelectedShipData(); state.speed = Math.round(ship?.speed || 14); sendSpeedToServer(selectedShipId, state.speed); }
   if (wps.length === 1) {
     state.targetHeading = headingToTarget(state.lat, state.lon, target.lat, target.lon);
   }
+  sendWaypointsToServer(selectedShipId);
 }
 
 // ============================================
@@ -2980,235 +2982,6 @@ const NPC_SPAWN_ZONES = [
   { latMin: 7.0, latMax: 10.0, lonMin: -81.0, lonMax: -78.0 },     // Panama Canal
 ];
 
-// ============================================
-// OCEAN WAYPOINT GRAPH — NPC route planning
-// ============================================
-// Waypoints at key ocean locations; NPCs navigate through these to avoid land
-const OCEAN_NODES = [
-  // Persian Gulf (dense waypoints for complex coastline)
-  { id: 'gulf_nw', lat: 29.4, lon: 48.5 },
-  { id: 'gulf_nw_s', lat: 28.7, lon: 49.0 },  // between NW and W, avoids Kuwait coast
-  { id: 'gulf_w', lat: 28.0, lon: 50.0 },
-  { id: 'gulf_kharg', lat: 28.8, lon: 50.3 },  // near Kharg Island approach
-  { id: 'gulf', lat: 27.0, lon: 50.5 },
-  { id: 'gulf_bahrain_e', lat: 26.5, lon: 50.8 },  // east of Bahrain
-  { id: 'gulf_central', lat: 26.0, lon: 52.0 },
-  { id: 'gulf_qatar_e', lat: 25.5, lon: 52.5 },
-  { id: 'gulf_das', lat: 25.2, lon: 53.0 },    // near Das Island
-  { id: 'gulf_uae', lat: 26.0, lon: 54.5 },
-  { id: 'gulf_uae_s', lat: 25.2, lon: 55.0 },  // south UAE approach
-  { id: 'hormuz_app', lat: 26.3, lon: 55.5 },  // Hormuz approach from west
-  { id: 'hormuz', lat: 26.55, lon: 56.25 },    // strait center — deep-water channel
-  { id: 'hormuz_ch', lat: 26.55, lon: 56.65 }, // through the strait — north of Musandam tip
-  { id: 'hormuz_ne', lat: 26.3, lon: 57.5 },   // NE of Musandam — clears peninsula [26.2, 57.3]
-  { id: 'hormuz_e', lat: 25.5, lon: 58.0 },    // east exit — well offshore Oman coast
-  { id: 'gulf_oman', lat: 24.5, lon: 58.5 },   // Gulf of Oman — open water
-  { id: 'oman_se', lat: 24.0, lon: 59.5 },
-  { id: 'oman', lat: 23.0, lon: 60.5 },
-  // Indian Ocean
-  { id: 'arabian_sea', lat: 15.0, lon: 60.0 },
-  { id: 'mumbai_app', lat: 18.5, lon: 71.0 },
-  { id: 'india_w', lat: 15.0, lon: 70.0 },
-  { id: 'india_s', lat: 5.0, lon: 76.0 },
-  { id: 'ceylon_e', lat: 5.5, lon: 83.0 },
-  // Red Sea / Suez — Bab el-Mandeb corridor
-  { id: 'bab_s', lat: 11.8, lon: 43.3 },    // south approach — Gulf of Aden side
-  { id: 'bab', lat: 12.4, lon: 43.3 },       // strait center — shifted west into channel
-  { id: 'bab_n', lat: 13.5, lon: 42.5 },     // north exit — open Red Sea
-  { id: 'red_sea', lat: 20.0, lon: 38.5 },
-  { id: 'red_sea_n', lat: 25.5, lon: 35.0 },
-  { id: 'suez_app', lat: 28.5, lon: 33.2 },
-  { id: 'suez_s', lat: 30.0, lon: 32.5 },
-  { id: 'suez_n', lat: 31.5, lon: 32.2 },
-  // Mediterranean / Europe
-  { id: 'med_e', lat: 34.0, lon: 28.0 },
-  { id: 'med_c', lat: 36.0, lon: 15.0 },
-  { id: 'sicily_ch', lat: 38.0, lon: 12.0 },
-  { id: 'med_w', lat: 38.0, lon: 3.0 },
-  { id: 'gib_strait', lat: 35.97, lon: -5.4 },
-  { id: 'gibraltar', lat: 36.1, lon: -6.2 },
-  { id: 'biscay', lat: 45.0, lon: -8.0 },
-  { id: 'brittany_w', lat: 48.3, lon: -8.0 },  // west of Brittany peninsula — avoids cutting across land
-  { id: 'channel', lat: 50.0, lon: -2.0 },
-  { id: 'dover', lat: 51.0, lon: 1.5 },
-  { id: 'north_sea', lat: 58.0, lon: 3.0 },
-  { id: 'skagerrak', lat: 57.8, lon: 9.5 },
-  { id: 'kattegat', lat: 56.5, lon: 11.0 },
-  { id: 'baltic_south', lat: 55.0, lon: 16.0 },
-  { id: 'baltic_east', lat: 57.5, lon: 20.0 },
-  { id: 'baltic', lat: 59.5, lon: 24.0 },
-  { id: 'primorsk_app', lat: 59.8, lon: 27.0 },
-  // Africa
-  { id: 'guinea', lat: 3.0, lon: -6.0 },  // offshore Ivory Coast/Liberia
-  { id: 'gulf_guinea', lat: 2.0, lon: 1.0 },  // offshore Gulf of Guinea — clear of West African coast
-  { id: 'w_africa', lat: 3.5, lon: 5.0 },     // offshore Nigeria/Benin coast
-  { id: 'cameroon', lat: 2.5, lon: 8.0 },     // offshore Cameroon — clear of Bioko Island
-  { id: 'gabon', lat: -1.0, lon: 7.5 },       // offshore Gabon
-  { id: 'e_africa', lat: 0.0, lon: 45.0 },
-  { id: 'angola', lat: -8.0, lon: 12.0 },
-  { id: 'namibia', lat: -22.0, lon: 10.0 },
-  { id: 'mozambique', lat: -15.0, lon: 42.0 },
-  { id: 'madagascar_s', lat: -25.0, lon: 47.0 },
-  { id: 'cape', lat: -34.5, lon: 18.5 },
-  // Atlantic
-  { id: 'atl_n', lat: 40.0, lon: -35.0 },
-  { id: 'atl_s', lat: -10.0, lon: -20.0 },
-  // Americas
-  { id: 'us_east', lat: 38.0, lon: -72.0 },
-  { id: 'florida_east', lat: 27.0, lon: -79.0 },
-  { id: 'florida_str', lat: 24.0, lon: -81.5 },
-  { id: 'us_gulf', lat: 28.0, lon: -90.0 },
-  { id: 'caribbean', lat: 15.0, lon: -70.0 },
-  { id: 'trinidad', lat: 11.0, lon: -62.0 },
-  { id: 'venezuela', lat: 11.0, lon: -66.0 },
-  { id: 'panama_c', lat: 9.4, lon: -79.6 },
-  { id: 'panama_p', lat: 7.5, lon: -79.6 },   // Pacific side — clear of canal/land
-  { id: 'brazil', lat: -23.0, lon: -42.0 },
-  { id: 'alaska', lat: 59.0, lon: -148.0 },
-  { id: 'alaska_pws', lat: 60.3, lon: -147.0 },  // Prince William Sound approach for Valdez
-  { id: 'pac_n', lat: 45.0, lon: -155.0 },
-  // Asia Pacific
-  { id: 'andaman', lat: 8.0, lon: 96.0 },
-  { id: 'malacca_n', lat: 5.5, lon: 97.5 },   // north entrance — off NW Sumatra tip
-  { id: 'malacca', lat: 2.5, lon: 100.0 },     // mid-strait — shifted west to stay in water
-  { id: 'malacca_se', lat: 0.5, lon: 103.5 },  // south exit — open water south of Singapore
-  { id: 'singapore', lat: 1.3, lon: 104.0 },
-  { id: 'gulf_thai', lat: 7.5, lon: 103.0 },
-  { id: 'natuna', lat: 3.0, lon: 108.0 },
-  { id: 'scs_south', lat: 7.0, lon: 112.0 },
-  { id: 'scs', lat: 12.0, lon: 114.0 },
-  { id: 'ecs', lat: 30.0, lon: 123.0 },
-  { id: 'korea', lat: 34.0, lon: 129.5 },
-  { id: 'japan', lat: 35.0, lon: 140.0 },
-];
-
-// Adjacency — pairs of connected waypoint IDs
-const OCEAN_EDGES = [
-  // Persian Gulf internal corridors (dense network for narrow waterway)
-  ['gulf_nw', 'gulf_nw_s'], ['gulf_nw_s', 'gulf_w'], ['gulf_nw', 'gulf_w'],
-  ['gulf_nw', 'gulf_kharg'], ['gulf_nw_s', 'gulf_kharg'], ['gulf_kharg', 'gulf_w'],
-  ['gulf_w', 'gulf'], ['gulf_w', 'gulf_bahrain_e'],
-  ['gulf', 'gulf_bahrain_e'], ['gulf_bahrain_e', 'gulf_central'],
-  ['gulf', 'gulf_central'], ['gulf_central', 'gulf_qatar_e'],
-  ['gulf_qatar_e', 'gulf_das'], ['gulf_das', 'gulf_uae'],
-  ['gulf_qatar_e', 'gulf_uae'], ['gulf_central', 'gulf_uae'],
-  ['gulf_central', 'gulf_das'],
-  ['gulf_uae', 'hormuz_app'], ['gulf_uae_s', 'hormuz_app'],
-  ['gulf_das', 'gulf_uae_s'], ['gulf_qatar_e', 'gulf_uae_s'],
-  ['hormuz_app', 'hormuz'], ['hormuz', 'hormuz_ch'],
-  ['hormuz_ch', 'hormuz_ne'], ['hormuz_ne', 'hormuz_e'],
-  // Strait of Hormuz to Gulf of Oman
-  ['hormuz_e', 'gulf_oman'], ['gulf_oman', 'oman_se'],
-  ['oman_se', 'oman'],
-  // Indian Ocean
-  ['oman', 'arabian_sea'], ['arabian_sea', 'india_w'], ['india_w', 'india_s'],
-  ['mumbai_app', 'india_w'], ['mumbai_app', 'arabian_sea'],
-  ['oman', 'mumbai_app'],  // direct Gulf of Oman → Mumbai (avoids arabian_sea detour)
-  // Red Sea route — Bab el-Mandeb corridor
-  ['arabian_sea', 'bab_s'], ['bab_s', 'bab'], ['bab', 'bab_n'],
-  ['bab_n', 'red_sea'], ['red_sea', 'red_sea_n'],
-  ['red_sea_n', 'suez_app'], ['suez_app', 'suez_s'],
-  ['suez_s', 'suez_n'], ['suez_n', 'med_e'],
-  // East Africa
-  ['bab_s', 'e_africa'], ['e_africa', 'arabian_sea'],
-  // Mediterranean
-  ['med_e', 'med_c'], ['med_c', 'sicily_ch'],
-  ['sicily_ch', 'med_w'], ['med_w', 'gib_strait'],
-  ['gib_strait', 'gibraltar'],
-  // Europe
-  ['gibraltar', 'biscay'], ['biscay', 'brittany_w'], ['brittany_w', 'channel'], ['channel', 'dover'],
-  ['dover', 'north_sea'],
-  ['north_sea', 'skagerrak'], ['skagerrak', 'kattegat'],
-  ['kattegat', 'baltic_south'],
-  ['baltic_south', 'baltic_east'], ['baltic_east', 'baltic'],
-  ['baltic', 'primorsk_app'],
-  // Atlantic crossings
-  ['gibraltar', 'atl_n'], ['biscay', 'atl_n'], ['atl_n', 'us_east'],
-  ['atl_n', 'atl_s'], ['gibraltar', 'guinea'],
-  // West Africa — coastal route avoids cutting across land
-  ['guinea', 'gulf_guinea'], ['gulf_guinea', 'w_africa'],  // route around West African coast
-  ['gulf_guinea', 'gabon'], ['gulf_guinea', 'atl_s'],      // offshore shortcuts
-  ['guinea', 'atl_n'], ['guinea', 'atl_s'],
-  ['w_africa', 'cameroon'], ['cameroon', 'gabon'],
-  ['gabon', 'angola'], ['angola', 'namibia'], ['namibia', 'cape'],
-  ['w_africa', 'atl_s'], ['atl_s', 'cape'], ['atl_s', 'brazil'],
-  ['angola', 'atl_s'],
-  // East Africa — Cape route to Indian Ocean
-  ['cape', 'madagascar_s'], ['madagascar_s', 'mozambique'],
-  ['mozambique', 'e_africa'],
-  // Americas (route around Florida via florida_str)
-  ['us_east', 'florida_east'], ['florida_east', 'florida_str'],
-  ['florida_str', 'us_gulf'],
-  ['us_east', 'caribbean'], ['florida_east', 'caribbean'],
-  ['florida_str', 'caribbean'],
-  ['caribbean', 'venezuela'], ['caribbean', 'panama_c'], ['florida_str', 'panama_c'],
-  ['caribbean', 'trinidad'], ['trinidad', 'venezuela'],
-  ['panama_c', 'panama_p'],
-  ['atl_s', 'brazil'], ['brazil', 'cape'],
-  // Pacific — full circumnavigation routes
-  ['panama_p', 'pac_n'], ['pac_n', 'alaska'], ['alaska', 'alaska_pws'], ['pac_n', 'japan'],
-  // Asia — Malacca Strait corridor (north entrance → mid-strait → south exit)
-  ['india_s', 'ceylon_e'], ['ceylon_e', 'andaman'],
-  ['andaman', 'malacca_n'], ['malacca_n', 'malacca'], ['malacca', 'malacca_se'],
-  ['malacca_se', 'singapore'],
-  // East connections — bypass Malacca for SCS traffic
-  ['singapore', 'gulf_thai'], ['gulf_thai', 'natuna'],
-  ['singapore', 'natuna'], ['natuna', 'scs_south'], ['scs_south', 'scs'],
-  ['gulf_thai', 'scs_south'], ['malacca_se', 'natuna'],
-  ['scs', 'ecs'], ['ecs', 'korea'], ['korea', 'japan'], ['ecs', 'japan'],
-];
-
-// Build adjacency list
-const OCEAN_ADJ = {};
-for (const n of OCEAN_NODES) OCEAN_ADJ[n.id] = [];
-for (const [a, b] of OCEAN_EDGES) {
-  OCEAN_ADJ[a].push(b);
-  OCEAN_ADJ[b].push(a);
-}
-
-// Find nearest waypoint to a lat/lon (handles longitude wrapping)
-function nearestWaypoint(lat, lon) {
-  let best = OCEAN_NODES[0], bestD = Infinity;
-  for (const n of OCEAN_NODES) {
-    let dLon = n.lon - lon;
-    if (dLon > 180) dLon -= 360;
-    if (dLon < -180) dLon += 360;
-    const d = (n.lat - lat) ** 2 + dLon * dLon;
-    if (d < bestD) { bestD = d; best = n; }
-  }
-  return best;
-}
-
-// BFS shortest path between two waypoint IDs
-function bfsRoute(startId, endId) {
-  if (startId === endId) return [];
-  const visited = new Set([startId]);
-  const queue = [[startId]];
-  while (queue.length > 0) {
-    const path = queue.shift();
-    const curr = path[path.length - 1];
-    for (const next of (OCEAN_ADJ[curr] || [])) {
-      if (next === endId) return [...path.slice(1), next]; // exclude start
-      if (!visited.has(next)) {
-        visited.add(next);
-        queue.push([...path, next]);
-      }
-    }
-  }
-  return []; // no path found
-}
-
-// Compute waypoint route from (lat,lon) to (lat,lon)
-function computeOceanRoute(fromLat, fromLon, toLat, toLon) {
-  const startNode = nearestWaypoint(fromLat, fromLon);
-  const endNode = nearestWaypoint(toLat, toLon);
-  // If close enough, just go direct
-  if (distanceDeg(fromLat, fromLon, toLat, toLon) < 2) return [];
-  const nodeIds = bfsRoute(startNode.id, endNode.id);
-  const nodeMap = {};
-  for (const n of OCEAN_NODES) nodeMap[n.id] = n;
-  return nodeIds.map(id => ({ lat: nodeMap[id].lat, lon: nodeMap[id].lon }));
-}
 
 function createNPCTanker(staggered) {
   const type = NPC_SHIP_TYPES[Math.floor(Math.random() * NPC_SHIP_TYPES.length)];
@@ -3308,34 +3081,6 @@ function spawnMilitaryShips() {
       moveDest: null,
     });
   }
-}
-
-function headingToTarget(fromLat, fromLon, toLat, toLon) {
-  let dLon = toLon - fromLon;
-  if (dLon > 180) dLon -= 360;
-  if (dLon < -180) dLon += 360;
-  return normalizeAngle(Math.atan2(dLon, toLat - fromLat) * 180 / Math.PI);
-}
-
-function wrapLon(lon) {
-  while (lon > 180) lon -= 360;
-  while (lon < -180) lon += 360;
-  return lon;
-}
-
-function distanceDeg(lat1, lon1, lat2, lon2) {
-  let dLon = lon2 - lon1;
-  // Shortest path around the globe
-  if (dLon > 180) dLon -= 360;
-  if (dLon < -180) dLon += 360;
-  return Math.sqrt(Math.pow(lat1 - lat2, 2) + dLon * dLon);
-}
-
-// Autopilot route uses the ocean waypoint graph (same as NPC ships).
-function computeAutopilotRoute(fromLat, fromLon, toLat, toLon, loadRadius) {
-  const route = computeOceanRoute(fromLat, fromLon, toLat, toLon);
-  route.push({ lat: toLat, lon: toLon, loadRadius: loadRadius || 0.15 });
-  return route;
 }
 
 function npcShouldSeekSafety(npc) {
@@ -3704,12 +3449,12 @@ function _transitLoopInner(timestamp) {
   lastFrameTime = timestamp;
   const dt = realDt * gameSpeedMultiplier;
   const elapsed = (timestamp - simStartTime) / 1000;
-  simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
+  if (!serverSimActive) simGameTime += realDt * SIM_CONFIG.TIME_SCALE * gameSpeedMultiplier;
 
   const me = getMe();
 
-  // Update each player ship
-  if (me) {
+  // Update each player ship (skip when server simulation is active)
+  if (me && !serverSimActive) {
     for (const ship of me.fleet) {
       const state = shipStates[ship.id];
       if (!state || state.destroyed || state.seized) continue;
@@ -4030,17 +3775,19 @@ function _transitLoopInner(timestamp) {
     }
   }
 
-  try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
-  updateMilitaryShips(dt);
+  if (!serverSimActive) {
+    try { updateNPCShips(dt, elapsed); } catch (e) { console.error('NPC update error:', e); }
+    updateMilitaryShips(dt);
 
-  if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
-    lastEventCheck = elapsed;
-    try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
-    try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+    if (elapsed - lastEventCheck > SIM_CONFIG.EVENT_CHECK_INTERVAL / 1000) {
+      lastEventCheck = elapsed;
+      try { checkDangerZonesAllShips(elapsed); } catch (e) { console.error('Danger zone check error:', e); }
+      try { checkAisFines(elapsed); } catch (e) { console.error('AIS fine check error:', e); }
+    }
+
+    try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
+    updateRegionIntensity(elapsed);
   }
-
-  try { updateAmbientWar(elapsed); } catch (e) { console.error('Ambient war error:', e); }
-  updateRegionIntensity(elapsed);
 
   // Batch fleet panel updates — only rebuild DOM once per frame
   if (_fleetPanelDirty) {
@@ -4914,12 +4661,6 @@ mapCanvas.addEventListener('click', (e) => {
 mapCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ============================================
-// ANGLE UTILITIES
-// ============================================
-function normalizeAngle(a) { a = a % 360; if (a < 0) a += 360; return a; }
-function angleDiff(from, to) { let diff = to - from; while (diff > 180) diff -= 360; while (diff < -180) diff += 360; return diff; }
-
-// ============================================
 // SOCKET EVENTS
 // ============================================
 socket.on('connect', () => {
@@ -4936,6 +4677,14 @@ socket.on('connect', () => {
     }, (res) => {
       if (res?.success) {
         gameState = res.game;
+        // Request current simulation state to restore ship positions
+        socket.emit('get_sim_state', {}, (simRes) => {
+          if (simRes?.success && simRes.simState) {
+            serverSimActive = true;
+            // Trigger the sim_state handler directly
+            socket.listeners('sim_state').forEach(fn => fn(simRes.simState));
+          }
+        });
         if (transitActive) {
           updateFleetPanel();
           if (mobileActiveTab === 'fleet') {
@@ -4983,6 +4732,159 @@ socket.on('game_over', ({ leaderboard }) => {
     ${leaderboard.map((p, i) => `<div class="lb-row"><span class="lb-rank">#${i + 1}</span>
     <span class="lb-name">${escapeHtml(p.name)} ${p.id === myId ? '(you)' : ''}</span>
     <span class="lb-worth">${formatMoney(p.netWorth)}</span></div>`).join('')}`;
+});
+
+// Server-side simulation state handler
+// When the server sends sim_state, update all ship positions, NPC positions, etc.
+let serverSimActive = false;
+
+socket.on('sim_state', (simState) => {
+  if (!transitActive) return;
+  serverSimActive = true;
+  simGameTime = simState.simTime;
+
+  const me = getMe();
+  if (!me) return;
+
+  // Update player ship states from server
+  for (const ship of me.fleet) {
+    const serverShip = simState.shipStates[ship.id];
+    if (!serverShip) continue;
+
+    if (!shipStates[ship.id]) {
+      // First time seeing this ship — init local rendering state
+      shipStates[ship.id] = {};
+      shipTrails[ship.id] = [];
+      shipCargo[ship.id] = { loaded: false };
+    }
+
+    const state = shipStates[ship.id];
+    state.lat = serverShip.lat;
+    state.lon = serverShip.lon;
+    state.heading = serverShip.heading;
+    state.targetHeading = serverShip.targetHeading;
+    state.speed = serverShip.speed;
+    state.health = serverShip.health;
+    state.totalDamage = serverShip.totalDamage;
+    state.totalMoneyLoss = serverShip.totalMoneyLoss;
+    state.totalDelay = serverShip.totalDelay;
+    state.seized = serverShip.seized;
+    state.destroyed = serverShip.destroyed;
+
+    // Update waypoints from server
+    shipWaypoints[ship.id] = simState.shipWaypoints[ship.id] || [];
+
+    // Update cargo from server
+    if (simState.shipCargo[ship.id]) {
+      shipCargo[ship.id] = simState.shipCargo[ship.id];
+    }
+
+    // Update autopilot from server
+    if (simState.shipAutopilot[ship.id]) {
+      shipAutopilot[ship.id] = simState.shipAutopilot[ship.id];
+    }
+
+    // Trail tracking
+    const trail = shipTrails[ship.id];
+    if (trail) {
+      const now = performance.now() / 1000;
+      if (trail.length === 0 || now - trail[trail.length - 1].t > 0.5) {
+        trail.push({ lat: state.lat, lon: state.lon, t: now });
+      }
+      while (trail.length > 0 && now - trail[0].t > 4) trail.shift();
+    }
+  }
+
+  // Update NPC ships from server
+  if (simState.npcShips) {
+    // Sync NPC array to server state
+    while (npcShips.length < simState.npcShips.length) npcShips.push({});
+    while (npcShips.length > simState.npcShips.length) npcShips.pop();
+    for (let i = 0; i < simState.npcShips.length; i++) {
+      const sn = simState.npcShips[i];
+      npcShips[i].lat = sn.lat;
+      npcShips[i].lon = sn.lon;
+      npcShips[i].heading = sn.heading;
+      npcShips[i].speed = sn.speed;
+      npcShips[i].typeName = sn.typeName;
+      npcShips[i].shipName = sn.shipName;
+      npcShips[i].state = sn.state;
+      npcShips[i].totalDamage = sn.totalDamage;
+      npcShips[i].cargoType = sn.cargoType;
+    }
+  }
+
+  // Update military ships from server
+  if (simState.militaryShips) {
+    while (militaryShips.length < simState.militaryShips.length) militaryShips.push({});
+    while (militaryShips.length > simState.militaryShips.length) militaryShips.pop();
+    for (let i = 0; i < simState.militaryShips.length; i++) {
+      const sm = simState.militaryShips[i];
+      Object.assign(militaryShips[i], sm);
+    }
+  }
+
+  // Show recent events from server
+  if (simState.recentEvents) {
+    for (const evt of simState.recentEvents) {
+      const evtKey = evt.time + '_' + evt.name;
+      if (!window._shownServerEvents) window._shownServerEvents = new Set();
+      if (!window._shownServerEvents.has(evtKey)) {
+        window._shownServerEvents.add(evtKey);
+        addTransitEvent(evt.name, evt.text, evt.type);
+      }
+    }
+  }
+
+  _fleetPanelDirty = true;
+});
+
+// Server notifies us a ship was destroyed (with insurance payout)
+socket.on('ship_destroyed_notify', ({ shipId, insurancePayout }) => {
+  if (insurancePayout > 0) {
+    addTransitEvent('INSURANCE PAYOUT', `Received ${formatMoney(insurancePayout)} insurance payout.`, 'success');
+  }
+  const me = getMe();
+  if (me) {
+    me.fleet = me.fleet.filter(s => s.id !== shipId);
+  }
+  delete shipStates[shipId];
+  delete shipWaypoints[shipId];
+  delete shipTrails[shipId];
+  delete shipCargo[shipId];
+  delete shipAutopilot[shipId];
+  if (selectedShipId === shipId) {
+    selectedShipId = me?.fleet[0]?.id || null;
+  }
+  updateFleetPanel();
+});
+
+// Helper: send waypoints to server
+function sendWaypointsToServer(shipId) {
+  if (!serverSimActive) return;
+  socket.emit('set_waypoints', { shipId, waypoints: shipWaypoints[shipId] || [] });
+}
+
+// Helper: send speed to server
+function sendSpeedToServer(shipId, speed) {
+  if (!serverSimActive) return;
+  socket.emit('set_speed', { shipId, speed });
+}
+
+// Helper: send autopilot state to server
+function sendAutopilotToServer(shipId) {
+  if (!serverSimActive) return;
+  const ap = shipAutopilot[shipId];
+  if (ap) {
+    socket.emit('set_autopilot', { shipId, active: ap.active, terminal: ap.terminal, dropoff: ap.dropoff });
+  }
+}
+
+socket.on('force_logout', ({ reason }) => {
+  logout();
+  isGuest = false;
+  updateAuthUI();
+  showError(reason || 'You were logged out because your account was accessed from another device.');
 });
 
 socket.on('disconnect', () => showError('Disconnected from server'));
